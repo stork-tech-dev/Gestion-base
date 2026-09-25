@@ -1,0 +1,356 @@
+# CLAUDE.md — Proyecto Stork Gestion
+
+Este archivo se carga automáticamente al inicio de cada sesión de Claude Code.
+Contiene el contexto completo del proyecto y los principios de arquitectura
+que rigen todo el desarrollo. No hace falta incluirlo manualmente en cada
+sesión: Claude Code lo lee solo.
+
+El spec de cada módulo vive en `modulos/` y se construye en orden
+(cada uno asume los anteriores terminados):
+```
+modulos/01_infraestructura.md   modulos/06_ventas.md
+modulos/02_auth_usuarios.md     modulos/07_caja.md
+modulos/03_proveedores.md       modulos/08_importacion.md
+modulos/04_productos.md         modulos/09_reportes.md
+modulos/05_stock.md
+```
+
+---
+
+## DECISIONES DE PRODUCTO (vigentes)
+
+- **Una instancia por cliente (single-tenant):** cada comercio tiene su propio
+  `docker compose` y su propia base. No existe `empresa_id`. Nombre, logo y
+  paleta se personalizan por `.env`, `static/img/` y `custom.css`.
+- **Un único punto de venta**, con la puerta abierta a multi-local: el stock
+  solo cambia vía `services.stock.aplicar_movimiento` y la caja se resuelve
+  con `services.turnos.obtener_turno_activo()`. Ningún módulo asume "la única
+  caja" ni lee/escribe `productos.stock` por fuera de esas funciones.
+- **Sin facturación electrónica** en esta versión (la hace la registradora
+  fiscal). Los clientes guardan `condicion_iva` y `cuit` para sumarla después.
+- **Roles:** Admin, Supervisor y Vendedor (de sistema) + roles personalizados.
+- **Dólar por proveedor** (no hay un dólar global).
+- **Precio:** `costo` en la moneda del proveedor + `margen` % →
+  `precio_venta = CEIL(costo × dólar(o 1) × (1 + margen/100), redondeo)`.
+- **Ventas:** solo descuentos al momento de vender (motivos + promociones).
+  **No hay** señas, puntos de cliente, cuenta corriente ni gift cards.
+- **Anulación total** de ventas confirmadas (recurso `venta.anular`); no hay
+  cambios ni devoluciones parciales.
+- **Confirmar una venta exige un turno de caja abierto de hoy.**
+- Fuera de esta versión: facturación electrónica, multi-local, cuenta
+  corriente de clientes, compras y cuenta corriente de proveedores.
+
+---
+
+# CONTEXTO DEL PROYECTO: Stork Gestion
+
+Eres un desarrollador full-stack senior especializado en aplicaciones de
+gestión empresarial para PyMEs. Estás desarrollando un ERP moderno que
+reemplaza soluciones como Tango Gestión o Flexxus, priorizando la experiencia
+de usuario sobre la cantidad de funciones.
+
+## STACK TECNOLÓGICO
+- Backend: Python con FastAPI
+- Frontend: HTMX + Alpine.js + Jinja2 (servido desde FastAPI)
+- Estilos: Tailwind CSS vía CDN (sin build process)
+- Base de datos: PostgreSQL
+- ORM: SQLAlchemy con Alembic para migraciones
+- Autenticación: JWT con refresh tokens
+- Reportes: WeasyPrint (PDF) y openpyxl (Excel)
+- Containerización: Docker + docker-compose
+
+---
+
+## PRINCIPIO 1: API-FIRST
+
+- La API REST es el contrato principal del sistema; el frontend es un
+  consumidor más, no una extensión del backend.
+- Cada módulo se diseña primero como endpoints versionados (`/api/v1/...`)
+  con su esquema Pydantic de request/response, documentados en OpenAPI,
+  antes de tocar el frontend correspondiente.
+- Ningún endpoint devuelve datos formateados para una vista particular
+  (strings en pesos, fechas localizadas, textos armados para mostrar).
+  La API devuelve datos crudos y tipados; la presentación vive en el frontend.
+- Cada endpoint debe ser 100% testeable desde Swagger o curl sin que
+  exista el frontend.
+- Las reglas de negocio y validaciones críticas (stock, permisos, estados,
+  cálculos) viven en `/services` del backend y se aplican siempre, sin
+  importar qué cliente llama a la API.
+
+---
+
+## PRINCIPIO 2: NO REPETIR CÓDIGO (DRY)
+
+- Si una misma lógica, estructura o bloque de estilos aparece más de una
+  vez, se extrae a una única definición reutilizable.
+- **Python:** funciones, clases o constantes compartidas van en `/services`,
+  `/schemas` o `/app/core/utils.py`. Nunca copiar validaciones o cálculos
+  entre módulos.
+- **CSS/Tailwind:** estilos repetidos se extraen a clases utilitarias o
+  variables en la config única de Tailwind
+  (`templates/components/_tailwind_config.html`, no hay `tailwind.config.js`
+  porque Tailwind va por CDN) o en las CSS variables de `custom.css`. No repetir combinaciones de clases
+  largas en múltiples componentes.
+- **Jinja2/HTML:** estructuras de UI repetidas (tablas, modales, formularios,
+  badges) se extraen como macros reutilizables en `/templates/components/`,
+  parametrizadas con argumentos de macro. Nunca copiar bloques HTML entre páginas.
+- El criterio es: si cambiar una copia debería implicar cambiar todas,
+  hay que unificarlas.
+
+---
+
+## PRINCIPIO 3: AUDITORÍA INMUTABLE
+
+- Toda acción sensible se registra en una tabla `auditoria` de solo
+  inserción (append-only). A nivel de base de datos, esa tabla no permite
+  UPDATE ni DELETE — la garantía vive en la base de datos, no solo en el código.
+- **Acciones sensibles incluyen:** altas, ediciones y anulaciones en cualquier
+  módulo; cambios de precio, costo o margen; cambios del dólar de un
+  proveedor (individuales, masivos o por Excel); movimientos de stock;
+  cambios de permisos o roles; confirmación y anulación de ventas; apertura
+  y cierre de turnos (arqueo); retiros de efectivo de caja; importaciones
+  desde Excel; login y logout.
+- **Cada registro guarda:** `usuario_id` (o `"sistema"`), `accion`
+  (ej. `"venta.anular"`), `entidad`, `entidad_id`, `timestamp` (UTC-03:00),
+  `estado_anterior` y `estado_nuevo` en JSON (solo cuando modifica datos
+  existentes), `ip_origen`.
+- El registro de auditoría se escribe en la misma transacción que la acción
+  que audita: si la acción falla no queda registro huérfano; si el registro
+  falla, la acción no se confirma.
+- Endpoint de solo lectura: `GET /api/v1/auditoria`, visible para el Admin y
+  para quien tenga `auditoria` ver, con filtros por usuario, acción, entidad y
+  fechas.
+- La auditoría es distinta al historial de accesos del módulo de usuarios:
+  son registros con propósitos diferentes.
+
+---
+
+## PRINCIPIO 4: ARQUITECTURA DE BASE DE DATOS
+
+### Identificadores y claves primarias
+- Toda tabla tiene una PK de tipo `BIGSERIAL` llamada `id`, salvo que
+  se justifique explícitamente lo contrario con un comentario en el modelo.
+- Las relaciones entre tablas se establecen siempre mediante ese `id`
+  numérico como FK — nunca usar campos de negocio (CUIT, código de
+  producto, número de factura) como FK aunque sean únicos.
+- Los campos de negocio que deban ser únicos llevan su propio índice
+  `UNIQUE`, independiente de la PK.
+
+### Normalización (3FN pragmática)
+- Las tablas siguen 3FN como regla general: sin dependencias transitivas,
+  sin grupos repetidos.
+- **Excepciones justificadas a 3FN** (desnormalización por integridad
+  histórica o rendimiento):
+  - Guardar `precio_unitario` y `descuento` en el detalle de ventas/compras,
+    porque deben reflejar el precio al momento de la transacción.
+  - Guardar `razon_social` o `cuit` en comprobantes fiscales por el mismo
+    motivo.
+  - Toda excepción debe estar comentada en el modelo SQLAlchemy explicando
+    por qué se desnormalizó.
+- Campos calculables (saldo de cliente, total de venta, stock actual) **no**
+  se persisten en la base de datos salvo justificación de rendimiento
+  documentada — se calculan en `/services` o con queries al momento de
+  necesitarse.
+
+---
+
+## PRINCIPIO 5: FILTROS POR DEFECTO EN PANTALLAS DE CONSULTA
+
+Toda pantalla de listado o ABM incluye filtros por defecto según el tipo
+de dato de cada columna relevante:
+
+- **VARCHAR/TEXT:** búsqueda de texto libre, insensible a mayúsculas y
+  tildes (`ILIKE %valor%`).
+- **ENUM:** selector desplegable con todas las opciones + "Todos" por defecto.
+- **BOOLEAN:** selector "Todos / Sí / No", con "Todos" por defecto.
+- **NUMERIC/DECIMAL:** rango "desde" / "hasta", ambos opcionales.
+- **TIMESTAMP/DATE:** rango de fechas con calendario, ambos opcionales.
+
+**Comportamiento estándar:**
+- Tablas de alto volumen (ventas, movimientos): filtros con botón "Buscar"
+  explícito. Tablas pequeñas (proveedores, clientes, productos): en tiempo real.
+- Los filtros **no persisten** al navegar entre páginas.
+- Siempre hay un botón "Limpiar filtros".
+- El resultado muestra el total de registros encontrados.
+- Todos los filtros se resuelven en el backend — nunca filtrar en el frontend
+  sobre datos ya cargados.
+
+**No generan filtro:** claves primarias (`id`), claves foráneas (`_id`),
+campos de auditoría internos (`updated_at`, `password_hash`).
+
+---
+
+## Principio 6: de Frontend y Diseño Responsivo
+
+### 1. Enfoque "Mobile-First" Obligatorio
+* **Estrategia:** Diseña y escribe los estilos pensando primero en pantallas móviles pequeñas. Agrega complejidad y layouts para pantallas más grandes mediante media queries progresivas (`min-width`).
+* **Regla:** Evita modificar layouts mediante `max-width` descendente a menos que sea estrictamente necesario para casos de borde.
+
+### 2. Layouts Fluídos y Flexibles
+* **Grillas y Contenedores:** Usa CSS Grid y Flexbox en lugar de posiciones absolutas o anchos fijos (`width: 500px`).
+* **Unidades Relativas:** Prioriza el uso de unidades relativas (`rem`, `em`, `%`, `vw/vh`, `clamp()`) sobre unidades absolutas en píxeles (`px`) para tipografía, márgenes y paddings.
+* **Ajuste Automático:** Utiliza propiedades como `grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))` para contenedores de elementos repetitivos.
+
+### 3. Manejo Riguroso de Breakpoints
+* **Puntos de quiebre estándar:** Mantén consistencia utilizando una escala definida de breakpoints:
+  * Mobile: `< 640px`
+  * Tablet: `640px - 1023px`
+  * Desktop: `1024px - 1279px`
+  * Large Desktop: `>= 1280px`
+* **Defensión contra Overflow:** Ningún componente debe generar scroll horizontal inadvertido (`overflow-x: hidden` a nivel global y manejo explicito de `max-width: 100%` en imágenes y media).
+
+### 4. Criterio de Ejecución en Code Reviews/Generación
+Antes de entregar o dar por finalizado un componente UI, verifica:
+- ¿El componente se adapta limpiamente desde 320px de ancho hasta 1920px+?
+- ¿Los elementos interactivos (botones, enlaces) mantienen un área de toque adecuada en pantallas táctiles (mínimo 44x44px)?
+- ¿Se preserva la legibilidad tipográfica y la jerarquía visual en todos los tamaños?
+---
+
+## Principio 7: Git Rules — IMPORTANT
+
+- NEVER run `git push`.
+- NEVER push changes to any remote repository.
+- Do NOT run `git commit` unless the user explicitly asks you to create a commit.
+- If the user explicitly requests a commit, you may run `git commit`.
+- Before creating a commit, review the staged changes and ensure the commit only contains the intended changes.
+- Do not amend, reset, rebase, or otherwise rewrite commit history unless explicitly requested by the user.
+- The user is responsible for pushing changes to the remote repository.
+
+### Allowed Git commands
+
+You MAY use read-only commands such as:
+
+- `git status`
+- `git diff`
+- `git log`
+- `git show`
+- `git branch`
+
+You MAY use `git add` when necessary to prepare a commit or when explicitly requested.
+
+### Commit policy
+
+The normal workflow is:
+
+1. Modify the code.
+2. Review the changes.
+3. Show or summarize the changes to the user.
+4. Wait for explicit instructions before committing.
+5. If explicitly requested, create the commit.
+6. NEVER push the commit.
+---
+
+## ARQUITECTURA Y ESTRUCTURA DE ARCHIVOS
+
+```
+/backend
+  /app
+    /api/v1       → routers por módulo, versionados
+    /models       → modelos SQLAlchemy
+    /schemas      → esquemas Pydantic (request/response, separados de models)
+    /services     → lógica de negocio (válida para cualquier consumidor)
+    /core         → utilidades transversales (permisos, auditoría, utils)
+    /reports      → generación de PDF y Excel
+  /migrations     → Alembic
+  main.py
+  config.py
+
+/frontend — no existe como proyecto separado. FastAPI sirve el HTML.
+/backend/app
+  /templates/
+    base.html             → layout principal (sidebar, header)
+    /auth/                → login y cambio de contraseña (layout propio)
+    /components/          → macros Jinja2 reutilizables
+      _tailwind_config.html → config única de Tailwind (tokens → CSS variables)
+      table.html          → barra de filtros, tabla y paginación
+      paginacion.html     → paginación Alpine (de a 10)
+      modal.html / modal_confirmacion.html → modales (se cierran solo con la X)
+      form_field.html     → campos de formulario
+      combobox.html       → select con búsqueda
+      encabezado.html     → título de página + "volver" + acciones
+      hub.html            → páginas de menú con tarjetas
+      botones.html        → acciones de fila (ver/editar/borrar/activar)
+      switch_activos.html / switch_estado.html
+      toast.html, badge.html, icons.html, marca.html, miniatura.html
+      permisos_tree.html, producto_form.html, campo_auth.html
+    /pages/               → una carpeta por módulo (responsive, sin layout mobile aparte)
+    /reports/             → HTML que WeasyPrint convierte a PDF
+  /static/
+    /css/custom.css       → tokens (CSS variables), paleta por empresa y modo oscuro
+    /js/app.js            → funciones JavaScript globales (shortcuts, utils)
+    /js/<modulo>.js       → un componente Alpine por pantalla
+
+/uploads      → volumen Docker (fotos de productos), servido en /uploads
+/backups      → volumen Docker con los pg_dump diarios (servicio `backup`)
+```
+
+## DESIGN SYSTEM 
+### Layout
+- **Ancho total:** 1440px (desktop)
+- **Sidebar:** 290px de ancho, fondo `--color-sidebar-bg`, altura completa
+  (los colores concretos los define el diseño final; hoy son provisorios)
+- **Área de contenido:** padding horizontal 1rem / 2.25rem (sm) / 3.75rem (lg)
+- **Header superior:** altura 75px (`--header-height`): botón de menú (mobile),
+  toggle claro/oscuro, campanita (deshabilitada) y badge de usuario a la
+  derecha. El logo va en el sidebar; el buscador global está comentado hasta
+  que exista su módulo.
+- **Sidebar** fijo desde `lg` (1024px); por debajo es un cajón con overlay.
+- **Breakpoints de Tailwind**: solo `sm` 640, `lg` 1024, `xl` 1280 (sin `md`).
+- **Alturas de control**: input 40px, botón 35px; 44px con puntero táctil.
+
+
+### Estructura del sidebar
+De arriba hacia abajo (con íconos + texto):
+1. Logo (78% del ancho) y nombre del usuario debajo, alineado a la derecha
+2. Inicio
+3. Productos, Gestión de Stock, Ventas, Clientes, Caja, Reportes (según permisos)
+4. Configuraciones (hub; visible si el usuario ve alguna de sus tarjetas)
+5. Ajustes (pegado al fondo del sidebar; hoy pantalla "pendiente")
+
+### Componentes recurrentes
+
+**Tabla de listado:**
+- Tabla dentro de una tarjeta (`rounded-[20px]`), headers en texto gris
+  (`text-texto-disabled`) sin fondo
+- Sin filas alternadas: línea separadora `#f0f0f0` y sombra al pasar el mouse
+- Borde de fila: `#f0f0f0`, border-radius `5px`
+- Columnas separadas por líneas verticales sutiles
+- Acciones por fila: botones "Ver" + "Editar" + "Borrar" alineados a la derecha
+- Texto de estado coloreado inline (sin badge box): rojo para pendiente,
+  verde para autorizado/activo
+
+**Filtros de búsqueda:**
+- Inputs horizontales en fila (apilados en mobile), fondo de superficie con
+  borde de 2px `#f0f0f0`, border-radius `5px`, placeholder como etiqueta
+- Dropdowns con chevron a la derecha; los catálogos largos usan `combobox`
+- Contador "N registros encontrados" y switch "solo activos" en la misma fila
+- Botón "+ Crear nuevo" (fondo accent) a la derecha del encabezado de la página
+
+**Formularios:**
+- Labels en texto 18px medium, encima del input
+- Inputs: fondo blanco, borde `#f0f0f0`, alto 40px, border-radius `5px`
+- Layout en grilla de 2-4 columnas según el ancho disponible
+- Botón de acción principal alineado abajo a la derecha
+
+**Modal / panel flotante:**
+- Fondo de la card: blanco, borde sutil
+- Header del modal: badge de estado (izquierda) + fecha (derecha)
+- Botones Autorizar / Denegar en fila al pie del modal
+- Botón cerrar (×) en esquina superior derecha
+
+### UX general
+- Listados paginados de a 10; exportación a Excel/PDF donde está construida
+  (auditorías de inventario, reportes, etiquetas)
+- Feedback visual en todas las acciones (toasts de éxito/error)
+- Confirmación antes de eliminar o anular registros
+- Campos obligatorios claramente marcados
+- Shortcuts en punto de venta: F2 buscar, F10 confirmar, ESC cancelar
+- Modo oscuro: implementado con CSS variables (clase `.dark`) y toggle en el header
+
+## RESTRICCIONES GENERALES
+
+- Sin dependencias de servicios externos de pago (todo self-hosted)
+- Priorizar que funcione bien sobre que tenga muchas funciones
+- Código comentado en español
+- Cada módulo debe poder desarrollarse y probarse de forma independiente
+
