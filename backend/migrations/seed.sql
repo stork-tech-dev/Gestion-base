@@ -1,0 +1,2 @@
+-- Datos iniciales del sistema. IDEMPOTENTE: se puede ejecutar N veces.
+-- No usar el carácter de porcentaje en este archivo (lo ejecuta también psycopg2 en los tests).

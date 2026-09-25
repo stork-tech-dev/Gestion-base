@@ -1,0 +1,53 @@
+# Stack de desarrollo/producción de una instancia (un cliente = una instancia).
+name: gestion
+
+services:
+  db:
+    image: postgres:15
+    container_name: gestion_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gestion}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gestion}
+      POSTGRES_DB: ${POSTGRES_DB:-gestion}
+      TZ: America/Argentina/Buenos_Aires
+      PGTZ: America/Argentina/Buenos_Aires
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT_HOST:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: gestion_backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      UPLOADS_DIR: /uploads
+      TZ: America/Argentina/Buenos_Aires
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./uploads:/uploads
+    ports:
+      - "${BACKEND_PORT_HOST:-8000}:8000"
+      - "${BACKEND_PORT_PROD:-80}:8000"
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  postgres_data:
