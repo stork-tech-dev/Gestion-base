@@ -49,5 +49,23 @@ services:
       retries: 5
       start_period: 20s
 
+  backup:
+    image: postgres:15
+    container_name: gestion_backup
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      TZ: America/Argentina/Buenos_Aires
+      BACKUP_AHORA: ${BACKUP_AHORA:-0}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+      - ./backup/backup.sh:/backup/backup.sh:ro
+    entrypoint: ["sh", "/backup/backup.sh"]
+
 volumes:
   postgres_data:

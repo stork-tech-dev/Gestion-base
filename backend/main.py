@@ -44,6 +44,10 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
 
+# Archivos subidos: volumen persistente, fuera del código y del contenedor.
+Path(settings.UPLOADS_DIR).mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=settings.UPLOADS_DIR), name="uploads")
+
 # La API tiene prioridad: las páginas HTML se montan al final.
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)
 app.include_router(pages_router)
