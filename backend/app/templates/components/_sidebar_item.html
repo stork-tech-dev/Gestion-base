@@ -1,0 +1,9 @@
+{% from "components/icons.html" import icono %}
+{% macro sidebar_item(item, actual) -%}
+{%- set activo = actual == item.url or (item.url != "/" and actual and actual.startswith(item.url)) -%}
+<li>
+  <a href="{{ item.url }}" class="nav-item{% if activo %} nav-activo{% endif %}"{% if activo %} aria-current="page"{% endif %}>
+    {{ icono(item.icono, "w-5 h-5 shrink-0") }}<span>{{ item.nombre }}</span>
+  </a>
+</li>
+{%- endmacro %}

@@ -1,0 +1,109 @@
+{% from "components/icons.html" import icono %}
+{% from "components/marca.html" import marca %}
+{% from "components/_sidebar_item.html" import sidebar_item %}
+{% from "components/toast.html" import contenedor_toasts %}
+{% from "components/modal_confirmacion.html" import modal_confirmacion %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}{{ APP_NAME }}{% endblock %}</title>
+  {# Tema antes de pintar: evita el parpadeo claro→oscuro. #}
+  <script>
+    try {
+      if (localStorage.theme === 'dark' || (!('theme' in localStorage) && matchMedia('(prefers-color-scheme: dark)').matches)) {
+        document.documentElement.classList.add('dark');
+      }
+    } catch (e) {}
+  </script>
+  {% include "components/_favicon.html" %}
+  <script src="https://cdn.tailwindcss.com"></script>
+  {% include "components/_tailwind_config.html" %}
+  <link rel="stylesheet" href="{{ estatico('/css/custom.css') }}">
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <script src="{{ estatico('/js/app.js') }}" defer></script>
+  <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="min-h-screen bg-bg font-sans text-texto antialiased"
+      x-data="{ nav: false, ...temaApp() }"
+      x-effect="document.documentElement.classList.toggle('dark', oscuro)"
+      @keydown.escape.window="nav = false">
+
+  <a href="#contenido" class="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded-input focus:bg-surface focus:p-2">Saltar al contenido</a>
+
+  {# Overlay del cajón (mobile/tablet) #}
+  <div x-show="nav" x-cloak x-transition.opacity class="fixed inset-0 z-30 bg-black/40 lg:hidden" @click="nav = false"></div>
+
+  {# Sidebar: fijo desde lg, cajón deslizable por debajo #}
+  <aside class="fixed inset-y-0 left-0 z-40 flex w-sidebar max-w-[85vw] -translate-x-full flex-col bg-sidebar-bg text-sidebar-text transition-transform duration-200 lg:translate-x-0"
+         :class="{ 'translate-x-0': nav, '-translate-x-full': !nav }"
+         aria-label="Menú principal">
+    <div class="flex items-start justify-between gap-2 px-6 pb-2 pt-6">
+      <a href="/" class="block w-[78%]">{{ marca("w-full") }}</a>
+      <button type="button" class="btn-accion text-sidebar-text lg:hidden" @click="nav = false" aria-label="Cerrar menú">{{ icono("cerrar") }}</button>
+    </div>
+    {% if usuario_actual %}<p class="px-6 text-right text-sm opacity-80">{{ usuario_actual.nombre }}</p>{% endif %}
+    <nav class="mt-4 flex-1 overflow-y-auto px-3">
+      <ul class="flex flex-col gap-1">
+        {% for item in menu %}{{ sidebar_item(item, actual) }}{% endfor %}
+      </ul>
+    </nav>
+    <ul class="flex flex-col gap-1 px-3 pb-6 pt-2">
+      {% for item in menu_pie %}{{ sidebar_item(item, actual) }}{% endfor %}
+    </ul>
+  </aside>
+
+  <div class="flex min-h-screen flex-col lg:pl-sidebar">
+    <header class="contenedor-x sticky top-0 z-20 flex h-header items-center gap-2 border-b border-borde bg-surface">
+      <button type="button" class="btn-accion lg:hidden" @click="nav = true" aria-label="Abrir menú">{{ icono("menu") }}</button>
+      <div class="flex-1"></div>
+      <!-- Buscador global: se habilita cuando exista su módulo.
+      <input id="buscador-global" type="search" class="campo max-w-sm rounded-search" placeholder="Buscar…">
+      -->
+      <button type="button" class="btn-accion" @click="alternarTema()" :aria-label="oscuro ? 'Usar tema claro' : 'Usar tema oscuro'" title="Cambiar tema">
+        <span x-show="!oscuro">{{ icono("luna") }}</span>
+        <span x-show="oscuro" x-cloak>{{ icono("sol") }}</span>
+      </button>
+      <button type="button" class="btn-accion" disabled aria-label="Notificaciones (próximamente)" title="Notificaciones (próximamente)">{{ icono("campana") }}</button>
+      {% if usuario_actual %}
+      <div class="relative" x-data="{ abierto: false }" @click.outside="abierto = false">
+        <button type="button" class="inline-flex min-h-toque items-center gap-2 rounded-pill bg-accent px-3 text-sm font-semibold text-texto-invert"
+                @click="abierto = !abierto" :aria-expanded="abierto">
+          {{ icono("usuario", "w-4 h-4") }}<span class="max-w-[8rem] truncate">{{ usuario_actual.nombre.split()[0] }}</span>
+        </button>
+        <div x-show="abierto" x-cloak x-transition.opacity class="absolute right-0 mt-2 w-56 rounded-input border border-borde bg-surface py-2 shadow-lg">
+          <p class="px-4 pb-2 text-xs text-texto-muted">{{ usuario_actual.rol_nombre|default('') }}</p>
+          <a href="/cambiar-password" class="combobox-opcion">Cambiar contraseña</a>
+          <button type="button" class="combobox-opcion" @click="cerrarSesion()">Cerrar sesión</button>
+        </div>
+      </div>
+      {% endif %}
+    </header>
+
+    <main id="contenido" class="contenedor-x mx-auto w-full max-w-layout flex-1 py-6">
+      {% block contenido %}{% endblock %}
+    </main>
+  </div>
+
+  {{ contenedor_toasts() }}
+  {{ modal_confirmacion() }}
+
+  {% if usuario_actual %}
+  <div x-data="avisoSesion({{ inactividad_minutos }})">
+    <div x-show="visible" x-cloak class="fondo-modal" role="alertdialog" aria-modal="true" aria-labelledby="aviso-sesion-titulo">
+      <div class="tarjeta modal-panel max-w-md">
+        <h2 id="aviso-sesion-titulo" class="text-xl font-bold text-texto-header">Tu sesión está por vencer</h2>
+        <p class="mt-3 text-texto">Por inactividad, la sesión se cierra en menos de 2 minutos.</p>
+        <div class="mt-6 flex justify-end">
+          <button type="button" class="boton boton-primario" @click="seguir()">Seguir trabajando</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

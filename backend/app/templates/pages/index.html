@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block contenido %}
+<h1 class="text-2xl font-black text-welcome">Bienvenido{% if usuario_actual %}, {{ usuario_actual.nombre.split()[0] }}{% endif %}</h1>
+{% endblock %}

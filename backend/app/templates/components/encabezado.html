@@ -1,0 +1,11 @@
+{% from "components/botones.html" import volver %}
+{# Título de página + "volver" opcional + acciones a la derecha (call-block). #}
+{% macro encabezado(titulo, volver_url=None, volver_texto="Volver") -%}
+<header class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  <div class="min-w-0">
+    {% if volver_url %}{{ volver(volver_url, volver_texto) }}{% endif %}
+    <h1 class="text-titulo font-bold text-texto-header">{{ titulo }}</h1>
+  </div>
+  {% if caller is defined %}<div class="flex flex-wrap items-center gap-2">{{ caller() }}</div>{% endif %}
+</header>
+{%- endmacro %}

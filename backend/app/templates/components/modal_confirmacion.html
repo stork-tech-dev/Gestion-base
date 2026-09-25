@@ -1,0 +1,20 @@
+{# Diálogo de confirmación GLOBAL (una sola instancia en base.html).
+   Uso desde JS:  if (!(await confirmar({ titulo, mensaje, advertencia,
+   textoConfirmar, peligro: true }))) return;
+   Nunca usar confirm() del navegador. #}
+{% macro modal_confirmacion() -%}
+<div x-data="dialogoConfirmacion()" @confirmar.window="abrir($event.detail)">
+  <div x-show="abierto" x-cloak class="fondo-modal" role="alertdialog" aria-modal="true" aria-labelledby="confirmacion-titulo">
+    <div class="tarjeta modal-panel max-w-md">
+      <h2 id="confirmacion-titulo" class="text-xl font-bold text-texto-header" x-text="titulo"></h2>
+      <p class="mt-3 text-texto" x-show="mensaje" x-text="mensaje"></p>
+      <p class="mt-3 rounded-input bg-danger/10 p-3 text-sm text-danger" x-show="advertencia" x-text="advertencia"></p>
+      <div class="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button type="button" class="boton boton-secundario" @click="responder(false)">Cancelar</button>
+        <button type="button" x-ref="confirmar" class="boton" :class="peligro ? 'boton-peligro' : 'boton-primario'"
+                @click="responder(true)" x-text="textoConfirmar"></button>
+      </div>
+    </div>
+  </div>
+</div>
+{%- endmacro %}

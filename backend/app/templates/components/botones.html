@@ -1,0 +1,27 @@
+{% from "components/icons.html" import icono %}
+{# Acciones de fila y botón "volver". variante: ver | editar | borrar | activar
+   (o cualquier otra con icono_nombre y texto propios). #}
+{% set VARIANTES_ACCION = {
+  "ver": ("Ver", "ver", "hover:text-primary"),
+  "editar": ("Editar", "editar", "hover:text-primary"),
+  "borrar": ("Borrar", "borrar", "hover:text-danger"),
+  "activar": ("Activar", "activar", "hover:text-success"),
+} %}
+
+{% macro accion(variante, texto=None, href=None, atributos="", icono_nombre=None, enlace=False) -%}
+{%- set conf = VARIANTES_ACCION.get(variante, (texto or variante, icono_nombre or "punto", "hover:text-primary")) -%}
+{%- set etiqueta = texto or conf[0] -%}
+{%- if href or enlace -%}
+<a {% if href %}href="{{ href }}"{% endif %} class="btn-accion {{ conf[2] }}" title="{{ etiqueta }}" aria-label="{{ etiqueta }}" {{ atributos|safe }}>{{ icono(icono_nombre or conf[1]) }}</a>
+{%- else -%}
+<button type="button" class="btn-accion {{ conf[2] }}" title="{{ etiqueta }}" aria-label="{{ etiqueta }}" {{ atributos|safe }}>{{ icono(icono_nombre or conf[1]) }}</button>
+{%- endif -%}
+{%- endmacro %}
+
+{% macro acciones() -%}
+<div class="flex items-center justify-end gap-1">{{ caller() }}</div>
+{%- endmacro %}
+
+{% macro volver(url, texto="Volver") -%}
+<a href="{{ url }}" class="inline-flex min-h-toque items-center gap-1 text-sm text-texto-muted hover:text-primary">{{ icono("flecha-izquierda", "w-4 h-4") }}<span>{{ texto }}</span></a>
+{%- endmacro %}
