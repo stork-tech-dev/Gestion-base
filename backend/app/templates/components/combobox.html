@@ -1,0 +1,31 @@
+{% from "components/icons.html" import icono %}
+{# Select con búsqueda (catálogos largos). `opciones` y `modelo` son expresiones
+   Alpine del componente de la página. Emite el evento `cambio` al elegir. #}
+{% macro combobox(id, opciones, modelo, texto="texto", valor="id", etiqueta=None, placeholder="Buscar…", vacio="Todos", al_cambiar="") -%}
+<div class="relative flex flex-col gap-1"
+     x-data="combobox({ fuente: () => ({{ opciones }}), texto: {{ texto|js }}, valor: {{ valor|js }} })"
+     x-modelable="seleccion" x-model="{{ modelo }}"
+     @click.outside="cerrar()"{% if al_cambiar %} @cambio="{{ al_cambiar }}"{% endif %}>
+  {% if etiqueta %}<label for="{{ id }}" class="text-lg font-medium text-texto">{{ etiqueta }}</label>{% endif %}
+  <button type="button" id="{{ id }}" class="campo flex items-center justify-between gap-2 text-left"
+          @click="alternar()" @keydown.arrow-down.prevent="abrir()" :aria-expanded="abierto" aria-haspopup="listbox">
+    <span class="truncate" :class="etiqueta ? '' : 'text-texto-disabled'" x-text="etiqueta || {{ vacio|js }}"></span>
+    {{ icono("chevron-abajo", "w-4 h-4 shrink-0 text-texto-muted") }}
+  </button>
+  <div x-show="abierto" x-cloak x-transition.opacity class="absolute top-full z-30 mt-1 w-full overflow-hidden rounded-input border border-borde bg-surface shadow-lg">
+    <input x-ref="buscador" type="text" x-model="busqueda" placeholder="{{ placeholder }}" autocomplete="off"
+           class="campo rounded-none border-0 border-b"
+           @input="activo = 0"
+           @keydown.arrow-down.prevent="mover(1)" @keydown.arrow-up.prevent="mover(-1)"
+           @keydown.enter.prevent="confirmar()" @keydown.escape.stop="cerrar()">
+    <ul class="max-h-60 overflow-y-auto py-1" role="listbox">
+      {% if vacio %}<li><button type="button" class="combobox-opcion text-texto-muted" @click="elegir(null)">{{ vacio }}</button></li>{% endif %}
+      <template x-for="(opcion, indice) in filtradas" :key="opcion[campoValor]">
+        <li><button type="button" class="combobox-opcion" role="option" :aria-selected="indice === activo"
+                    @mouseenter="activo = indice" @click="elegir(opcion)" x-text="opcion[campoTexto]"></button></li>
+      </template>
+      <li x-show="!filtradas.length" class="px-3 py-2 text-sm text-texto-muted">Sin resultados.</li>
+    </ul>
+  </div>
+</div>
+{%- endmacro %}

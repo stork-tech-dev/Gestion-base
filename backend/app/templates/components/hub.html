@@ -1,0 +1,19 @@
+{% from "components/icons.html" import icono %}
+{# Grilla de tarjetas para páginas de menú (1 columna en mobile, 2 desde sm). #}
+{% macro hub(secciones, vacio="No tenés secciones disponibles.") -%}
+{% if secciones %}
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+  {% for s in secciones %}
+  <a href="{{ s.url }}" class="tarjeta tarjeta-enlace flex items-center justify-between gap-4"{% if s.title %} title="{{ s.title }}"{% endif %}>
+    <div class="min-w-0">
+      <h2 class="text-lg font-semibold text-texto-header">{{ s.nombre }}</h2>
+      {% if s.descripcion %}<p class="mt-1 text-sm text-texto-muted">{{ s.descripcion }}</p>{% endif %}
+    </div>
+    {{ icono("chevron-derecha", "w-5 h-5 shrink-0 text-texto-muted") }}
+  </a>
+  {% endfor %}
+</div>
+{% else %}
+<p class="text-texto-muted">{{ vacio }}</p>
+{% endif %}
+{%- endmacro %}

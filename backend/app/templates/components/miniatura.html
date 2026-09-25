@@ -1,0 +1,10 @@
+{% from "components/icons.html" import icono %}
+{# Foto de producto con placeholder. `src` es una expresión Alpine. #}
+{% set TAMANOS_MINIATURA = {"sm": "w-10 h-10", "md": "w-14 h-14", "lg": "w-24 h-24"} %}
+
+{% macro miniatura(src, tamano="md", alt="Foto del producto") -%}
+<div class="{{ TAMANOS_MINIATURA.get(tamano, TAMANOS_MINIATURA['md']) }} flex shrink-0 items-center justify-center overflow-hidden rounded-input bg-surface-alt">
+  <template x-if="{{ src }}"><img :src="{{ src }}" alt="{{ alt }}" class="h-full w-full object-cover" loading="lazy"></template>
+  <template x-if="!({{ src }})">{{ icono("foto", "w-1/2 h-1/2 text-texto-disabled") }}</template>
+</div>
+{%- endmacro %}

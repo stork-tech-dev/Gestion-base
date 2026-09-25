@@ -1,0 +1,48 @@
+{# Barra de filtros y tabla de listado (en tarjeta, sin filas alternadas).
+   Los filtros se resuelven SIEMPRE en el backend. #}
+{% macro barra_filtros(total="total", limpiar="limpiarFiltros()", buscar=None, etiqueta="registros encontrados", extras="") -%}
+<section class="mb-4 flex flex-col gap-3" aria-label="Filtros">
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">{{ caller() }}</div>
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap items-center gap-4">
+      <p class="text-sm text-texto-muted"><span class="font-semibold text-texto" x-text="{{ total }}"></span> {{ etiqueta }}</p>
+      {{ extras }}
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      {% if buscar %}<button type="button" class="boton boton-primario" @click="{{ buscar }}">Buscar</button>{% endif %}
+      <button type="button" class="boton boton-secundario" @click="{{ limpiar }}">Limpiar filtros</button>
+    </div>
+  </div>
+</section>
+{%- endmacro %}
+
+{% macro tabla(columnas, filas="filas", clave="id", vacio="No se encontraron registros.", cargando=None) -%}
+{%- set con_acciones = caller is defined -%}
+{%- set total_columnas = columnas|length + (1 if con_acciones else 0) -%}
+<div class="tarjeta overflow-hidden p-0">
+  <div class="overflow-x-auto">
+    <table class="tabla">
+      <thead>
+        <tr>
+          {% for c in columnas %}<th scope="col" class="{{ c.clase|default('') }}">{{ c.titulo }}</th>{% endfor %}
+          {% if con_acciones %}<th scope="col" class="text-right"><span class="sr-only">Acciones</span></th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="fila in {{ filas }}" :key="fila.{{ clave }}">
+          <tr :class="fila.activo === false ? 'opacity-60' : ''">
+            {% for c in columnas %}<td class="{{ c.clase|default('') }}" {% if c.html %}x-html{% else %}x-text{% endif %}="{{ c.expr }}"></td>{% endfor %}
+            {% if con_acciones %}<td class="text-right">{{ caller() }}</td>{% endif %}
+          </tr>
+        </template>
+        {% if cargando %}
+        <tr x-show="{{ cargando }}"><td colspan="{{ total_columnas }}" class="py-10 text-center text-texto-muted">Cargando…</td></tr>
+        <tr x-show="!{{ cargando }} && !{{ filas }}.length"><td colspan="{{ total_columnas }}" class="py-10 text-center text-texto-muted">{{ vacio }}</td></tr>
+        {% else %}
+        <tr x-show="!{{ filas }}.length"><td colspan="{{ total_columnas }}" class="py-10 text-center text-texto-muted">{{ vacio }}</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{%- endmacro %}

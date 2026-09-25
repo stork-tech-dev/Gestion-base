@@ -1,0 +1,54 @@
+{% from "components/icons.html" import icono %}
+{# Campos de formulario. `modelo` y `error` son expresiones Alpine
+   (error = mensaje del campo, ej. "errores.nombre"; se muestra si tiene valor). #}
+{% macro _etiqueta(nombre, etiqueta, requerido) -%}
+<label for="{{ nombre }}" class="text-lg font-medium text-texto">{{ etiqueta }}{% if requerido %} <span class="text-danger">*</span>{% endif %}</label>
+{%- endmacro %}
+
+{% macro _error(error) -%}
+{% if error %}<p class="text-sm text-danger" x-show="{{ error }}" x-text="{{ error }}" x-cloak></p>{% endif %}
+{%- endmacro %}
+
+{% macro campo(nombre, etiqueta, tipo="text", modelo=None, requerido=False, placeholder="", ayuda=None, error=None, atributos="") -%}
+<div class="flex flex-col gap-1">
+  {{ _etiqueta(nombre, etiqueta, requerido) }}
+  <input id="{{ nombre }}" name="{{ nombre }}" type="{{ tipo }}" class="campo" placeholder="{{ placeholder }}"
+         {% if modelo %}x-model="{{ modelo }}"{% endif %} {% if requerido %}required{% endif %}
+         {% if error %}:class="{ 'campo-error': {{ error }} }"{% endif %} {{ atributos|safe }}>
+  {{ _error(error) }}
+  {% if ayuda %}<p class="text-sm text-texto-muted">{{ ayuda }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro campo_select(nombre, etiqueta, opciones, modelo=None, requerido=False, vacio="Elegí una opción", error=None, atributos="") -%}
+<div class="flex flex-col gap-1">
+  {{ _etiqueta(nombre, etiqueta, requerido) }}
+  <select id="{{ nombre }}" name="{{ nombre }}" class="campo" {% if modelo %}x-model="{{ modelo }}"{% endif %}
+          {% if requerido %}required{% endif %} {% if error %}:class="{ 'campo-error': {{ error }} }"{% endif %} {{ atributos|safe }}>
+    {% if vacio %}<option value="">{{ vacio }}</option>{% endif %}
+    {% for valor, texto in opciones %}<option value="{{ valor }}">{{ texto }}</option>{% endfor %}
+  </select>
+  {{ _error(error) }}
+</div>
+{%- endmacro %}
+
+{% macro campo_booleano(nombre, etiqueta, modelo, atributos="") -%}
+<label for="{{ nombre }}" class="inline-flex min-h-toque cursor-pointer items-center gap-2 text-texto">
+  <input id="{{ nombre }}" name="{{ nombre }}" type="checkbox" class="acceso-check" x-model="{{ modelo }}" {{ atributos|safe }}>
+  <span>{{ etiqueta }}</span>
+</label>
+{%- endmacro %}
+
+{% macro campo_rango(nombre, etiqueta, modelo_desde, modelo_hasta, tipo="number") -%}
+<fieldset class="flex flex-col gap-1">
+  <legend class="text-lg font-medium text-texto">{{ etiqueta }}</legend>
+  <div class="grid grid-cols-2 gap-2">
+    <input id="{{ nombre }}-desde" type="{{ tipo }}" class="campo" placeholder="Desde" aria-label="{{ etiqueta }} desde" x-model="{{ modelo_desde }}">
+    <input id="{{ nombre }}-hasta" type="{{ tipo }}" class="campo" placeholder="Hasta" aria-label="{{ etiqueta }} hasta" x-model="{{ modelo_hasta }}">
+  </div>
+</fieldset>
+{%- endmacro %}
+
+{% macro boton(texto, variante="primario", tipo="button", atributos="", icono_nombre=None) -%}
+<button type="{{ tipo }}" class="boton boton-{{ variante }}" {{ atributos|safe }}>{% if icono_nombre %}{{ icono(icono_nombre, "w-4 h-4") }}{% endif %}<span>{{ texto }}</span></button>
+{%- endmacro %}
