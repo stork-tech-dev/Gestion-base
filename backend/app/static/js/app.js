@@ -72,7 +72,7 @@
 
   // ---------- Texto y categorías ----------
   window.normalizarTexto = (texto) =>
-    String(texto ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+    String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
   /** Ids desde la raíz hasta `id` en un árbol [{id, nombre, hijos: [...]}]. */
   window.rutaDeIds = function (arbol, id, camino = []) {
