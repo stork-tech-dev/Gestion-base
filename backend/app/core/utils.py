@@ -46,7 +46,7 @@ def _redondear_al_multiplo(valor, multiplo, modo) -> Decimal:
     valor, multiplo = _decimal(valor), _decimal(multiplo)
     if multiplo <= 0:
         return redondear(valor)
-    return ((valor / multiplo).to_integral_value(rounding=modo) * multiplo).quantize(_CENTAVOS)
+    return ((valor / multiplo).to_integral_value(rounding=modo) * multiplo).quantize(_CENTAVOS, rounding=ROUND_HALF_UP)
 
 
 def redondear_hacia_arriba(valor, multiplo) -> Decimal:

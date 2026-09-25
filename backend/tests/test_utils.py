@@ -50,6 +50,16 @@ def test_redondear_hacia_abajo_al_multiplo():
     assert redondear_hacia_abajo(Decimal("99.99"), 0) == Decimal("99.99")
 
 
+def test_redondear_hacia_arriba_usa_half_up_en_centavos():
+    # Tie case: 0.001 al múltiplo 0.005 debe redondear hacia arriba a 0.01
+    assert redondear_hacia_arriba(Decimal("0.001"), Decimal("0.005")) == Decimal("0.01")
+
+
+def test_redondear_hacia_abajo_usa_half_up_en_centavos():
+    # Tie case: 0.009 al múltiplo 0.005 debe dar 0.01 (floor es 0.005, luego half-up)
+    assert redondear_hacia_abajo(Decimal("0.009"), Decimal("0.005")) == Decimal("0.01")
+
+
 def test_normalizar_texto():
     assert normalizar_texto("  hola    mundo ") == "hola mundo"
     assert normalizar_texto("   ") is None
