@@ -26,10 +26,25 @@ def ahora_db() -> datetime:
 
 
 def ip_de_request(request) -> str | None:
-    """IP del cliente, respetando X-Forwarded-For (primer salto) detrás de un proxy."""
-    reenviada = request.headers.get("x-forwarded-for")
-    if reenviada:
-        return reenviada.split(",")[0].strip() or None
+    """IP del cliente para auditoría.
+
+    X-Forwarded-For lo controla el cliente: confiar en el primer salto lo hace
+    falsificable. Se usa `settings.PROXIES_DE_CONFIANZA` (cantidad de proxies
+    inversos PROPIOS delante de la app) para decidir cuánto confiar en XFF:
+    - 0 (conexión directa / docker compose local): se ignora XFF, siempre
+      `request.client.host`.
+    - N>0 (detrás de N proxies propios, ej. Railway o un nginx propio): se
+      toma la entrada en la posición `-N` de XFF (la que agregó nuestro
+      proxy más externo). Si XFF trae menos de N entradas, se cae a
+      `request.client.host`.
+    """
+    proxies = settings.PROXIES_DE_CONFIANZA
+    if proxies > 0:
+        reenviada = request.headers.get("x-forwarded-for")
+        if reenviada:
+            saltos = [s.strip() for s in reenviada.split(",") if s.strip()]
+            if len(saltos) >= proxies:
+                return saltos[-proxies]
     return request.client.host if request.client else None
 
 

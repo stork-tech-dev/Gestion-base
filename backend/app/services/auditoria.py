@@ -8,6 +8,14 @@ from app.models.auditoria import Auditoria
 TAMANO_MAXIMO_AUDITORIA = 200
 
 
+def _patron_ilike(valor: str) -> str:
+    """Escapa los comodines de LIKE/ILIKE (%, _ y la propia \\) antes de armar
+    el patrón "%valor%", para que buscar por esos caracteres literales no
+    matchee de más (ver ilike(..., escape="\\") en cada uso)."""
+    escapado = valor.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escapado}%"
+
+
 def listar_auditoria(
     db,
     *,
@@ -24,9 +32,9 @@ def listar_auditoria(
     if usuario_id is not None:
         condiciones.append(Auditoria.usuario_id == usuario_id)
     if accion:
-        condiciones.append(Auditoria.accion.ilike(f"%{accion}%"))
+        condiciones.append(Auditoria.accion.ilike(_patron_ilike(accion), escape="\\"))
     if entidad:
-        condiciones.append(Auditoria.entidad.ilike(f"%{entidad}%"))
+        condiciones.append(Auditoria.entidad.ilike(_patron_ilike(entidad), escape="\\"))
     if entidad_id is not None:
         condiciones.append(Auditoria.entidad_id == entidad_id)
     if desde:

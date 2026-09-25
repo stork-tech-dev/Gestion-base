@@ -64,4 +64,7 @@ def test_tailwind_reemplaza_breakpoints():
 
 
 def test_sin_scroll_horizontal_global():
-    assert re.search(r"html,\s*body\s*\{[^}]*overflow-x:\s*hidden", CSS)
+    # clip (no hidden): hidden crea un contenedor de scroll en html/body y
+    # rompe `position: sticky` (ver custom.css).
+    assert re.search(r"html,\s*body\s*\{[^}]*overflow-x:\s*clip", CSS)
+    assert not re.search(r"html,\s*body\s*\{[^}]*overflow-x:\s*hidden", CSS)

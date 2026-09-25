@@ -6,11 +6,21 @@ set -e
 echo "[entrypoint] alembic upgrade head"
 alembic upgrade head
 
-# URL para psql: DATABASE_URL si existe; si no, se arma con POSTGRES_*.
-URL_PSQL="${DATABASE_URL:-postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST:-localhost}:${POSTGRES_PORT:-5432}/${POSTGRES_DB}}"
-URL_PSQL=$(echo "$URL_PSQL" | sed -e 's#^postgresql+psycopg2://#postgresql://#' -e 's#^postgres://#postgresql://#')
+# Zona horaria de la sesión de psql (coherente con el timezone del engine de
+# la app; ver app/core/database.py y migrations/env.py).
+export PGTZ="${TIMEZONE:-America/Argentina/Buenos_Aires}"
 
 echo "[entrypoint] seed (idempotente)"
-psql "$URL_PSQL" -v ON_ERROR_STOP=1 -q -f migrations/seed.sql
+if [ -n "${DATABASE_URL:-}" ]; then
+    # DATABASE_URL (ej. Railway): se normaliza el driver para psql.
+    URL_PSQL=$(echo "$DATABASE_URL" | sed -e 's#^postgresql+psycopg2://#postgresql://#' -e 's#^postgres://#postgresql://#')
+    psql "$URL_PSQL" -v ON_ERROR_STOP=1 -q -f migrations/seed.sql
+else
+    # Sin DATABASE_URL: variables PG* en vez de armar una URL a mano (una
+    # contraseña con caracteres especiales sin URL-encoding rompería el parseo).
+    PGHOST="${POSTGRES_HOST:-localhost}" PGPORT="${POSTGRES_PORT:-5432}" \
+    PGUSER="$POSTGRES_USER" PGPASSWORD="$POSTGRES_PASSWORD" PGDATABASE="$POSTGRES_DB" \
+        psql -v ON_ERROR_STOP=1 -q -f migrations/seed.sql
+fi
 
 exec "$@"

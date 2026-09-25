@@ -3,7 +3,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 import app.models  # noqa: F401  (registra los modelos)
-from app.core.database import Base
+from app.core.database import Base, OPCIONES_CONEXION
 from config import settings
 
 target_metadata = Base.metadata
@@ -16,7 +16,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = create_engine(settings.DATABASE_URL, poolclass=pool.NullPool)
+    connectable = create_engine(settings.DATABASE_URL, poolclass=pool.NullPool, connect_args=OPCIONES_CONEXION)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
         with context.begin_transaction():

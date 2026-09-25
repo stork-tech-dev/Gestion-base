@@ -1,6 +1,9 @@
 {% from "components/icons.html" import icono %}
 {# Campos de formulario. `modelo` y `error` son expresiones Alpine
-   (error = mensaje del campo, ej. "errores.nombre"; se muestra si tiene valor). #}
+   (error = mensaje del campo, ej. "errores.nombre"; se muestra si tiene valor).
+   ADVERTENCIA: `atributos` se inyecta con |safe (sin escapar) para poder pasar
+   atributos HTML/Alpine crudos. Debe recibir SOLO literales de plantilla
+   escritos a mano, nunca texto que venga de un usuario o de la API. #}
 {% macro _etiqueta(nombre, etiqueta, requerido) -%}
 <label for="{{ nombre }}" class="text-lg font-medium text-texto">{{ etiqueta }}{% if requerido %} <span class="text-danger">*</span>{% endif %}</label>
 {%- endmacro %}

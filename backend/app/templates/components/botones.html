@@ -1,6 +1,9 @@
 {% from "components/icons.html" import icono %}
 {# Acciones de fila y botón "volver". variante: ver | editar | borrar | activar
-   (o cualquier otra con icono_nombre y texto propios). #}
+   (o cualquier otra con icono_nombre y texto propios).
+   ADVERTENCIA: `atributos` se inyecta con |safe (sin escapar) para poder pasar
+   atributos HTML crudos (ej. x-on:click, @click). Debe recibir SOLO literales
+   de plantilla escritos a mano, nunca texto que venga de un usuario o de la API. #}
 {% set VARIANTES_ACCION = {
   "ver": ("Ver", "ver", "hover:text-primary"),
   "editar": ("Editar", "editar", "hover:text-primary"),

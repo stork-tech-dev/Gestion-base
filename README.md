@@ -21,6 +21,15 @@ seed idempotente (`migrations/seed.sql`).
 ### Puerto ocupado
 Si 5432, 8000 u 80 están en uso, cambiar en `.env` `POSTGRES_PORT_HOST`,
 `BACKEND_PORT_HOST` o `BACKEND_PORT_PROD` (el puerto interno no cambia).
+`POSTGRES_PORT_HOST` solo se publica en loopback (`127.0.0.1`): la base
+solo es accesible desde el propio servidor, nunca desde la red externa.
+
+### Proxies de confianza (IP de auditoría)
+`PROXIES_DE_CONFIANZA` en `.env` indica cuántos proxies inversos PROPIOS hay
+delante de la app, para no confiar ciegamente en `X-Forwarded-For` (que
+controla el cliente) al registrar la IP en la auditoría: `0` = conexión
+directa / docker compose local (default); `1` = detrás de un proxy propio
+como Railway o un nginx propio.
 
 ## Tests
 ```bash

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from sqlalchemy import literal, select
 
+from config import settings
 from app.core.utils import (
     ahora,
     ahora_db,
@@ -82,12 +83,42 @@ def test_sin_tildes_sql_usa_la_misma_tabla(db):
     assert db.scalar(select(sin_tildes_sql(literal("Córdoba Ñandú")))) == "Cordoba Nandu"
 
 
-def test_ip_de_request_respeta_x_forwarded_for():
+def test_ip_de_request_con_0_proxies_ignora_xff_falsificado(monkeypatch):
+    """0 proxies de confianza (default): XFF lo controla el cliente y se ignora."""
+    monkeypatch.setattr(settings, "PROXIES_DE_CONFIANZA", 0)
+    falsificado = SimpleNamespace(
+        headers={"x-forwarded-for": "1.2.3.4"}, client=SimpleNamespace(host="10.0.0.2")
+    )
+    directo = SimpleNamespace(headers={}, client=SimpleNamespace(host="10.0.0.2"))
+    assert ip_de_request(falsificado) == "10.0.0.2"
+    assert ip_de_request(directo) == "10.0.0.2"
+
+
+def test_ip_de_request_con_1_proxy_toma_el_ultimo(monkeypatch):
+    monkeypatch.setattr(settings, "PROXIES_DE_CONFIANZA", 1)
     con_proxy = SimpleNamespace(
         headers={"x-forwarded-for": "200.1.1.1, 10.0.0.1"}, client=SimpleNamespace(host="10.0.0.2")
     )
-    directo = SimpleNamespace(headers={}, client=SimpleNamespace(host="10.0.0.2"))
-    sin_cliente = SimpleNamespace(headers={}, client=None)
+    assert ip_de_request(con_proxy) == "10.0.0.1"
+
+
+def test_ip_de_request_con_2_proxies_toma_el_anteultimo(monkeypatch):
+    monkeypatch.setattr(settings, "PROXIES_DE_CONFIANZA", 2)
+    con_proxy = SimpleNamespace(
+        headers={"x-forwarded-for": "200.1.1.1, 10.0.0.1"}, client=SimpleNamespace(host="10.0.0.2")
+    )
     assert ip_de_request(con_proxy) == "200.1.1.1"
-    assert ip_de_request(directo) == "10.0.0.2"
+
+
+def test_ip_de_request_xff_con_menos_entradas_que_proxies_usa_client_host(monkeypatch):
+    monkeypatch.setattr(settings, "PROXIES_DE_CONFIANZA", 2)
+    xff_corto = SimpleNamespace(
+        headers={"x-forwarded-for": "10.0.0.1"}, client=SimpleNamespace(host="10.0.0.2")
+    )
+    assert ip_de_request(xff_corto) == "10.0.0.2"
+
+
+def test_ip_de_request_sin_cliente_devuelve_none(monkeypatch):
+    monkeypatch.setattr(settings, "PROXIES_DE_CONFIANZA", 0)
+    sin_cliente = SimpleNamespace(headers={}, client=None)
     assert ip_de_request(sin_cliente) is None

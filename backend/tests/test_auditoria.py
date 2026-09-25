@@ -48,6 +48,32 @@ def test_snapshot_de_modelo_y_campos(db):
     assert snapshot(None) is None
 
 
+def test_registrar_auditoria_rechaza_estado_anterior_con_cambios_pendientes(db):
+    """Si se pasa el objeto mapeado YA modificado (sin flushear) como
+    estado_anterior, el snapshot tomado acá adentro daría el estado nuevo:
+    debe fallar, no guardar auditoría incorrecta en silencio."""
+    motivo = MotivoBaja(nombre="Original", activo=True)
+    db.add(motivo)
+    db.flush()
+    motivo.nombre = "Modificado"  # cambio pendiente, todavía no flusheado
+    with pytest.raises(ValueError, match="ANTES del cambio"):
+        registrar_auditoria(db, accion="prueba.editar", entidad="prueba", estado_anterior=motivo)
+
+
+def test_registrar_auditoria_acepta_objeto_mapeado_sin_cambios_pendientes(db):
+    """El patrón correcto: snapshot(obj) ANTES de modificar, como dict."""
+    motivo = MotivoBaja(nombre="Original", activo=True)
+    db.add(motivo)
+    db.flush()
+    antes = snapshot(motivo)
+    motivo.nombre = "Modificado"
+    registro = registrar_auditoria(
+        db, accion="prueba.editar", entidad="prueba", estado_anterior=antes, estado_nuevo=motivo
+    )
+    assert registro.estado_anterior == {"id": motivo.id, "nombre": "Original", "activo": True}
+    assert registro.estado_nuevo == {"id": motivo.id, "nombre": "Modificado", "activo": True}
+
+
 @pytest.mark.parametrize(
     "sentencia",
     ["UPDATE auditoria SET accion = 'x'", "DELETE FROM auditoria", "TRUNCATE auditoria"],
@@ -77,6 +103,16 @@ def test_listar_auditoria_filtra_y_ordena(db):
     assert total == 3
     _, total = listar_auditoria(db, accion="zz", desde=hoy + timedelta(days=1))
     assert total == 0
+
+
+def test_listar_auditoria_escapa_comodines_de_ilike(db):
+    """"zz_x" (con _ literal) no debe matchear "zzAx": _ es comodín de un
+    solo carácter en LIKE/ILIKE y debe escaparse antes de armar el patrón."""
+    registrar_auditoria(db, accion="zzcomodinAx.crear", entidad="zzcomodin")
+    _, total = listar_auditoria(db, accion="zzcomodin_x")
+    assert total == 0
+    _, total = listar_auditoria(db, accion="zzcomodinAx")
+    assert total == 1
 
 
 def test_listar_auditoria_pagina_y_limita_tamano(db):

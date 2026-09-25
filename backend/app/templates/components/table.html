@@ -1,5 +1,10 @@
 {# Barra de filtros y tabla de listado (en tarjeta, sin filas alternadas).
-   Los filtros se resuelven SIEMPRE en el backend. #}
+   Los filtros se resuelven SIEMPRE en el backend.
+   ADVERTENCIA: en `columnas`, `html: True` hace que la celda se renderice con
+   x-html (Alpine) en vez de x-text. Es solo para markup armado del lado del
+   cliente (ej. un ícono compuesto en JS); la API NUNCA devuelve HTML armado
+   para mostrar (Principio 1, API-first) — si `expr` viniera de un campo de
+   la API, `html: True` sería una inyección de HTML. #}
 {% macro barra_filtros(total="total", limpiar="limpiarFiltros()", buscar=None, etiqueta="registros encontrados", extras="") -%}
 <section class="mb-4 flex flex-col gap-3" aria-label="Filtros">
   <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">{{ caller() }}</div>

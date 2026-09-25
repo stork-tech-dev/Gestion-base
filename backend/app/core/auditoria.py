@@ -9,6 +9,7 @@ from enum import Enum
 from uuid import UUID
 
 from sqlalchemy import inspect
+from sqlalchemy.exc import NoInspectionAvailable
 
 from app.core.utils import ahora_db, ip_de_request
 from app.models.auditoria import Auditoria
@@ -57,6 +58,16 @@ def snapshot(obj, campos=None) -> dict | None:
     return {k: _valor_json(v) for k, v in datos.items() if k not in CAMPOS_SENSIBLES}
 
 
+def _tiene_cambios_pendientes(obj) -> bool:
+    """True si `obj` es una instancia mapeada por SQLAlchemy con cambios sin
+    flushear: tomarle snapshot() ahora daría el estado NUEVO, no el anterior."""
+    try:
+        estado = inspect(obj)
+    except NoInspectionAvailable:
+        return False
+    return bool(getattr(estado, "modified", False))
+
+
 def registrar_auditoria(
     db,
     *,
@@ -69,6 +80,21 @@ def registrar_auditoria(
     ip_origen: str | None = None,
     request=None,
 ) -> Auditoria:
+    """Inserta el registro de auditoría (add + flush, sin commit).
+
+    `estado_anterior` debe ser un snapshot(obj) tomado ANTES de modificar el
+    objeto (dict ya "congelado"), nunca el objeto mapeado ya modificado: si se
+    le pasa la instancia con cambios pendientes, el snapshot que se tomaría
+    acá adentro reflejaría el estado NUEVO. Patrón correcto::
+
+        antes = snapshot(obj)
+        obj.campo = nuevo_valor
+        registrar_auditoria(db, ..., estado_anterior=antes, estado_nuevo=obj)
+    """
+    if estado_anterior is not None and not isinstance(estado_anterior, dict) and _tiene_cambios_pendientes(
+        estado_anterior
+    ):
+        raise ValueError("estado_anterior debe ser snapshot(obj) tomado ANTES del cambio")
     if ip_origen is None and request is not None:
         ip_origen = ip_de_request(request)
     registro = Auditoria(

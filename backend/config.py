@@ -4,8 +4,9 @@ Ningún módulo lee os.environ directamente: todos importan `settings`.
 """
 from zoneinfo import ZoneInfo
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
 
 
 class Settings(BaseSettings):
@@ -26,6 +27,12 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     DATABASE_URL_OVERRIDE: str | None = Field(default=None, alias="DATABASE_URL")
+
+    # Cantidad de proxies inversos PROPIOS delante de la app (afecta cómo se
+    # confía en X-Forwarded-For para la IP de auditoría; ver ip_de_request).
+    # 0 = conexión directa (docker compose local, default).
+    # 1 = detrás de un único proxy propio (ej. Railway o un nginx propio).
+    PROXIES_DE_CONFIANZA: int = 0
 
     # JWT y sesión
     JWT_SECRET: str = "cambiar-en-produccion"
@@ -68,14 +75,38 @@ class Settings(BaseSettings):
                 if url.startswith(prefijo):
                     return "postgresql+psycopg2://" + url[len(prefijo):]
             return url
-        return (
-            f"postgresql+psycopg2://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
-            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
+        # URL.create hace el URL-encoding de usuario/contraseña: armar la URL
+        # a mano con un f-string rompe el parseo si la contraseña tiene
+        # caracteres especiales (@ / # ? % ...).
+        return URL.create(
+            drivername="postgresql+psycopg2",
+            username=self.POSTGRES_USER,
+            password=self.POSTGRES_PASSWORD,
+            host=self.POSTGRES_HOST,
+            port=self.POSTGRES_PORT,
+            database=self.POSTGRES_DB,
+        ).render_as_string(hide_password=False)
 
     @property
     def CORS_ORIGINS_LIST(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _validar_defaults_de_seguridad(self) -> "Settings":
+        """Defaults inseguros que no deben llegar a producción (Principio 3/6)."""
+        if self.APP_ENV == "production" and (
+            self.JWT_SECRET == "cambiar-en-produccion" or len(self.JWT_SECRET) < 32
+        ):
+            raise ValueError(
+                "JWT_SECRET debe reemplazarse por un secreto de al menos 32 caracteres en producción"
+            )
+        if self.SESION_INACTIVIDAD_MINUTOS < self.JWT_ACCESS_TOKEN_MINUTES:
+            raise ValueError(
+                "SESION_INACTIVIDAD_MINUTOS debe ser mayor o igual a JWT_ACCESS_TOKEN_MINUTES"
+            )
+        if "*" in self.CORS_ORIGINS_LIST:
+            raise ValueError('CORS_ORIGINS no puede incluir "*": es incompatible con credenciales')
+        return self
 
 
 settings = Settings()

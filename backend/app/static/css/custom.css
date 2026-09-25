@@ -80,7 +80,10 @@
 }
 
 /* ----- Base ----- */
-html, body { overflow-x: hidden; }
+/* overflow-x: clip (no overflow-x: hidden): hidden convierte a html/body en
+   contenedor de scroll y eso rompe `position: sticky` (header de base.html
+   y futuras barras sticky); clip corta el overflow sin crear ese contenedor. */
+html, body { overflow-x: clip; }
 img, svg, video, canvas { max-width: 100%; }
 [x-cloak] { display: none !important; }
 

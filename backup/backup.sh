@@ -14,6 +14,34 @@ set -u
 
 HORA="${BACKUP_HORA:-03:00}"
 RETENCION="${BACKUP_RETENCION_DIAS:-14}"
+
+# BACKUP_HORA mal formado hace que "objetivo" (más abajo) sea una fecha
+# inválida y que `sleep` reciba un número negativo o vacío: dispara dumps
+# en loop sin parar. Se valida ACÁ, antes de programar nada, y se corta con
+# un mensaje claro y código de salida != 0.
+case "$HORA" in
+    [0-2][0-9]:[0-5][0-9]) ;;
+    *)
+        echo "[backup] BACKUP_HORA inválido: '$HORA' (formato esperado HH:MM, 00-23:00-59)" >&2
+        exit 1
+        ;;
+esac
+if [ "$(echo "$HORA" | cut -d: -f1)" -gt 23 ]; then
+    echo "[backup] BACKUP_HORA inválido: '$HORA' (formato esperado HH:MM, 00-23:00-59)" >&2
+    exit 1
+fi
+
+case "$RETENCION" in
+    ''|*[!0-9]*)
+        echo "[backup] BACKUP_RETENCION_DIAS inválido: '$RETENCION' (debe ser un entero positivo)" >&2
+        exit 1
+        ;;
+esac
+if [ "$RETENCION" -le 0 ]; then
+    echo "[backup] BACKUP_RETENCION_DIAS inválido: '$RETENCION' (debe ser un entero positivo)" >&2
+    exit 1
+fi
+
 DESTINO=/backups
 export PGPASSWORD="$POSTGRES_PASSWORD"
 

@@ -42,7 +42,24 @@ def ejecutar_sql(conexion, ruta: Path) -> None:
     conexion.exec_driver_sql(contenido)
 
 
+def _verificar_entorno_seguro() -> None:
+    """Corta toda la corrida (no solo un test) si algo indica que `_recrear_base`
+    podría estar apuntando a una base que no es la de test: DROP/CREATE sobre
+    una base real sería irreversible."""
+    if settings.DATABASE_URL_OVERRIDE is not None:
+        pytest.exit(
+            "Abortado: DATABASE_URL está seteada; los tests recrean la base "
+            "y no deben correr contra una URL que podría ser de producción."
+        )
+    if not settings.POSTGRES_DB.endswith("_test"):
+        pytest.exit(
+            f"Abortado: POSTGRES_DB='{settings.POSTGRES_DB}' no termina en '_test'; "
+            "los tests recrean la base y no deben correr contra una base real."
+        )
+
+
 def _recrear_base() -> None:
+    _verificar_entorno_seguro()
     url_admin = settings.DATABASE_URL.rsplit("/", 1)[0] + "/postgres"
     admin = create_engine(url_admin, isolation_level="AUTOCOMMIT")
     with admin.connect() as conexion:
