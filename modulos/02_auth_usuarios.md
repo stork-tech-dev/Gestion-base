@@ -83,7 +83,6 @@ usuarios (
   activo               BOOLEAN DEFAULT TRUE NOT NULL,
   fecha_nacimiento     DATE,
   celular              VARCHAR(20),                       -- normalizado a "+?dígitos" (6 a 19 dígitos)
-  clave_especial_hash  VARCHAR(255),                      -- solo Admin; NUNCA en un schema de respuesta
   created_at, updated_at TIMESTAMP NOT NULL DEFAULT now(),
   ultimo_acceso        TIMESTAMP                          -- NULL = debe cambiar la contraseña
 )
@@ -222,10 +221,8 @@ En cada request (salvo `/api/v1/auth/login`, `/api/v1/auth/refresh`, `/static`,
 - `cambiar_estado_usuario`: nadie se desactiva a sí mismo; no se desactiva al
   Admin; desactivar revoca sus sesiones.
 - `historial_de_usuario(usuario_id, desde, hasta, resultado, pagina, tamano)`.
-- Clave especial: `validar_clave_especial` / `resetear_clave_especial`; para
-  usuarios que no son Admin → `NoEncontrado` (404).
 - Todo audita (`usuario.crear`, `usuario.editar`, `usuario.activar` / `usuario.desactivar`,
-  `usuario.permisos_actualizar`, `usuario.accesos_actualizar`, `usuario.clave_especial_resetear`).
+  `usuario.permisos_actualizar`, `usuario.accesos_actualizar`).
 
 ### `/app/services/permisos.py`
 - `arbol_de_rol(rol_id)`, `arbol_de_usuario(usuario)` — este último con, por
@@ -289,8 +286,6 @@ PATCH  /usuarios/{id}/estado             → {activo}                           
 GET    /usuarios/{id}/permisos           → árbol efectivo (heredado/override)     [USUARIOS ver]
 PUT    /usuarios/{id}/permisos           → overrides                              [USUARIOS editar]
 GET    /usuarios/{id}/historial?desde=&hasta=&resultado=                          [USUARIOS ver]
-POST   /usuarios/{id}/clave-especial/validar   → {clave} → {valida}               [USUARIOS ver]
-PATCH  /usuarios/{id}/clave-especial/resetear  → {clave_nueva}                    [USUARIOS editar]
 ```
 Las rutas fijas (`roles-asignables`, `accesos`) se declaran
 ANTES de `/{usuario_id}`. Toda gestión sobre un usuario pasa por
@@ -412,7 +407,7 @@ Filtros: rango de fechas y resultado (Todos/Exitoso/Fallido). Paginado.
 - No se puede crear un segundo `admin` ni asignarle ese rol a nadie.
 - Roles de sistema: no se renombran ni eliminan; no se desactiva un rol con
   usuarios activos.
-- `clave_especial_hash` y `password_hash` fuera de todos los schemas de respuesta.
+- `password_hash` fuera de todos los schemas de respuesta.
 - El UNIQUE de permisos rechaza duplicados con recurso NULL.
 - Recuperación de contraseña: solo envía si el usuario tiene email; el token es
   de un solo uso.
