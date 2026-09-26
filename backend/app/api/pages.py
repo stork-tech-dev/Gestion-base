@@ -10,7 +10,8 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.permisos import Modulo
+from app.core.errores import SinPermiso
+from app.core.permisos import Modulo, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
 from app.models import Usuario
@@ -199,5 +200,29 @@ def roles(request: Request, db: Session = Depends(get_db),
     return _pagina(request, "pages/roles/listado.html", contexto_base(request, db, "/configuracion", usuario))
 
 
-# (Las rutas de permisos e historial se agregan en las tareas siguientes,
-# en este mismo archivo.)
+@router.get("/roles/{rol_id}/permisos")
+def permisos_de_rol(rol_id: int, request: Request, db: Session = Depends(get_db),
+                    usuario: Usuario = Depends(requiere_pagina(SECCION_ROLES))):
+    rol = servicio_roles.obtener_rol(db, rol_id)
+    return _pagina(request, "pages/roles/permisos.html", contexto_base(
+        request, db, "/configuracion", usuario, rol=rol, editable=rol.nombre != ROL_ADMIN,
+    ))
+
+
+@router.get("/usuarios/{usuario_id}/permisos")
+def permisos_de_usuario(usuario_id: int, request: Request, db: Session = Depends(get_db),
+                        usuario: Usuario = Depends(requiere_pagina(SECCION_USUARIOS))):
+    objetivo = servicio_usuarios.obtener_usuario(db, usuario_id)
+    editable = resolver_permiso(db, usuario.id, Modulo.USUARIOS, "editar")
+    if editable:
+        try:
+            servicio_usuarios.validar_puede_gestionar(usuario, objetivo.rol, objetivo)
+        except SinPermiso:
+            editable = False
+    return _pagina(request, "pages/usuarios/permisos.html", contexto_base(
+        request, db, "/configuracion", usuario, objetivo=objetivo, editable=editable,
+    ))
+
+
+# (Las rutas de historial se agregan en las tareas siguientes, en este mismo
+# archivo.)

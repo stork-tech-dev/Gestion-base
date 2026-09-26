@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/permisos_tree.html" import arbol_permisos %}
+{% block titulo %}Permisos de {{ rol.nombre }} · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{{ encabezado("Permisos del rol " ~ rol.nombre, "/roles", "Roles") }}
+{% if not editable %}
+<p class="mb-4 rounded-input bg-primary/10 p-3 text-sm text-texto">El rol Admin tiene acceso total: sus permisos no se editan.</p>
+{% endif %}
+{{ arbol_permisos("/api/v1/roles/" ~ rol.id ~ "/permisos", "/api/v1/roles/" ~ rol.id ~ "/permisos", "rol", editable) }}
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/permisos.js') }}"></script>{% endblock %}
