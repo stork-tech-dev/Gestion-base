@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
-from app.core.utils import normalizar_texto
+from app.core.utils import filtro_texto, normalizar_texto
 from app.models import Rol, Usuario
 from app.services.permisos import crear_permisos_vacios
 
@@ -29,7 +29,7 @@ def listar_roles(db, *, nombre: str | None = None, activo: bool | None = None,
     )
     consulta = select(Rol, cantidad).order_by(Rol.es_sistema.desc(), func.lower(Rol.nombre))
     if nombre:
-        consulta = consulta.where(Rol.nombre.ilike(f"%{nombre}%"))
+        consulta = consulta.where(filtro_texto(Rol.nombre, nombre))
     if activo is not None:
         consulta = consulta.where(Rol.activo.is_(activo))
     if es_sistema is not None:

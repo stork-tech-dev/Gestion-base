@@ -56,7 +56,12 @@ def crear_permisos_vacios(db, rol) -> None:
     db.flush()
 
 
-def _nodo(modulo: Modulo, recurso, filas_rol: dict, filas_usuario: dict | None, es_admin: bool) -> dict:
+def _nodo(modulo: Modulo, recurso, filas_rol: dict, filas_usuario: dict | None, es_admin: bool,
+          bloqueado: bool = False) -> dict:
+    """`bloqueado`: usuario no-admin con el rol inactivo (misma regla que
+    resolver_permiso: no hereda nada y sus overrides no habilitan nada). Solo
+    aplica al árbol de un USUARIO; el árbol de un rol siempre muestra su
+    configuración guardada, la use o no en este momento."""
     aplicables = acciones_aplicables(modulo, recurso)
     recurso_valor = recurso.value if recurso else None
     nodo = {
@@ -73,19 +78,20 @@ def _nodo(modulo: Modulo, recurso, filas_rol: dict, filas_usuario: dict | None, 
         if filas_usuario is None:
             nodo[f"puede_{accion}"] = heredado
             continue
-        fila_propia = filas_usuario.get((modulo.value, recurso_valor))
-        override = bool(fila_propia and fila_propia.puede(accion))
-        nodo[f"heredado_{accion}"] = heredado
-        nodo[f"override_{accion}"] = override
-        nodo[f"puede_{accion}"] = heredado or _puede(filas_usuario, modulo.value, recurso_valor, accion)
+        override = _puede(filas_usuario, modulo.value, recurso_valor, accion)  # misma cascada que heredado
+        nodo[f"heredado_{accion}"] = False if bloqueado else heredado
+        nodo[f"override_{accion}"] = override  # lo guardado, aunque el rol esté inactivo
+        nodo[f"puede_{accion}"] = False if bloqueado else (heredado or override)
     return nodo
 
 
-def _arbol(filas_rol: dict, filas_usuario: dict | None, es_admin: bool) -> dict:
+def _arbol(filas_rol: dict, filas_usuario: dict | None, es_admin: bool, bloqueado: bool = False) -> dict:
     modulos = []
     for modulo in Modulo:
-        nodo = _nodo(modulo, None, filas_rol, filas_usuario, es_admin)
-        nodo["recursos"] = [_nodo(modulo, r, filas_rol, filas_usuario, es_admin) for r in recursos_de_modulo(modulo)]
+        nodo = _nodo(modulo, None, filas_rol, filas_usuario, es_admin, bloqueado)
+        nodo["recursos"] = [
+            _nodo(modulo, r, filas_rol, filas_usuario, es_admin, bloqueado) for r in recursos_de_modulo(modulo)
+        ]
         modulos.append(nodo)
     return {"modulos": modulos}
 
@@ -95,7 +101,9 @@ def arbol_de_rol(db, rol) -> dict:
 
 
 def arbol_de_usuario(db, usuario) -> dict:
-    return _arbol(_filas_de_rol(db, usuario.rol_id), _filas_de_usuario(db, usuario.id), usuario.es_admin)
+    es_admin = usuario.es_admin
+    bloqueado = not es_admin and not usuario.rol.activo
+    return _arbol(_filas_de_rol(db, usuario.rol_id), _filas_de_usuario(db, usuario.id), es_admin, bloqueado)
 
 
 def _destinos_validos(entradas) -> list[tuple]:
@@ -179,14 +187,20 @@ def accesos_de_rol(db, rol) -> list[dict]:
 def accesos_de_usuario(db, usuario) -> list[dict]:
     filas_rol = _filas_de_rol(db, usuario.rol_id)
     filas_usuario = _filas_de_usuario(db, usuario.id)
+    es_admin = usuario.es_admin
+    bloqueado = not es_admin and not usuario.rol.activo
     resultado = []
     for acceso in catalogo_accesos():
         recurso = acceso.recurso.value if acceso.recurso else None
-        heredado = _heredado(acceso, filas_rol, usuario.es_admin)
-        propia = filas_usuario.get((acceso.modulo.value, recurso))
-        override = bool(propia and propia.puede(acceso.accion))
-        permitido = heredado or _puede(filas_usuario, acceso.modulo.value, recurso, acceso.accion)
-        resultado.append({"clave": acceso.clave, "label": acceso.label, "heredado": heredado, "override": override, "permitido": permitido})
+        heredado = _heredado(acceso, filas_rol, es_admin)
+        override = _puede(filas_usuario, acceso.modulo.value, recurso, acceso.accion)  # misma cascada que heredado
+        permitido = False if bloqueado else (heredado or override)
+        resultado.append({
+            "clave": acceso.clave, "label": acceso.label,
+            "heredado": False if bloqueado else heredado,
+            "override": override,  # lo guardado, aunque el rol esté inactivo
+            "permitido": permitido,
+        })
     return resultado
 
 

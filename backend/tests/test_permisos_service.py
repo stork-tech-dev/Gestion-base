@@ -106,3 +106,39 @@ def test_actualizar_accesos_no_persiste_lo_heredado(db, crear_usuario):
 def test_acceso_desconocido(db, crear_usuario):
     with pytest.raises(DatoInvalido):
         permisos.actualizar_accesos_usuario(db, None, crear_usuario("vendedor"), ["no:existe:ver"], None)
+
+
+def test_override_general_cubre_accesos_de_sus_recursos(db, crear_usuario):
+    """Un override de módulo completo (recurso=None) debe habilitar también
+    los accesos de los recursos de ese módulo, igual que resolver_permiso:
+    override y permitido tienen que quedar coherentes (antes, override daba
+    False para el acceso puntual mientras permitido ya daba True)."""
+    vendedor = crear_usuario("vendedor")
+    permisos.actualizar_permisos_usuario(
+        db, None, vendedor, [PermisoEntrada(modulo="caja", recurso=None, puede_crear=True)], None
+    )
+    accesos = {a["clave"]: a for a in permisos.accesos_de_usuario(db, vendedor)}
+    retiro = accesos["caja:caja.retiro:crear"]
+    assert not retiro["heredado"] and retiro["override"] and retiro["permitido"]
+
+
+def test_arbol_y_accesos_de_usuario_con_rol_inactivo(db, crear_usuario):
+    """Mismo criterio que resolver_permiso: rol inactivo (no-admin) → nada se
+    hereda y los overrides propios tampoco habilitan nada; el flag de
+    override sigue mostrando lo guardado (vista de edición)."""
+    vendedor = crear_usuario("vendedor")
+    permisos.actualizar_permisos_usuario(
+        db, None, vendedor, [PermisoEntrada(modulo="caja", recurso="caja.retiro", puede_crear=True)], None
+    )
+    vendedor.rol.activo = False
+    db.flush()
+
+    accesos = {a["clave"]: a for a in permisos.accesos_de_usuario(db, vendedor)}
+    baja = accesos["stock:stock.baja:crear"]
+    assert not baja["heredado"] and not baja["permitido"]
+    retiro = accesos["caja:caja.retiro:crear"]
+    assert retiro["override"] and not retiro["permitido"]  # lo guardado se ve, pero no habilita nada
+
+    arbol = permisos.arbol_de_usuario(db, vendedor)
+    stock = _nodo(arbol, "stock")
+    assert stock["puede_ver"] is False and not stock["heredado_ver"]

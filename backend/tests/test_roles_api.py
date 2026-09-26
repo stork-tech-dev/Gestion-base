@@ -74,3 +74,10 @@ def test_arbol_de_permisos_del_rol(client, crear_usuario, headers_de):
 def test_rol_inexistente(client, crear_usuario, headers_de):
     h = headers_de(crear_usuario("admin"))
     assert client.get(f"{URL}/999999/permisos", headers=h).status_code == 404
+
+
+def test_listar_roles_filtra_texto_sin_tildes_ni_mayusculas(client, crear_usuario, headers_de):
+    h = headers_de(crear_usuario("admin"))
+    client.post(URL, json={"nombre": "Depósito"}, headers=h)
+    nombres = [x["nombre"] for x in client.get(URL, params={"nombre": "deposito"}, headers=h).json()]
+    assert "Depósito" in nombres

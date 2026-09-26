@@ -97,3 +97,17 @@ def sin_tildes(texto: str | None) -> str | None:
 def sin_tildes_sql(columna):
     """Expresión SQL equivalente a sin_tildes() (para ILIKE insensible a tildes)."""
     return func.translate(columna, TILDES, SIN_TILDES)
+
+
+def patron_ilike(texto: str) -> str:
+    """Escapa los comodines de LIKE/ILIKE (%, _ y la propia \\) antes de armar
+    el patrón "%texto%", para que buscar por esos caracteres literales no
+    matchee de más (ver ilike(..., escape="\\") en cada uso)."""
+    escapado = texto.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escapado}%"
+
+
+def filtro_texto(columna, valor: str):
+    """Condición ILIKE insensible a mayúsculas y tildes (Principio 5): única
+    definición para los filtros de texto libre sobre VARCHAR/TEXT."""
+    return sin_tildes_sql(columna).ilike(patron_ilike(sin_tildes(valor)), escape="\\")

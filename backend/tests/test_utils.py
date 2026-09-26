@@ -9,8 +9,10 @@ from app.core.utils import (
     ahora,
     ahora_db,
     capitalizar_inicial,
+    filtro_texto,
     ip_de_request,
     normalizar_texto,
+    patron_ilike,
     redondear,
     redondear_hacia_abajo,
     redondear_hacia_arriba,
@@ -81,6 +83,16 @@ def test_sin_tildes():
 
 def test_sin_tildes_sql_usa_la_misma_tabla(db):
     assert db.scalar(select(sin_tildes_sql(literal("Córdoba Ñandú")))) == "Cordoba Nandu"
+
+
+def test_patron_ilike_escapa_comodines_de_like():
+    assert patron_ilike("a_b%c") == "%a\\_b\\%c%"
+    assert patron_ilike("x\\y") == "%x\\\\y%"
+
+
+def test_filtro_texto_ignora_mayusculas_y_tildes(db):
+    assert db.scalar(select(filtro_texto(literal("Depósito"), "deposito"))) is True
+    assert db.scalar(select(filtro_texto(literal("Depósito"), "OTRA COSA"))) is False
 
 
 def test_ip_de_request_con_0_proxies_ignora_xff_falsificado(monkeypatch):
