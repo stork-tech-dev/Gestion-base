@@ -1,0 +1,14 @@
+{# Switch "Solo activos". `modelo` es una expresión Alpine booleana.
+   switch_base es la única definición del markup (lo reusa switch_estado;
+   no lleva guion bajo porque Jinja no deja importar macros "privadas"). #}
+{% macro switch_base(modelo, al_cambiar, id, texto_html) -%}
+<label for="{{ id }}" class="switch-contenedor">
+  <button type="button" id="{{ id }}" role="switch" class="switch" :class="{ 'switch-on': {{ modelo }} }" :aria-checked="({{ modelo }}).toString()"
+          @click="{{ modelo }} = !{{ modelo }}{% if al_cambiar %}; {{ al_cambiar }}{% endif %}"><span class="switch-perilla"></span></button>
+  <span class="text-sm text-texto">{{ texto_html }}</span>
+</label>
+{%- endmacro %}
+
+{% macro switch_activos(modelo="soloActivos", al_cambiar="", id="switch-activos", etiqueta="Solo activos") -%}
+{{ switch_base(modelo, al_cambiar, id, etiqueta) }}
+{%- endmacro %}

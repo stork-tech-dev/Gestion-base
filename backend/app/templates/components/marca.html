@@ -1,0 +1,9 @@
+{# Logo del cliente (static/img/logo.svg) o, si no existe, APP_NAME en texto. #}
+{% macro marca(clases="") -%}
+{%- set logo = logo_url() -%}
+{%- if logo -%}
+<img src="{{ logo }}" alt="{{ APP_NAME }}" class="{{ clases }}">
+{%- else -%}
+<span class="block text-2xl font-black leading-tight tracking-tight {{ clases }}">{{ APP_NAME }}</span>
+{%- endif -%}
+{%- endmacro %}

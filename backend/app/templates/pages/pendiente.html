@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% block titulo %}{{ titulo }} · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{{ encabezado(titulo) }}
+<div class="tarjeta">
+  <p class="text-texto-muted">Este módulo todavía no está disponible.</p>
+</div>
+{% endblock %}

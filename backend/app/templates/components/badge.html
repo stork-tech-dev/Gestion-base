@@ -1,0 +1,21 @@
+{# Etiquetas de estado. badge = con fondo; estado_texto = texto coloreado inline (tablas). #}
+{% set FONDOS_BADGE = {
+  "exito": "bg-success/15 text-success",
+  "peligro": "bg-danger/15 text-danger",
+  "primario": "bg-primary/15 text-primary",
+  "neutro": "bg-surface-alt text-texto-muted",
+} %}
+{% set TEXTOS_ESTADO = {
+  "exito": "text-success",
+  "peligro": "text-danger",
+  "primario": "text-primary",
+  "neutro": "text-texto-muted",
+} %}
+
+{% macro badge(texto, variante="neutro") -%}
+<span class="inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-semibold {{ FONDOS_BADGE.get(variante, FONDOS_BADGE['neutro']) }}">{{ texto }}</span>
+{%- endmacro %}
+
+{% macro estado_texto(texto, variante="neutro") -%}
+<span class="text-sm font-semibold {{ TEXTOS_ESTADO.get(variante, TEXTOS_ESTADO['neutro']) }}">{{ texto }}</span>
+{%- endmacro %}

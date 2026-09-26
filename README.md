@@ -1,0 +1,71 @@
+# Stork Gestión
+
+Sistema de gestión para comercios (una instancia por cliente). Backend FastAPI
+que sirve la API (`/api/v1`) y las pantallas (Jinja2 + HTMX + Alpine + Tailwind).
+
+## Requisitos
+- Docker 24+ con Docker Compose v2.
+
+## Puesta en marcha
+```bash
+cp .env.example .env        # y ajustar valores (JWT_SECRET, puertos, APP_NAME…)
+docker compose up --build
+```
+Al arrancar, el backend aplica las migraciones (`alembic upgrade head`) y el
+seed idempotente (`migrations/seed.sql`).
+
+- App: http://localhost:8000
+- Swagger: http://localhost:8000/docs (oculto con `APP_ENV=production`)
+- Healthchecks: `/api/v1/health` y `/api/v1/health/db`
+
+### Puerto ocupado
+Si 5432, 8000 u 80 están en uso, cambiar en `.env` `POSTGRES_PORT_HOST`,
+`BACKEND_PORT_HOST` o `BACKEND_PORT_PROD` (el puerto interno no cambia).
+`POSTGRES_PORT_HOST` solo se publica en loopback (`127.0.0.1`): la base
+solo es accesible desde el propio servidor, nunca desde la red externa.
+
+### Proxies de confianza (IP de auditoría)
+`PROXIES_DE_CONFIANZA` en `.env` indica cuántos proxies inversos PROPIOS hay
+delante de la app, para no confiar ciegamente en `X-Forwarded-For` (que
+controla el cliente) al registrar la IP en la auditoría: `0` = conexión
+directa / docker compose local (default); `1` = detrás de un proxy propio
+como Railway o un nginx propio.
+
+## Tests
+```bash
+docker compose exec backend pytest
+```
+Corren contra PostgreSQL real en la base `gestion_test` (se recrea en cada corrida).
+
+## Migraciones
+```bash
+docker compose exec backend alembic upgrade head
+docker compose exec backend alembic current
+```
+Las migraciones se escriben a mano en `backend/migrations/versions/` (numeradas 0001, 0002…).
+
+## Instalar un cliente nuevo
+1. Copiar el proyecto a una carpeta propia del cliente.
+2. Crear su `.env` (nombre visible en `APP_NAME`, `JWT_SECRET` propio, puertos).
+3. Logo: `backend/app/static/img/logo.svg` (si no existe se muestra `APP_NAME`).
+   Favicon: reemplazar `favicon.svg`, `favicon-32.png` y `apple-touch-icon.png`.
+4. Paleta: redefinir las variables `--color-*` en `backend/app/static/css/custom.css`.
+5. `docker compose up -d --build`.
+
+## Archivos subidos
+Viven en `./uploads` (montado en `/uploads` del contenedor) y se sirven en
+`/uploads/...`. No se versionan; incluirlos en los backups de archivos del servidor.
+
+## Backups
+El servicio `backup` hace un `pg_dump -Fc` diario a `./backups/gestion-AAAA-MM-DD_HHMM.dump`
+y borra los que tienen más de `BACKUP_RETENCION_DIAS` días.
+- Hora: `BACKUP_HORA` (hora del negocio, default 03:00).
+- Backup inmediato: `BACKUP_AHORA=1` en `.env` y `docker compose up -d backup`.
+- Restaurar:
+  ```bash
+  docker compose exec -T db pg_restore -U gestion -d gestion --clean --if-exists < backups/gestion-AAAA-MM-DD_HHMM.dump
+  ```
+
+## Credenciales iniciales
+El usuario administrador se crea en la sesión 02 (`admin` / `Admin1234!`,
+obliga a cambiar la contraseña en el primer ingreso).

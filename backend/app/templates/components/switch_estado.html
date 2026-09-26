@@ -1,0 +1,6 @@
+{% from "components/switch_activos.html" import switch_base %}
+{# Alterna entre dos estados (Activos / Inactivos) y muestra el actual. #}
+{% macro switch_estado(modelo="activos", al_cambiar="", id="switch-estado", etiquetas=("Activos", "Inactivos")) -%}
+{%- set texto -%}<span x-text="{{ modelo }} ? {{ etiquetas[0]|js }} : {{ etiquetas[1]|js }}">{{ etiquetas[0] }}</span>{%- endset -%}
+{{ switch_base(modelo, al_cambiar, id, texto|safe) }}
+{%- endmacro %}

@@ -1,0 +1,15 @@
+{% from "components/icons.html" import icono %}
+{# Modal genérico (call-block). Se cierra SOLO con la X: ni ESC ni clic afuera.
+   `abierto` es la variable Alpine que lo muestra; `titulo_expr` (opcional)
+   reemplaza al título fijo por una expresión Alpine. #}
+{% macro modal(titulo, id, abierto="modal", ancho="max-w-2xl", titulo_expr=None) -%}
+<div x-show="{{ abierto }}" x-cloak class="fondo-modal" id="{{ id }}" role="dialog" aria-modal="true" aria-labelledby="{{ id }}-titulo">
+  <div class="tarjeta modal-panel {{ ancho }}">
+    <div class="mb-4 flex items-start justify-between gap-4">
+      <h2 id="{{ id }}-titulo" class="text-xl font-bold text-texto-header"{% if titulo_expr %} x-text="{{ titulo_expr }}"{% endif %}>{{ titulo }}</h2>
+      <button type="button" class="btn-accion" @click="{{ abierto }} = false" aria-label="Cerrar">{{ icono("cerrar") }}</button>
+    </div>
+    {{ caller() }}
+  </div>
+</div>
+{%- endmacro %}

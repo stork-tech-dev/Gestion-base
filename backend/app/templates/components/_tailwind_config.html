@@ -1,0 +1,57 @@
+{# Config ÚNICA de Tailwind (va por CDN, no hay tailwind.config.js).
+   Los colores salen de las variables de custom.css; color-mix permite
+   modificadores de opacidad (bg-danger/15). #}
+<script>
+  (function () {
+    const c = (nombre) => `color-mix(in srgb, var(--color-${nombre}) calc(<alpha-value> * 100%), transparent)`;
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        screens: { sm: '640px', lg: '1024px', xl: '1280px' },
+        extend: {
+          colors: {
+            primary: c('primary'),
+            'primary-hover': c('primary-hover'),
+            accent: c('accent'),
+            welcome: c('welcome'),
+            bg: c('bg'),
+            surface: c('surface'),
+            'surface-alt': c('surface-alt'),
+            borde: c('border'),
+            'borde-campo': c('input-border'),
+            texto: c('text'),
+            'texto-muted': c('text-muted'),
+            'texto-disabled': c('text-disabled'),
+            'texto-header': c('text-header'),
+            'texto-invert': c('text-invert'),
+            danger: c('danger'),
+            success: c('success'),
+            'sidebar-bg': c('sidebar-bg'),
+            'sidebar-text': c('sidebar-text'),
+          },
+          fontFamily: { sans: 'var(--font-sans)' },
+          fontSize: {
+            xs: ['0.75rem', { lineHeight: '1rem' }],
+            sm: ['0.875rem', { lineHeight: '1.25rem' }],
+            base: ['1rem', { lineHeight: '1.5rem' }],
+            lg: ['1.125rem', { lineHeight: '1.75rem' }],
+            xl: ['1.25rem', { lineHeight: '1.75rem' }],
+            '2xl': ['1.5rem', { lineHeight: '2rem' }],
+            titulo: ['1.75rem', { lineHeight: '2.25rem' }],
+          },
+          borderRadius: {
+            input: 'var(--radius-input)',
+            pill: 'var(--radius-pill)',
+            search: 'var(--radius-search)',
+          },
+          spacing: { sidebar: 'var(--sidebar-width)', header: 'var(--header-height)' },
+          maxWidth: { layout: 'var(--layout-max)' },
+          height: { control: 'var(--alto-control)', boton: 'var(--alto-boton)' },
+          width: { control: 'var(--alto-control)' },
+          minHeight: { toque: 'var(--toque-min)' },
+          minWidth: { toque: 'var(--toque-min)' },
+        },
+      },
+    };
+  })();
+</script>

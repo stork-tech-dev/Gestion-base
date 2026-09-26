@@ -1,0 +1,8 @@
+{# Paginación Alpine (de a `tamano`). Expresiones del componente de la página. #}
+{% macro paginacion(pagina="pagina", total="total", tamano="tamano", al_cambiar="cargar()") -%}
+<nav x-show="{{ total }} > {{ tamano }}" x-cloak class="mt-4 flex items-center justify-between gap-2 text-sm" aria-label="Paginación">
+  <button type="button" class="boton boton-secundario" :disabled="{{ pagina }} <= 1" @click="{{ pagina }}--; {{ al_cambiar }}">Anterior</button>
+  <span class="text-texto-muted">Página <span x-text="{{ pagina }}"></span> de <span x-text="Math.max(1, Math.ceil({{ total }} / {{ tamano }}))"></span></span>
+  <button type="button" class="boton boton-secundario" :disabled="{{ pagina }} >= Math.ceil({{ total }} / {{ tamano }})" @click="{{ pagina }}++; {{ al_cambiar }}">Siguiente</button>
+</nav>
+{%- endmacro %}
