@@ -87,6 +87,13 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> Usuario
         raise NoAutenticado(MENSAJE_SESION_INVALIDA) from exc
 
 
+def _exigir_password_al_dia(usuario: Usuario) -> None:
+    """Corta con 403 si el usuario todavía tiene la contraseña provisoria
+    (única verificación: la usan requiere_permiso y requiere_admin)."""
+    if usuario.debe_cambiar_password:
+        raise SinPermiso(MENSAJE_CAMBIAR_PASSWORD)
+
+
 def requiere_permiso(modulo, accion: str, recurso=None):
     """Dependency: devuelve el usuario si tiene el permiso; si no, 403."""
     modulo_enum = Modulo(modulo)
@@ -94,8 +101,7 @@ def requiere_permiso(modulo, accion: str, recurso=None):
     destino = f"{modulo_enum.value}/{recurso_enum.value}" if recurso_enum else modulo_enum.value
 
     def dependencia(usuario: Usuario = Depends(get_current_user), db: Session = Depends(get_db)) -> Usuario:
-        if usuario.debe_cambiar_password:
-            raise SinPermiso(MENSAJE_CAMBIAR_PASSWORD)
+        _exigir_password_al_dia(usuario)
         if not resolver_permiso(db, usuario.id, modulo_enum, accion, recurso_enum):
             raise SinPermiso(f"Sin permiso para '{accion}' en '{destino}'")
         return usuario
@@ -105,8 +111,7 @@ def requiere_permiso(modulo, accion: str, recurso=None):
 
 def requiere_admin(usuario: Usuario = Depends(get_current_user)) -> Usuario:
     """Dependency para operaciones exclusivas del Admin (roles)."""
-    if usuario.debe_cambiar_password:
-        raise SinPermiso(MENSAJE_CAMBIAR_PASSWORD)
+    _exigir_password_al_dia(usuario)
     if not usuario.es_admin:
         raise SinPermiso("Operación exclusiva del Admin")
     return usuario

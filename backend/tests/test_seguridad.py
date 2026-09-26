@@ -1,12 +1,16 @@
+from datetime import timedelta
+
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.database import get_db
 from app.core.errores import registrar_manejadores
 from app.core.permisos import Modulo, Recurso
 from app.core.seguridad import requiere_admin, requiere_permiso, resolver_permiso
-from app.models import RolPermiso, UsuarioPermiso
+from app.core.utils import ahora_db
+from app.models import RolPermiso, Sesion, UsuarioPermiso
 from app.services import auth
 
 
@@ -109,6 +113,15 @@ def test_sesion_revocada_corta_el_access(cliente_protegido, crear_usuario, db):
     assert r.status_code == 401
 
 
+def test_sesion_vencida_por_inactividad_corta_el_access(cliente_protegido, crear_usuario, headers_de, db):
+    vendedor = crear_usuario("vendedor")
+    h = headers_de(vendedor)
+    sesion = db.scalar(select(Sesion).where(Sesion.usuario_id == vendedor.id))
+    sesion.expira_en = ahora_db() - timedelta(seconds=1)
+    db.flush()
+    assert cliente_protegido.get("/stock", headers=h).status_code == 401
+
+
 def test_usuario_desactivado_da_401(cliente_protegido, crear_usuario, headers_de, db):
     vendedor = crear_usuario("vendedor")
     h = headers_de(vendedor)
@@ -127,3 +140,9 @@ def test_requiere_admin(cliente_protegido, crear_usuario, headers_de):
     assert cliente_protegido.get("/admin", headers=headers_de(crear_usuario("supervisor"))).status_code == 403
     admin = crear_usuario("admin")
     assert cliente_protegido.get("/admin", headers=headers_de(admin)).json() == {"id": admin.id}
+
+
+def test_debe_cambiar_password_bloquea_tambien_a_requiere_admin(cliente_protegido, crear_usuario, headers_de):
+    nuevo = crear_usuario("admin", debe_cambiar=True)
+    r = cliente_protegido.get("/admin", headers=headers_de(nuevo))
+    assert r.status_code == 403 and "cambiar la contraseña" in r.json()["detail"]
