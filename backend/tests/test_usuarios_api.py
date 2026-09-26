@@ -203,6 +203,17 @@ def test_no_admin_no_se_gestiona_a_si_mismo(client, crear_usuario, headers_de):
     assert client.patch(f"{URL}/{vendedor.id}/estado", json={"activo": True}, headers=h).status_code == 403
 
 
+def test_accesos_informan_lo_otorgable_para_el_autor(client, crear_usuario, headers_de):
+    h = headers_de(crear_usuario("supervisor"))
+    vendedor = crear_usuario("vendedor")
+    accesos = {a["clave"]: a for a in client.get(f"{URL}/{vendedor.id}/accesos", headers=h).json()}
+    assert accesos["auditoria::ver"]["otorgable"] is False
+    assert accesos["stock:stock.baja:crear"]["otorgable"] is True
+    arbol = client.get(f"{URL}/{vendedor.id}/permisos", headers=h).json()
+    usuarios_nodo = next(n for n in arbol["modulos"] if n["modulo"] == "usuarios")
+    assert usuarios_nodo["otorgable_ver"] is False
+
+
 def test_admin_otorga_auditoria(client, crear_usuario, headers_de):
     h = headers_de(crear_usuario("admin"))
     vendedor = crear_usuario("vendedor")

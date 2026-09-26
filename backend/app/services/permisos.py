@@ -58,7 +58,7 @@ def crear_permisos_vacios(db, rol) -> None:
 
 
 def _nodo(modulo: Modulo, recurso, filas_rol: dict, filas_usuario: dict | None, es_admin: bool,
-          bloqueado: bool = False) -> dict:
+          bloqueado: bool = False, otorgable=None) -> dict:
     """`bloqueado`: usuario no-admin con el rol inactivo (misma regla que
     resolver_permiso: no hereda nada y sus overrides no habilitan nada). Solo
     aplica al árbol de un USUARIO; el árbol de un rol siempre muestra su
@@ -83,15 +83,19 @@ def _nodo(modulo: Modulo, recurso, filas_rol: dict, filas_usuario: dict | None, 
         nodo[f"heredado_{accion}"] = False if bloqueado else heredado
         nodo[f"override_{accion}"] = override  # lo guardado, aunque el rol esté inactivo
         nodo[f"puede_{accion}"] = False if bloqueado else (heredado or override)
+        if otorgable is not None:
+            nodo[f"otorgable_{accion}"] = otorgable(modulo, recurso, accion)
     return nodo
 
 
-def _arbol(filas_rol: dict, filas_usuario: dict | None, es_admin: bool, bloqueado: bool = False) -> dict:
+def _arbol(filas_rol: dict, filas_usuario: dict | None, es_admin: bool, bloqueado: bool = False,
+           otorgable=None) -> dict:
     modulos = []
     for modulo in Modulo:
-        nodo = _nodo(modulo, None, filas_rol, filas_usuario, es_admin, bloqueado)
+        nodo = _nodo(modulo, None, filas_rol, filas_usuario, es_admin, bloqueado, otorgable)
         nodo["recursos"] = [
-            _nodo(modulo, r, filas_rol, filas_usuario, es_admin, bloqueado) for r in recursos_de_modulo(modulo)
+            _nodo(modulo, r, filas_rol, filas_usuario, es_admin, bloqueado, otorgable)
+            for r in recursos_de_modulo(modulo)
         ]
         modulos.append(nodo)
     return {"modulos": modulos}
@@ -101,10 +105,12 @@ def arbol_de_rol(db, rol) -> dict:
     return _arbol(_filas_de_rol(db, rol.id), None, rol.nombre == ROL_ADMIN)
 
 
-def arbol_de_usuario(db, usuario) -> dict:
+def arbol_de_usuario(db, usuario, autor=None) -> dict:
     es_admin = usuario.es_admin
     bloqueado = not es_admin and not usuario.rol.activo
-    return _arbol(_filas_de_rol(db, usuario.rol_id), _filas_de_usuario(db, usuario.id), es_admin, bloqueado)
+    otorgable = None if autor is None else (lambda m, r, a: puede_otorgar(db, autor, m, r, a))
+    return _arbol(_filas_de_rol(db, usuario.rol_id), _filas_de_usuario(db, usuario.id), es_admin, bloqueado,
+                  otorgable)
 
 
 def _destinos_validos(entradas) -> list[tuple]:
@@ -150,6 +156,21 @@ def _borrar_overrides_vacios(db, filas: dict) -> None:
 MODULOS_RESERVADOS_AL_ADMIN = (Modulo.USUARIOS, Modulo.AUDITORIA)
 
 
+def puede_otorgar(db, autor, modulo: Modulo, recurso: Recurso | None, accion: str) -> bool:
+    """¿El autor puede conceder esta acción como permiso propio de otro usuario?
+    Misma regla que _validar_otorgables (la usan las pantallas para ofrecer solo
+    lo otorgable): el Admin todo; el resto, nunca módulos reservados al Admin y
+    solo lo que él mismo tiene."""
+    if autor is None or autor.es_admin:
+        return True
+    if modulo in MODULOS_RESERVADOS_AL_ADMIN:
+        return False
+    # Import local: core.seguridad importa services.auth (ciclo de imports).
+    from app.core.seguridad import resolver_permiso
+
+    return resolver_permiso(db, autor.id, modulo, accion, recurso)
+
+
 def _validar_otorgables(db, autor, nuevas: list[tuple[Modulo, Recurso | None, str]]) -> None:
     """Un no-admin solo otorga (como override) permisos que él mismo tiene y
     nunca los de módulos reservados al Admin. Se llama con TODAS las acciones
@@ -157,14 +178,10 @@ def _validar_otorgables(db, autor, nuevas: list[tuple[Modulo, Recurso | None, st
     ninguna. Quitar permisos siempre está permitido (no llegan acá)."""
     if autor is None or autor.es_admin:
         return
-    # Import local: core.seguridad importa services.auth; importarlo arriba
-    # arma un ciclo de imports al cargar los services.
-    from app.core.seguridad import resolver_permiso
-
     for modulo, recurso, accion in nuevas:
         if modulo in MODULOS_RESERVADOS_AL_ADMIN:
             raise SinPermiso(f"Solo el Admin puede otorgar permisos de {LABEL_MODULO[modulo]}")
-        if not resolver_permiso(db, autor.id, modulo, accion, recurso):
+        if not puede_otorgar(db, autor, modulo, recurso, accion):
             destino = f"{modulo.value}/{recurso.value}" if recurso else modulo.value
             raise SinPermiso(f"No podés otorgar un permiso que no tenés: {accion} en {destino}")
 
@@ -210,17 +227,21 @@ def _heredado(acceso, filas_rol: dict, es_admin: bool) -> bool:
     return es_admin or _puede(filas_rol, acceso.modulo.value, recurso, acceso.accion)
 
 
-def accesos_de_rol(db, rol) -> list[dict]:
+def accesos_de_rol(db, rol, autor=None) -> list[dict]:
     filas = _filas_de_rol(db, rol.id)
     es_admin = rol.nombre == ROL_ADMIN
     resultado = []
     for acceso in catalogo_accesos():
         heredado = _heredado(acceso, filas, es_admin)
-        resultado.append({"clave": acceso.clave, "label": acceso.label, "heredado": heredado, "override": False, "permitido": heredado})
+        resultado.append({
+            "clave": acceso.clave, "label": acceso.label, "heredado": heredado, "override": False,
+            "permitido": heredado,
+            "otorgable": puede_otorgar(db, autor, acceso.modulo, acceso.recurso, acceso.accion),
+        })
     return resultado
 
 
-def accesos_de_usuario(db, usuario) -> list[dict]:
+def accesos_de_usuario(db, usuario, autor=None) -> list[dict]:
     filas_rol = _filas_de_rol(db, usuario.rol_id)
     filas_usuario = _filas_de_usuario(db, usuario.id)
     es_admin = usuario.es_admin
@@ -236,6 +257,7 @@ def accesos_de_usuario(db, usuario) -> list[dict]:
             "heredado": False if bloqueado else heredado,
             "override": override,  # lo guardado, aunque el rol esté inactivo
             "permitido": permitido,
+            "otorgable": puede_otorgar(db, autor, acceso.modulo, acceso.recurso, acceso.accion),
         })
     return resultado
 

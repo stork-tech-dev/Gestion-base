@@ -47,8 +47,8 @@ def roles_asignables(db: Session = Depends(get_db), autor: Usuario = Depends(pue
 
 
 @router.get("/accesos", response_model=list[AccesoResponse])
-def accesos_de_rol(rol_id: int, db: Session = Depends(get_db), _: Usuario = Depends(puede_ver)):
-    return permisos.accesos_de_rol(db, roles.obtener_rol(db, rol_id))
+def accesos_de_rol(rol_id: int, db: Session = Depends(get_db), autor: Usuario = Depends(puede_ver)):
+    return permisos.accesos_de_rol(db, roles.obtener_rol(db, rol_id), autor=autor)
 
 
 @router.get("/{usuario_id}", response_model=UsuarioResponse)
@@ -81,8 +81,8 @@ def cambiar_estado(usuario_id: int, datos: UsuarioEstado, request: Request, db: 
 
 
 @router.get("/{usuario_id}/accesos", response_model=list[AccesoResponse])
-def accesos(usuario_id: int, db: Session = Depends(get_db), _: Usuario = Depends(puede_ver)):
-    return permisos.accesos_de_usuario(db, usuarios.obtener_usuario(db, usuario_id))
+def accesos(usuario_id: int, db: Session = Depends(get_db), autor: Usuario = Depends(puede_ver)):
+    return permisos.accesos_de_usuario(db, usuarios.obtener_usuario(db, usuario_id), autor=autor)
 
 
 @router.put("/{usuario_id}/accesos", response_model=list[AccesoResponse])
@@ -92,12 +92,12 @@ def guardar_accesos(usuario_id: int, datos: ActualizarAccesos, request: Request,
     usuarios.validar_puede_gestionar(autor, usuario.rol, usuario)
     permisos.actualizar_accesos_usuario(db, autor, usuario, datos.accesos, ip_de_request(request))
     db.commit()
-    return permisos.accesos_de_usuario(db, usuario)
+    return permisos.accesos_de_usuario(db, usuario, autor=autor)
 
 
 @router.get("/{usuario_id}/permisos", response_model=ArbolPermisos)
-def ver_permisos(usuario_id: int, db: Session = Depends(get_db), _: Usuario = Depends(puede_ver)):
-    return permisos.arbol_de_usuario(db, usuarios.obtener_usuario(db, usuario_id))
+def ver_permisos(usuario_id: int, db: Session = Depends(get_db), autor: Usuario = Depends(puede_ver)):
+    return permisos.arbol_de_usuario(db, usuarios.obtener_usuario(db, usuario_id), autor=autor)
 
 
 @router.put("/{usuario_id}/permisos", response_model=ArbolPermisos)
@@ -107,7 +107,7 @@ def guardar_permisos(usuario_id: int, datos: ActualizarPermisos, request: Reques
     usuarios.validar_puede_gestionar(autor, usuario.rol, usuario)
     permisos.actualizar_permisos_usuario(db, autor, usuario, datos.permisos, ip_de_request(request))
     db.commit()
-    return permisos.arbol_de_usuario(db, usuario)
+    return permisos.arbol_de_usuario(db, usuario, autor=autor)
 
 
 @router.get("/{usuario_id}/historial", response_model=RespuestaPaginada[HistorialAccesoResponse])

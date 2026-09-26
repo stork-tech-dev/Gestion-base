@@ -32,6 +32,11 @@ class NodoPermiso(BaseModel):
     override_crear: bool | None = None
     override_editar: bool | None = None
     override_eliminar: bool | None = None
+    # Solo en el árbol de un usuario pedido por un autor: si puede concederlo.
+    otorgable_ver: bool | None = None
+    otorgable_crear: bool | None = None
+    otorgable_editar: bool | None = None
+    otorgable_eliminar: bool | None = None
     recursos: list["NodoPermiso"] = []
 
 
@@ -45,6 +50,7 @@ class AccesoResponse(BaseModel):
     heredado: bool
     override: bool
     permitido: bool
+    otorgable: bool = True
 
 
 class ActualizarAccesos(BaseModel):

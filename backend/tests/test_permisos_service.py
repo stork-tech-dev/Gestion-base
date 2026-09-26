@@ -122,6 +122,34 @@ def test_override_general_cubre_accesos_de_sus_recursos(db, crear_usuario):
     assert not retiro["heredado"] and retiro["override"] and retiro["permitido"]
 
 
+def test_otorgable_segun_el_autor(db, crear_usuario):
+    supervisor = crear_usuario("supervisor")
+    vendedor = crear_usuario("vendedor")
+    admin = crear_usuario("admin")
+    accesos = {a["clave"]: a for a in permisos.accesos_de_usuario(db, vendedor, autor=supervisor)}
+    assert accesos["auditoria::ver"]["otorgable"] is False          # reservado al Admin
+    assert accesos["usuarios::crear"]["otorgable"] is False         # reservado al Admin
+    assert accesos["stock:stock.baja:crear"]["otorgable"] is True   # el supervisor lo tiene
+    assert accesos["caja:caja.retiro:crear"]["otorgable"] is True   # caja crear general del supervisor
+    assert accesos["proveedores:dolar.cambio_masivo:editar"]["otorgable"] is False  # proveedores solo ver
+    assert all(a["otorgable"] for a in permisos.accesos_de_usuario(db, vendedor, autor=admin))
+    assert all(a["otorgable"] for a in permisos.accesos_de_usuario(db, vendedor))
+
+
+def test_otorgable_en_el_arbol_y_en_los_accesos_del_rol(db, crear_usuario):
+    supervisor = crear_usuario("supervisor")
+    vendedor = crear_usuario("vendedor")
+    arbol = permisos.arbol_de_usuario(db, vendedor, autor=supervisor)
+    assert _nodo(arbol, "usuarios")["otorgable_ver"] is False
+    assert _nodo(arbol, "stock", "stock.baja")["otorgable_crear"] is True
+    assert _nodo(arbol, "proveedores")["otorgable_editar"] is False
+    assert _nodo(arbol, "stock", "stock.baja").get("otorgable_ver") is None  # "ver" no aplica
+    assert "otorgable_ver" not in _nodo(permisos.arbol_de_usuario(db, vendedor), "stock")
+    rol_vendedor = vendedor.rol
+    accesos_rol = {a["clave"]: a for a in permisos.accesos_de_rol(db, rol_vendedor, autor=supervisor)}
+    assert accesos_rol["auditoria::ver"]["otorgable"] is False
+
+
 def test_arbol_y_accesos_de_usuario_con_rol_inactivo(db, crear_usuario):
     """Mismo criterio que resolver_permiso: rol inactivo (no-admin) → nada se
     hereda y los overrides propios tampoco habilitan nada; el flag de
