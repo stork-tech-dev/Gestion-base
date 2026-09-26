@@ -1,0 +1,18 @@
+{# Head común (lo incluyen base.html y auth/base_auth.html). El <title> lo pone cada layout. #}
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{# Tema antes de pintar: evita el parpadeo claro→oscuro. #}
+<script>
+  try {
+    if (localStorage.theme === 'dark' || (!('theme' in localStorage) && matchMedia('(prefers-color-scheme: dark)').matches)) {
+      document.documentElement.classList.add('dark');
+    }
+  } catch (e) {}
+</script>
+{% include "components/_favicon.html" %}
+<script src="https://cdn.tailwindcss.com"></script>
+{% include "components/_tailwind_config.html" %}
+<link rel="stylesheet" href="{{ estatico('/css/custom.css') }}">
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+<script src="{{ estatico('/js/app.js') }}" defer></script>
+<script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>

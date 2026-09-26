@@ -6,24 +6,8 @@
 <!doctype html>
 <html lang="es">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block titulo %}{{ APP_NAME }}{% endblock %}</title>
-  {# Tema antes de pintar: evita el parpadeo claro→oscuro. #}
-  <script>
-    try {
-      if (localStorage.theme === 'dark' || (!('theme' in localStorage) && matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark');
-      }
-    } catch (e) {}
-  </script>
-  {% include "components/_favicon.html" %}
-  <script src="https://cdn.tailwindcss.com"></script>
-  {% include "components/_tailwind_config.html" %}
-  <link rel="stylesheet" href="{{ estatico('/css/custom.css') }}">
-  <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-  <script src="{{ estatico('/js/app.js') }}" defer></script>
-  <script src="https://unpkg.com/alpinejs@3.14.8/dist/cdn.min.js" defer></script>
+  {% include "components/_head.html" %}
   {% block head_extra %}{% endblock %}
 </head>
 <body class="min-h-screen bg-bg font-sans text-texto antialiased"
@@ -74,7 +58,7 @@
           {{ icono("usuario", "w-4 h-4") }}<span class="max-w-[8rem] truncate">{{ usuario_actual.nombre.split()[0] }}</span>
         </button>
         <div x-show="abierto" x-cloak x-transition.opacity class="absolute right-0 mt-2 w-56 rounded-input border border-borde bg-surface py-2 shadow-lg">
-          <p class="px-4 pb-2 text-xs text-texto-muted">{{ usuario_actual.rol_nombre|default('') }}</p>
+          <p class="px-4 pb-2 text-xs text-texto-muted">{{ usuario_actual.rol.nombre }}</p>
           <a href="/cambiar-password" class="combobox-opcion">Cambiar contraseña</a>
           <button type="button" class="combobox-opcion" @click="cerrarSesion()">Cerrar sesión</button>
         </div>

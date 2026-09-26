@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api.pages import registrar_manejadores_paginas
 from app.api.pages import router as pages_router
 from app.api.v1 import api_router
 from app.core.errores import registrar_manejadores
@@ -35,6 +36,7 @@ app = FastAPI(
 )
 
 registrar_manejadores(app)
+registrar_manejadores_paginas(app)
 
 app.add_middleware(
     CORSMiddleware,

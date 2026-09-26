@@ -166,3 +166,17 @@ def headers_de(db):
         return {"Authorization": f"Bearer {access}"}
 
     return _headers
+
+
+@pytest.fixture
+def iniciar_sesion(client, db):
+    """Deja al `client` con las cookies de una sesión nueva del usuario."""
+    from app.services.auth import generar_tokens
+
+    def _iniciar(usuario):
+        access, refresh, _ = generar_tokens(db, usuario, "127.0.0.1")
+        client.cookies.set("access_token", access)
+        client.cookies.set("refresh_token", refresh)
+        return client
+
+    return _iniciar
