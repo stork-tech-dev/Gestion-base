@@ -25,3 +25,11 @@ def test_historial_de_accesos(crear_usuario, iniciar_sesion):
     assert "Historial de accesos de Hugo" in html
     assert f"historialAccesos({vendedor.id})" in html and "/static/js/historial.js?v=" in html
     assert "Resultado (todos)" in html
+
+
+def test_formulario_de_usuario_protege_los_accesos(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("admin")).get("/usuarios").text
+    # No se puede guardar hasta conocer los accesos (evita mandar accesos: []).
+    assert 'guardando || !accesosCargados' in html
+    # La contraseña es obligatoria solo en el alta.
+    assert 'x-show="!form.id">*</span>' in html

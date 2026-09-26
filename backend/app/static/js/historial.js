@@ -10,6 +10,7 @@
       total: 0,
       filas: [],
       cargando: false,
+      _ultima: window.ultimaRespuesta(),
 
       init() {
         this.cargar();
@@ -28,12 +29,13 @@
           if (valor) params.set(clave, valor);
         }
         try {
-          const respuesta = await window.pedir(`/api/v1/usuarios/${usuarioId}/historial?${params}`);
+          const respuesta = await this._ultima(window.pedir(`/api/v1/usuarios/${usuarioId}/historial?${params}`));
+          if (respuesta === undefined) return;  // llegó un pedido más nuevo
           this.filas = respuesta.resultados;
           this.total = respuesta.total;
+          this.cargando = false;
         } catch (e) {
           window.toast(e.message, 'error');
-        } finally {
           this.cargando = false;
         }
       },

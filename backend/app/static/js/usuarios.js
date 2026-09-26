@@ -28,7 +28,13 @@
       guardando: false,
       accesos: [],
       marcados: [],
+      // Copia ordenada de los marcados al abrir: si no cambian, no se manda el PUT de accesos.
+      marcadosOriginales: [],
+      // false mientras no se sepa qué accesos tiene el usuario: guardar
+      // antes mandaría accesos: [] y le borraría los propios.
+      accesosCargados: false,
       _espera: null,
+      _ultima: window.ultimaRespuesta(),
 
       async init() {
         this.cargar();
@@ -58,12 +64,13 @@
         if (this.filtros.rol_id) params.set('rol_id', this.filtros.rol_id);
         if (this.soloActivos) params.set('activo', 'true');
         try {
-          const respuesta = await window.pedir(`${API}?${params}`);
+          const respuesta = await this._ultima(window.pedir(`${API}?${params}`));
+          if (respuesta === undefined) return;  // llegó un pedido más nuevo
           this.filas = respuesta.resultados;
           this.total = respuesta.total;
+          this.cargando = false;
         } catch (e) {
           window.toast(e.message, 'error');
-        } finally {
           this.cargando = false;
         }
       },
@@ -75,9 +82,9 @@
 
       // Solo oculta botones: la API vuelve a validar todo.
       puedeGestionar(u) {
-        if (!puedeEditar) return false;
+        if (!puedeEditar || u.id === usuarioActualId) return false;
         if (esAdmin) return true;
-        return u.id !== usuarioActualId && (rolesGestionables || []).includes(u.rol);
+        return (rolesGestionables || []).includes(u.rol);
       },
 
       ver(u) {
@@ -91,6 +98,8 @@
         this.errores = {};
         this.accesos = [];
         this.marcados = [];
+        this.marcadosOriginales = [];
+        this.accesosCargados = true;  // sin rol elegido no hay accesos que perder
         this.formAbierto = true;
       },
 
@@ -103,25 +112,34 @@
         this.errores = {};
         this.accesos = [];
         this.marcados = [];
+        this.marcadosOriginales = [];
+        this.accesosCargados = false;
         this.formAbierto = true;
         try {
           this.accesos = await window.pedir(`${API}/${u.id}/accesos`);
           this.marcados = this.accesos.filter((a) => a.override && !a.heredado).map((a) => a.clave);
+          this.marcadosOriginales = [...this.marcados].sort();
+          this.accesosCargados = true;
         } catch (e) {
           window.toast(e.message, 'error');
         }
       },
 
       async alCambiarRol() {
+        // En la edición, accesosCargados depende de la carga de los accesos del usuario.
+        const esAlta = !this.form.id;
         if (!this.form.rol_id) {
           this.accesos = [];
+          if (esAlta) this.accesosCargados = true;
           return;
         }
+        if (esAlta) this.accesosCargados = false;
         try {
           const delRol = await window.pedir(`${API}/accesos?rol_id=${this.form.rol_id}`);
           const heredados = new Set(delRol.filter((a) => a.heredado).map((a) => a.clave));
           this.marcados = this.marcados.filter((clave) => !heredados.has(clave));
           this.accesos = delRol;
+          if (esAlta) this.accesosCargados = true;
         } catch (e) {
           window.toast(e.message, 'error');
         }
@@ -158,7 +176,15 @@
         return cuerpo;
       },
 
+      // En el alta, solo si hay algo marcado; en la edición, solo si cambió
+      // (evita filas de auditoría idénticas).
+      _accesosCambiaron(esAlta) {
+        if (esAlta) return this.marcados.length > 0;
+        return JSON.stringify([...this.marcados].sort()) !== JSON.stringify(this.marcadosOriginales);
+      },
+
       async guardar() {
+        if (!this.accesosCargados) return;
         const esAlta = !this.form.id;
         this.guardando = true;
         this.errores = {};
@@ -168,7 +194,11 @@
             body: this._cuerpo(),
           });
           this.form.id = usuario.id;  // si falla lo que sigue, reintentar edita en vez de duplicar
-          await window.pedir(`${API}/${usuario.id}/accesos`, { method: 'PUT', body: { accesos: this.marcados } });
+          if (esAlta) this.form.password = '';  // un reintento no la vuelve a mandar
+          if (this._accesosCambiaron(esAlta)) {
+            await window.pedir(`${API}/${usuario.id}/accesos`, { method: 'PUT', body: { accesos: this.marcados } });
+            this.marcadosOriginales = [...this.marcados].sort();
+          }
           window.toast(esAlta ? 'Usuario creado. Va a cambiar la contraseña en su primer ingreso.' : 'Cambios guardados.');
           this.formAbierto = false;
         } catch (e) {

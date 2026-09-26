@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% block titulo %}No encontrado · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{{ encabezado("No encontrado") }}
+<div class="tarjeta flex flex-col items-start gap-4">
+  <p class="text-texto">Lo que buscás no existe o fue eliminado.</p>
+  <a href="/" class="boton boton-secundario">Ir al inicio</a>
+</div>
+{% endblock %}

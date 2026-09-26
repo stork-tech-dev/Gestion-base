@@ -80,6 +80,11 @@
       enviando: false,
       listo: false,
       errores: {},
+      init() {
+        // El token ya está en el componente: sacarlo de la URL para que no
+        // quede en el historial del navegador.
+        history.replaceState(null, '', '/reset-password');
+      },
       async guardar() {
         this.errores = {};
         if (this.nueva !== this.confirmacion) return window.toast(MENSAJE_CONFIRMACION, 'error');

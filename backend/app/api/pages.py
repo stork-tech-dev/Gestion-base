@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.errores import SinPermiso
+from app.core.errores import NoEncontrado, SinPermiso
 from app.core.permisos import Modulo, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
@@ -61,6 +61,13 @@ class PaginaSinPermiso(Exception):
         self.contexto = contexto
 
 
+class PaginaNoEncontrada(Exception):
+    """Página 404 con el layout (no el JSON de la API). Lleva el contexto ya armado."""
+
+    def __init__(self, contexto: dict):
+        self.contexto = contexto
+
+
 def registrar_manejadores_paginas(app: FastAPI) -> None:
     async def _redirigir(_request: Request, exc: Redireccion):
         return RedirectResponse(exc.url, status_code=303)
@@ -68,8 +75,12 @@ def registrar_manejadores_paginas(app: FastAPI) -> None:
     async def _sin_permiso(request: Request, exc: PaginaSinPermiso):
         return templates.TemplateResponse(request, "pages/sin_permiso.html", exc.contexto, status_code=403)
 
+    async def _no_encontrado(request: Request, exc: PaginaNoEncontrada):
+        return templates.TemplateResponse(request, "pages/no_encontrado.html", exc.contexto, status_code=404)
+
     app.add_exception_handler(Redireccion, _redirigir)
     app.add_exception_handler(PaginaSinPermiso, _sin_permiso)
+    app.add_exception_handler(PaginaNoEncontrada, _no_encontrado)
 
 
 def usuario_de_pagina(request: Request, db: Session) -> Usuario | None:
@@ -129,6 +140,14 @@ def requiere_pagina(item: dict, actual: str = "/configuracion"):
         return usuario
 
     return dependencia
+
+
+def _o_no_encontrado(request: Request, db: Session, usuario: Usuario, funcion, *args):
+    """Llama a un obtener_* del servicio; si levanta NoEncontrado, página 404 HTML."""
+    try:
+        return funcion(db, *args)
+    except NoEncontrado:
+        raise PaginaNoEncontrada(contexto_base(request, db, "/configuracion", usuario))
 
 
 def _pagina(request: Request, plantilla: str, contexto: dict):
@@ -203,7 +222,7 @@ def roles(request: Request, db: Session = Depends(get_db),
 @router.get("/roles/{rol_id}/permisos")
 def permisos_de_rol(rol_id: int, request: Request, db: Session = Depends(get_db),
                     usuario: Usuario = Depends(requiere_pagina(SECCION_ROLES))):
-    rol = servicio_roles.obtener_rol(db, rol_id)
+    rol = _o_no_encontrado(request, db, usuario, servicio_roles.obtener_rol, rol_id)
     return _pagina(request, "pages/roles/permisos.html", contexto_base(
         request, db, "/configuracion", usuario, rol=rol, editable=rol.nombre != ROL_ADMIN,
     ))
@@ -212,7 +231,7 @@ def permisos_de_rol(rol_id: int, request: Request, db: Session = Depends(get_db)
 @router.get("/usuarios/{usuario_id}/permisos")
 def permisos_de_usuario(usuario_id: int, request: Request, db: Session = Depends(get_db),
                         usuario: Usuario = Depends(requiere_pagina(SECCION_USUARIOS))):
-    objetivo = servicio_usuarios.obtener_usuario(db, usuario_id)
+    objetivo = _o_no_encontrado(request, db, usuario, servicio_usuarios.obtener_usuario, usuario_id)
     editable = resolver_permiso(db, usuario.id, Modulo.USUARIOS, "editar")
     if editable:
         try:
@@ -227,6 +246,6 @@ def permisos_de_usuario(usuario_id: int, request: Request, db: Session = Depends
 @router.get("/usuarios/{usuario_id}/historial")
 def historial_de_usuario(usuario_id: int, request: Request, db: Session = Depends(get_db),
                          usuario: Usuario = Depends(requiere_pagina(SECCION_USUARIOS))):
-    objetivo = servicio_usuarios.obtener_usuario(db, usuario_id)
+    objetivo = _o_no_encontrado(request, db, usuario, servicio_usuarios.obtener_usuario, usuario_id)
     return _pagina(request, "pages/usuarios/historial.html",
                    contexto_base(request, db, "/configuracion", usuario, objetivo=objetivo))

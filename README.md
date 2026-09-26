@@ -37,6 +37,12 @@ docker compose exec backend pytest
 ```
 Corren contra PostgreSQL real en la base `gestion_test` (se recrea en cada corrida).
 
+Tests de JavaScript (lógica del árbol de permisos, sin Alpine ni red; en el host,
+con Node 22+, sin dependencias):
+```bash
+node --test backend/tests_js/
+```
+
 ## Migraciones
 ```bash
 docker compose exec backend alembic upgrade head

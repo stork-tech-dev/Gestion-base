@@ -15,6 +15,7 @@
       errores: {},
       guardando: false,
       _espera: null,
+      _ultima: window.ultimaRespuesta(),
 
       get total() {
         return this.filas.length;
@@ -41,10 +42,12 @@
         if (this.filtros.tipo) params.set('es_sistema', this.filtros.tipo === 'sistema');
         if (this.filtros.estado) params.set('activo', this.filtros.estado === 'activos');
         try {
-          this.filas = await window.pedir(`${API}?${params}`);
+          const filas = await this._ultima(window.pedir(`${API}?${params}`));
+          if (filas === undefined) return;  // llegó un pedido más nuevo
+          this.filas = filas;
+          this.cargando = false;
         } catch (e) {
           window.toast(e.message, 'error');
-        } finally {
           this.cargando = false;
         }
       },

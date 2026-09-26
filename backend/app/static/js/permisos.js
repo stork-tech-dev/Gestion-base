@@ -18,6 +18,12 @@
       guardando: false,
 
       async init() {
+        // Avisa al salir de la página con cambios sin guardar.
+        window.addEventListener('beforeunload', (evento) => {
+          if (!this.hayCambios) return;
+          evento.preventDefault();
+          evento.returnValue = '';
+        });
         await this.cargar();
       },
 
@@ -98,8 +104,13 @@
           // Marcar el general sugiere sus recursos; desmarcarlo los desmarca.
           // Se cascada aunque el recurso quede "cubierto" al marcar (ese
           // bloqueo es solo para el click directo, no para esta propagación).
+          // Quitar siempre está permitido: al desmarcar se ignoran los
+          // bloqueos (si no, un override heredado quedaría "pegado"); al
+          // marcar se saltean los recursos bloqueados por otro motivo.
+          const valor = nodo[clave];
           for (const r of this._modulo(nodo.modulo).recursos) {
-            if (this.aplica(r, accion) && !this._bloqueadoPorOtroMotivo(r, accion)) r[clave] = nodo[clave];
+            if (!this.aplica(r, accion)) continue;
+            if (!valor || !this._bloqueadoPorOtroMotivo(r, accion)) r[clave] = valor;
           }
         }
       },

@@ -32,7 +32,7 @@
   {% if modo == "usuario" %}
   <p class="mb-3 text-sm text-texto-muted">En gris, lo que hereda del rol (no se quita desde acá). Marcados en color, los permisos propios de este usuario. Lo que no podés otorgar aparece deshabilitado.</p>
   {% endif %}
-  <div class="tarjeta overflow-hidden p-0">
+  <div class="tarjeta overflow-hidden p-0" x-show="!cargando">
     <div class="overflow-x-auto">
       <table class="tabla">
         <thead>

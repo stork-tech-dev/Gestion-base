@@ -13,7 +13,7 @@
     {{ campo("u-nacimiento", "Fecha de nacimiento", tipo="date", modelo="form.fecha_nacimiento", error="errores.fecha_nacimiento") }}
     {{ campo("u-celular", "Celular", tipo="tel", modelo="form.celular", placeholder="+3512108190", error="errores.celular") }}
     {{ campo("u-email", "Mail", tipo="email", modelo="form.email", error="errores.email") }}
-    {{ campo("u-password", "Contraseña", tipo="password", modelo="form.password", error="errores.password", ayuda="Mínimo 8 caracteres. Al editar, dejala vacía para no cambiarla. El usuario la cambia en su primer ingreso.", atributos='autocomplete="new-password"') }}
+    {{ campo("u-password", "Contraseña", tipo="password", modelo="form.password", error="errores.password", requerido_si="!form.id", ayuda="Mínimo 8 caracteres. Al editar, dejala vacía para no cambiarla. El usuario la cambia en su primer ingreso.", atributos='autocomplete="new-password"') }}
   </div>
 
   <fieldset class="flex flex-col gap-2">
@@ -35,7 +35,7 @@
   </fieldset>
 
   <div class="flex justify-end">
-    <button type="submit" class="boton boton-primario" :disabled="guardando"
+    <button type="submit" class="boton boton-primario" :disabled="guardando || !accesosCargados"
             x-text="guardando ? 'Guardando…' : (form.id ? 'Finalizar' : 'Crear')"></button>
   </div>
 </form>

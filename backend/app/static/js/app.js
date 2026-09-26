@@ -70,6 +70,25 @@
     return datos;
   };
 
+  // ---------- Descartar respuestas viejas ----------
+  /** Devuelve envolver(promesa): resuelve con el resultado solo si es el
+      último pedido lanzado con ese envolver; si llegó uno más nuevo, resuelve
+      con undefined (el llamador no toca el estado). Los errores del último
+      pedido se propagan; los de pedidos viejos se descartan. */
+  window.ultimaRespuesta = function () {
+    let ultimo = 0;
+    return async function envolver(promesa) {
+      const numero = ++ultimo;
+      try {
+        const resultado = await promesa;
+        return numero === ultimo ? resultado : undefined;
+      } catch (e) {
+        if (numero === ultimo) throw e;
+        return undefined;
+      }
+    };
+  };
+
   // ---------- Texto y categorías ----------
   window.normalizarTexto = (texto) =>
     String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();

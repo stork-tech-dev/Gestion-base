@@ -35,3 +35,18 @@ def test_supervisor_ve_pero_no_edita_a_otro_supervisor(crear_usuario, iniciar_se
 def test_vendedor_no_entra(crear_usuario, iniciar_sesion, db):
     cliente = iniciar_sesion(crear_usuario("vendedor"))
     assert cliente.get(f"/roles/{_rol_id(db, 'vendedor')}/permisos").status_code == 403
+
+
+def test_permisos_de_usuario_inexistente_da_pagina_404(crear_usuario, iniciar_sesion):
+    r = iniciar_sesion(crear_usuario("admin")).get("/usuarios/999999/permisos")
+    assert r.status_code == 404
+    assert "text/html" in r.headers["content-type"]
+    assert "No encontrado" in r.text
+
+
+def test_historial_y_permisos_de_rol_inexistentes_dan_pagina_404(crear_usuario, iniciar_sesion):
+    cliente = iniciar_sesion(crear_usuario("admin"))
+    for url in ("/usuarios/999999/historial", "/roles/999999/permisos"):
+        r = cliente.get(url)
+        assert r.status_code == 404 and "text/html" in r.headers["content-type"], url
+        assert "No encontrado" in r.text, url
