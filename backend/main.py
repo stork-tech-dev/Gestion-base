@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.pages import router as pages_router
 from app.api.v1 import api_router
+from app.core.errores import registrar_manejadores
 from config import settings
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -31,6 +32,8 @@ app = FastAPI(
     redoc_url="/redoc" if docs_habilitadas else None,
     openapi_url="/openapi.json" if docs_habilitadas else None,
 )
+
+registrar_manejadores(app)
 
 app.add_middleware(
     CORSMiddleware,
