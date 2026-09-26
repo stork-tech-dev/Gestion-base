@@ -17,3 +17,11 @@ def test_supervisor_ve_solo_vendedores_como_gestionables(crear_usuario, iniciar_
 def test_vendedor_no_entra_a_usuarios(crear_usuario, iniciar_sesion):
     r = iniciar_sesion(crear_usuario("vendedor")).get("/usuarios")
     assert r.status_code == 403 and "No tenés permiso" in r.text
+
+
+def test_historial_de_accesos(crear_usuario, iniciar_sesion):
+    vendedor = crear_usuario("vendedor", nombre="Hugo")
+    html = iniciar_sesion(crear_usuario("admin")).get(f"/usuarios/{vendedor.id}/historial").text
+    assert "Historial de accesos de Hugo" in html
+    assert f"historialAccesos({vendedor.id})" in html and "/static/js/historial.js?v=" in html
+    assert "Resultado (todos)" in html

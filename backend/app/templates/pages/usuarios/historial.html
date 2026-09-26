@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/paginacion.html" import paginacion %}
+{% block titulo %}Historial de accesos · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="historialAccesos({{ objetivo.id|js }})">
+  {{ encabezado("Historial de accesos de " ~ objetivo.nombre, "/usuarios", "Usuarios") }}
+  {% call barra_filtros() %}
+    <label class="flex flex-col gap-1 text-sm text-texto-muted">Desde
+      <input type="date" class="campo" x-model="filtros.desde" @change="pagina = 1; cargar()"></label>
+    <label class="flex flex-col gap-1 text-sm text-texto-muted">Hasta
+      <input type="date" class="campo" x-model="filtros.hasta" @change="pagina = 1; cargar()"></label>
+    <label class="flex flex-col gap-1 text-sm text-texto-muted">Resultado
+      <select class="campo" x-model="filtros.resultado" @change="pagina = 1; cargar()">
+        <option value="">Resultado (todos)</option>
+        <option value="exitoso">Exitoso</option>
+        <option value="fallido">Fallido</option>
+      </select></label>
+  {% endcall %}
+  {% set columnas = [
+    {"titulo": "Fecha y hora", "expr": "fechaHora(fila.timestamp)"},
+    {"titulo": "IP", "expr": "fila.ip_origen || '—'"},
+    {"titulo": "Resultado", "expr": "fila.resultado === 'exitoso' ? estadoHtml('Exitoso', 'exito') : estadoHtml('Fallido', 'peligro')", "html": True},
+    {"titulo": "Detalle", "expr": "fila.detalle || '—'"},
+  ] %}
+  {{ tabla(columnas, cargando="cargando", vacio="Sin ingresos registrados.") }}
+  {{ paginacion() }}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/historial.js') }}"></script>{% endblock %}

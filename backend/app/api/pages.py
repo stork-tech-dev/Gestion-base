@@ -224,5 +224,9 @@ def permisos_de_usuario(usuario_id: int, request: Request, db: Session = Depends
     ))
 
 
-# (Las rutas de historial se agregan en las tareas siguientes, en este mismo
-# archivo.)
+@router.get("/usuarios/{usuario_id}/historial")
+def historial_de_usuario(usuario_id: int, request: Request, db: Session = Depends(get_db),
+                         usuario: Usuario = Depends(requiere_pagina(SECCION_USUARIOS))):
+    objetivo = servicio_usuarios.obtener_usuario(db, usuario_id)
+    return _pagina(request, "pages/usuarios/historial.html",
+                   contexto_base(request, db, "/configuracion", usuario, objetivo=objetivo))
