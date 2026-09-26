@@ -31,6 +31,11 @@ def test_fuera_de_produccion_no_exige_jwt_secret_fuerte():
     Settings(_env_file=None, APP_ENV="development", JWT_SECRET="cambiar-en-produccion")
 
 
+def test_produccion_rechaza_el_secreto_de_ejemplo():
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, APP_ENV="production", JWT_SECRET="cambiar-por-un-secreto-largo-y-aleatorio")
+
+
 def test_sesion_inactividad_siempre_debe_ser_mayor_o_igual_al_access_token():
     with pytest.raises(ValidationError):
         Settings(_env_file=None, JWT_ACCESS_TOKEN_MINUTES=30, SESION_INACTIVIDAD_MINUTOS=10)

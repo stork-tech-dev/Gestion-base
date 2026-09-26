@@ -9,6 +9,7 @@ os.environ["POSTGRES_DB"] = os.environ.get("POSTGRES_DB_TEST", "gestion_test")
 os.environ.pop("DATABASE_URL", None)
 os.environ["UPLOADS_DIR"] = tempfile.mkdtemp(prefix="uploads_test_")
 os.environ["APP_ENV"] = "test"
+os.environ["BCRYPT_ROUNDS"] = "4"
 
 from pathlib import Path  # noqa: E402
 
@@ -112,3 +113,35 @@ def client(db):
     with TestClient(app) as cliente:
         yield cliente
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def crear_usuario(db):
+    """Fábrica de usuarios de prueba (por defecto: vendedor activo que ya cambió la contraseña)."""
+    import itertools
+
+    from sqlalchemy import select
+
+    from app.core.utils import ahora_db
+    from app.models import Rol, Usuario
+    from app.services.auth import hash_password
+
+    numeros = itertools.count(1)
+
+    def _crear(rol="vendedor", *, username=None, password="Clave1234", activo=True, debe_cambiar=False,
+               nombre="Usuario De Prueba", **extra):
+        rol_obj = rol if isinstance(rol, Rol) else db.scalar(select(Rol).where(Rol.nombre == rol))
+        usuario = Usuario(
+            username=username or f"prueba{next(numeros)}",
+            nombre=nombre,
+            password_hash=hash_password(password),
+            rol_id=rol_obj.id,
+            activo=activo,
+            ultimo_acceso=None if debe_cambiar else ahora_db(),
+            **extra,
+        )
+        db.add(usuario)
+        db.flush()
+        return usuario
+
+    return _crear

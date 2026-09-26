@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     JWT_COOKIE_NAME: str = "access_token"
     JWT_REFRESH_COOKIE_NAME: str = "refresh_token"
     COOKIE_SECURE: bool = False
+    BCRYPT_ROUNDS: int = 12  # costo de bcrypt (los tests usan 4 para ir rápido)
 
     # CORS
     CORS_ORIGINS: str = "http://localhost:8000"
@@ -94,8 +95,9 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validar_defaults_de_seguridad(self) -> "Settings":
         """Defaults inseguros que no deben llegar a producción (Principio 3/6)."""
+        secretos_de_ejemplo = {"cambiar-en-produccion", "cambiar-por-un-secreto-largo-y-aleatorio"}
         if self.APP_ENV == "production" and (
-            self.JWT_SECRET == "cambiar-en-produccion" or len(self.JWT_SECRET) < 32
+            self.JWT_SECRET in secretos_de_ejemplo or len(self.JWT_SECRET) < 32
         ):
             raise ValueError(
                 "JWT_SECRET debe reemplazarse por un secreto de al menos 32 caracteres en producción"
