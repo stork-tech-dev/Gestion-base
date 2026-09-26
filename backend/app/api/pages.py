@@ -193,5 +193,11 @@ def usuarios(request: Request, db: Session = Depends(get_db),
     ))
 
 
-# (Las rutas de roles, permisos e historial se agregan en las tareas
-# siguientes, en este mismo archivo.)
+@router.get("/roles")
+def roles(request: Request, db: Session = Depends(get_db),
+          usuario: Usuario = Depends(requiere_pagina(SECCION_ROLES))):
+    return _pagina(request, "pages/roles/listado.html", contexto_base(request, db, "/configuracion", usuario))
+
+
+# (Las rutas de permisos e historial se agregan en las tareas siguientes,
+# en este mismo archivo.)
