@@ -106,13 +106,22 @@ def db():
 
 @pytest.fixture
 def client(db):
+    from contextlib import contextmanager
+
     from app.core.database import get_db
     from main import app
 
+    @contextmanager
+    def _misma_sesion():
+        # El middleware usa la misma sesión del test (misma transacción revertida).
+        yield db
+
     app.dependency_overrides[get_db] = lambda: db
+    app.state.abrir_sesion_db = _misma_sesion
     with TestClient(app) as cliente:
         yield cliente
     app.dependency_overrides.clear()
+    del app.state.abrir_sesion_db
 
 
 @pytest.fixture
