@@ -145,3 +145,15 @@ def crear_usuario(db):
         return usuario
 
     return _crear
+
+
+@pytest.fixture
+def headers_de(db):
+    """Headers Bearer de una sesión nueva del usuario dado."""
+    from app.services.auth import generar_tokens
+
+    def _headers(usuario):
+        access, _, _ = generar_tokens(db, usuario, "127.0.0.1")
+        return {"Authorization": f"Bearer {access}"}
+
+    return _headers
