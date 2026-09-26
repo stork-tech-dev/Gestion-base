@@ -148,5 +148,29 @@ def configuracion(request: Request, db: Session = Depends(get_db), usuario: Usua
     return _pagina(request, "pages/configuracion/index.html",
                    contexto_base(request, db, "/configuracion", usuario, secciones=secciones))
 
-# (Las rutas de login, usuarios, roles, permisos e historial se agregan en las
+
+@router.get("/login")
+def login(request: Request, db: Session = Depends(get_db)):
+    if usuario_de_pagina(request, db) is not None:
+        return RedirectResponse("/", status_code=303)
+    return _pagina(request, "auth/login.html", {"request": request})
+
+
+@router.get("/cambiar-password")
+def cambiar_password(request: Request, db: Session = Depends(get_db)):
+    usuario = usuario_de_pagina(request, db)
+    if usuario is None:
+        return RedirectResponse("/login", status_code=303)
+    return _pagina(request, "auth/cambiar_password.html",
+                   {"request": request, "obligatorio": usuario.debe_cambiar_password})
+
+
+@router.get("/reset-password")
+def reset_password(request: Request, token: str = ""):
+    respuesta = _pagina(request, "auth/reset_password.html", {"request": request, "token": token})
+    # El token viaja en la URL: que no se filtre a los CDN por el Referer.
+    respuesta.headers["Referrer-Policy"] = "no-referrer"
+    return respuesta
+
+# (Las rutas de usuarios, roles, permisos e historial se agregan en las
 # tareas siguientes, en este mismo archivo.)
