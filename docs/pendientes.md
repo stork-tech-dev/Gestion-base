@@ -17,21 +17,34 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - **Pin y SRI de los CDN** (Tailwind, htmx, Alpine).
 - `/health/db` con mensaje genérico cuando `APP_ENV=production`.
 
-## Para el módulo 02-B (pantallas de autenticación y usuarios)
-- Página `/reset-password` (el mail de recuperación apunta ahí) con
-  `Referrer-Policy: no-referrer`.
-- Las páginas HTML no usan `get_current_user` tal cual (responde 401 JSON):
-  necesitan su propia dependency que redirige a `/login` y manda a
-  `/cambiar-password` si hay cambio pendiente. `requiere_permiso` sigue
-  siendo la única barrera; las plantillas solo ocultan lo que no se puede.
-- Nunca leer ni guardar en JavaScript los tokens del JSON de login: alcanza
-  con las cookies HttpOnly.
-- Cambios de estado solo por POST/PUT/PATCH/DELETE; si se aceptan formularios
-  HTMX, agregar chequeo de Origin/Referer.
-- El árbol de permisos y "Accesos permitidos" deben ofrecer solo lo que el
-  autor puede otorgar y no mostrar la edición del propio usuario. Los dos
-  escriben las mismas filas de `usuario_permisos`: dejar claro en la pantalla
-  qué edita cada uno.
+## Módulo 02-B: pendientes que quedaron
+- **Carrera al cambiar el rol editando un usuario** (`usuarios.js`,
+  `alCambiarRol`): mientras cargan los accesos del rol nuevo, el botón
+  "Finalizar" sigue habilitado; si se guarda en ese instante, los accesos
+  pueden no reconciliarse con el rol nuevo. Bloquear `accesosCargados` también
+  en la edición y secuenciar las respuestas (mismo helper `ultimaRespuesta`).
+  Prioridad alta: arreglarlo al empezar el módulo 03.
+- No hay tests de JS para la lógica del formulario de usuario (solo para el
+  árbol de permisos, en `backend/tests_js/`).
+- Roles sin paginación; filtros de usuarios solo por nombre, rol y estado;
+  para no-admins el filtro de rol muestra solo "vendedor".
+- Convención única para los filtros (placeholder o label) antes de 03-09.
+- El token de recuperación viaja en la URL (queda en logs de acceso):
+  evaluar pasarlo como fragmento `#token`.
+- Advertencia de "el rol tiene usuarios" cuenta todos y no solo los activos.
+
+## Patrones que 03-09 deben copiar (de la revisión del 02-B)
+- Páginas con `Depends(requiere_pagina(ITEM))`, con el ítem definido una vez
+  y compartido por sidebar, hub y página; `resolver_permiso` solo para ocultar.
+- Valores del servidor a Alpine solo con `|js` y solo en atributos.
+- `x-html` solo con markup armado en JS y datos pasados por `escaparHtml` /
+  `estadoHtml`; preferir `x-text`.
+- Escrituras solo con `pedir()`; si algún día se usan formularios HTMX,
+  agregar antes un chequeo de Origin/Referer.
+- Formularios que cargan datos dependientes: bloquear el envío hasta que
+  carguen y mandar la escritura dependiente solo si cambió algo.
+- Listados con `ultimaRespuesta()`, `erroresDeCampos()` y `confirmar()`.
+- Lógica de estado no trivial en JS: extraerla y testearla con `node --test`.
 
 ## Antes de que los módulos 03 y 04 usen mucho los componentes
 - Accesibilidad del combobox (`aria-controls`, `aria-activedescendant`,
