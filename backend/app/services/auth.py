@@ -14,7 +14,6 @@ import jwt
 from sqlalchemy import select, update
 
 from app.core.auditoria import registrar_auditoria
-from app.core.email import enviar_reset_password
 from app.core.errores import NoAutenticado
 from app.core.utils import ahora, ahora_db
 from app.models import HistorialAcceso, ResultadoAcceso, Sesion, Usuario
@@ -236,22 +235,26 @@ def validar_token_reset(db, token: str | None) -> Usuario:
     return usuario
 
 
-def solicitar_reset(db, username: str, ip: str | None) -> None:
-    """Envía el mail solo si el usuario existe, está activo y tiene email.
-    El llamador responde siempre lo mismo (no revela qué usuarios existen)."""
+def solicitar_reset(db, username: str, ip: str | None) -> tuple[str, str, str] | None:
+    """Si el usuario existe, está activo y tiene email, devuelve `(email, nombre,
+    token)` para que el llamador envíe el mail DESPUÉS del commit, en segundo
+    plano. Nunca envía el mail acá: hacerlo de forma síncrona (y solo cuando
+    el usuario existe) sería un timing oracle que revela qué usernames son
+    válidos. El llamador responde siempre lo mismo sin importar el resultado."""
     username = (username or "").strip().lower()
     usuario = db.scalar(select(Usuario).where(Usuario.username == username))
-    enviado = False
+    datos = None
     if usuario is not None and usuario.activo and usuario.email:
-        enviado = enviar_reset_password(usuario.email, usuario.nombre, generar_token_reset(usuario))
+        datos = (usuario.email, usuario.nombre, generar_token_reset(usuario))
     registrar_auditoria(
         db,
         accion="auth.reset_solicitar",
         entidad="usuario",
         entidad_id=usuario.id if usuario else None,
-        estado_nuevo={"username": username, "enviado": enviado},
+        estado_nuevo={"username": username, "con_envio": datos is not None},
         ip_origen=ip,
     )
+    return datos
 
 
 def cambiar_password(db, usuario: Usuario, nueva: str, *, autor_id: int | None, ip: str | None,

@@ -180,14 +180,23 @@ def test_cambiar_password_revoca_sesiones_y_audita_sin_la_clave(db, crear_usuari
     assert "OtraClave99" not in str(registro.estado_nuevo)
 
 
-def test_solicitar_reset_envia_solo_a_usuarios_activos_con_email(db, crear_usuario, monkeypatch):
-    enviados = []
-    monkeypatch.setattr(auth, "enviar_reset_password", lambda email, nombre, token: enviados.append((email, token)) or True)
+def test_solicitar_reset_envia_solo_a_usuarios_activos_con_email(db, crear_usuario):
+    """solicitar_reset NO manda el mail (sería un timing oracle): devuelve los
+    datos para que el llamador lo mande en segundo plano, después del commit."""
     crear_usuario(username="conmail", email="conmail@example.com")
     crear_usuario(username="sinmail")
     crear_usuario(username="inactivo", email="inactivo@example.com", activo=False)
-    for nombre in ("conmail", "sinmail", "inactivo", "noexiste"):
-        auth.solicitar_reset(db, nombre, None)
-    assert [e for e, _ in enviados] == ["conmail@example.com"]
+
+    resultados = {
+        nombre: auth.solicitar_reset(db, nombre, None)
+        for nombre in ("conmail", "sinmail", "inactivo", "noexiste")
+    }
+    assert resultados["conmail"][0] == "conmail@example.com"
+    assert resultados["sinmail"] is None
+    assert resultados["inactivo"] is None
+    assert resultados["noexiste"] is None
+
     registros = db.scalars(select(Auditoria).where(Auditoria.accion == "auth.reset_solicitar")).all()
     assert len(registros) == 4
+    con_envio = {r.estado_nuevo["username"]: r.estado_nuevo["con_envio"] for r in registros}
+    assert con_envio == {"conmail": True, "sinmail": False, "inactivo": False, "noexiste": False}

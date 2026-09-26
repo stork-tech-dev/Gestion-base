@@ -1,11 +1,12 @@
 """Autenticación: login, renovación, logout, recuperación y cambio de contraseña."""
-from fastapi import APIRouter, Body, Depends, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.core.auditoria import registrar_auditoria
 from app.core.cookies import borrar_cookies_sesion, poner_cookie_access, poner_cookies_sesion
 from app.core.database import get_db
+from app.core.email import enviar_reset_password
 from app.core.errores import DatoInvalido
 from app.core.seguridad import get_current_user
 from app.core.utils import ip_de_request
@@ -89,9 +90,14 @@ def logout(request: Request, datos: RefreshRequest | None = Body(default=None), 
 
 
 @router.post("/forgot-password", response_model=MensajeResponse)
-def forgot_password(datos: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
-    auth.solicitar_reset(db, datos.username, ip_de_request(request))
+def forgot_password(datos: ForgotPasswordRequest, request: Request, tareas: BackgroundTasks,
+                     db: Session = Depends(get_db)):
+    datos_envio = auth.solicitar_reset(db, datos.username, ip_de_request(request))
     db.commit()
+    # El mail se manda DESPUÉS de responder (segundo plano): la respuesta es
+    # idéntica exista o no el usuario, así el tiempo de respuesta no lo revela.
+    if datos_envio is not None:
+        tareas.add_task(enviar_reset_password, *datos_envio)
     return MensajeResponse(mensaje=MENSAJE_RESET_SOLICITADO)
 
 

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
+from app.api.v1 import auth as auth_router
 from app.models import HistorialAcceso, ResultadoAcceso, Sesion
-from app.services import auth
 
 
 def _login(client, username, password):
@@ -77,7 +77,7 @@ def test_logout_revoca_y_no_se_puede_renovar(client, crear_usuario, db):
 
 def test_forgot_password_siempre_responde_lo_mismo(client, crear_usuario, monkeypatch):
     enviados = []
-    monkeypatch.setattr(auth, "enviar_reset_password", lambda e, n, t: enviados.append(t) or True)
+    monkeypatch.setattr(auth_router, "enviar_reset_password", lambda e, n, t: enviados.append(t) or True)
     crear_usuario(username="eli", email="eli@example.com")
     r1 = client.post("/api/v1/auth/forgot-password", json={"username": "eli"})
     r2 = client.post("/api/v1/auth/forgot-password", json={"username": "noexiste"})
@@ -87,7 +87,7 @@ def test_forgot_password_siempre_responde_lo_mismo(client, crear_usuario, monkey
 
 def test_reset_password_de_un_solo_uso(client, crear_usuario, monkeypatch):
     enviados = []
-    monkeypatch.setattr(auth, "enviar_reset_password", lambda e, n, t: enviados.append(t) or True)
+    monkeypatch.setattr(auth_router, "enviar_reset_password", lambda e, n, t: enviados.append(t) or True)
     crear_usuario(username="fede", email="fede@example.com")
     client.post("/api/v1/auth/forgot-password", json={"username": "fede"})
     cuerpo = {"token": enviados[0], "password_nueva": "NuevaClave1"}
