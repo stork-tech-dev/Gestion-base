@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Roles · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="rolesListado()">
+  {% call encabezado("Roles", "/configuracion", "Configuraciones") %}
+    <button type="button" class="boton boton-acento" @click="nuevo()">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+  {% endcall %}
+
+  {% call barra_filtros() %}
+    <input type="search" class="campo" placeholder="Nombre" aria-label="Filtrar por nombre" x-model="filtros.nombre" @input="filtrar()">
+    <select class="campo" aria-label="Tipo de rol" x-model="filtros.tipo" @change="cargar()">
+      <option value="">Tipo (todos)</option>
+      <option value="sistema">Del sistema</option>
+      <option value="personalizados">Personalizados</option>
+    </select>
+    <select class="campo" aria-label="Estado" x-model="filtros.estado" @change="cargar()">
+      <option value="">Estado (todos)</option>
+      <option value="activos">Activos</option>
+      <option value="inactivos">Inactivos</option>
+    </select>
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Nombre", "expr": "celdaNombre(fila)", "html": True},
+    {"titulo": "Descripción", "expr": "fila.descripcion || '—'"},
+    {"titulo": "Usuarios", "expr": "fila.cantidad_usuarios", "clase": "text-right"},
+    {"titulo": "Estado", "expr": "fila.activo ? estadoHtml('Activo', 'exito') : estadoHtml('Inactivo', 'peligro')", "html": True},
+  ] %}
+  {% call tabla(columnas, cargando="cargando") %}
+    {% call acciones() %}
+      {{ accion("permisos", texto="Permisos", icono_nombre="candado", enlace=True, atributos=':href="`/roles/${fila.id}/permisos`"') }}
+      {{ accion("editar", atributos='@click="editar(fila)"') }}
+      {{ accion("borrar", texto="Desactivar", icono_nombre="salir", atributos='x-show="fila.activo" @click="cambiarEstado(fila, false)"') }}
+      {{ accion("activar", atributos='x-show="!fila.activo" @click="cambiarEstado(fila, true)"') }}
+      {{ accion("borrar", texto="Eliminar", atributos='x-show="!fila.es_sistema" @click="eliminar(fila)"') }}
+    {% endcall %}
+  {% endcall %}
+
+  {% include "pages/roles/_modal_form.html" %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/roles.js') }}"></script>{% endblock %}

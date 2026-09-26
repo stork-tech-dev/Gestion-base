@@ -9,8 +9,12 @@ from app.core.utils import (
     ahora,
     ahora_db,
     capitalizar_inicial,
+    filtro_texto,
     ip_de_request,
     normalizar_texto,
+    paginar,
+    patron_ilike,
+    rango_fechas,
     redondear,
     redondear_hacia_abajo,
     redondear_hacia_arriba,
@@ -83,6 +87,16 @@ def test_sin_tildes_sql_usa_la_misma_tabla(db):
     assert db.scalar(select(sin_tildes_sql(literal("Córdoba Ñandú")))) == "Cordoba Nandu"
 
 
+def test_patron_ilike_escapa_comodines_de_like():
+    assert patron_ilike("a_b%c") == "%a\\_b\\%c%"
+    assert patron_ilike("x\\y") == "%x\\\\y%"
+
+
+def test_filtro_texto_ignora_mayusculas_y_tildes(db):
+    assert db.scalar(select(filtro_texto(literal("Depósito"), "deposito"))) is True
+    assert db.scalar(select(filtro_texto(literal("Depósito"), "OTRA COSA"))) is False
+
+
 def test_ip_de_request_con_0_proxies_ignora_xff_falsificado(monkeypatch):
     """0 proxies de confianza (default): XFF lo controla el cliente y se ignora."""
     monkeypatch.setattr(settings, "PROXIES_DE_CONFIANZA", 0)
@@ -122,3 +136,23 @@ def test_ip_de_request_sin_cliente_devuelve_none(monkeypatch):
     monkeypatch.setattr(settings, "PROXIES_DE_CONFIANZA", 0)
     sin_cliente = SimpleNamespace(headers={}, client=None)
     assert ip_de_request(sin_cliente) is None
+
+
+def test_paginar_hace_clamp():
+    assert paginar(0, 0, 100) == (1, 1)
+    assert paginar(3, 500, 100) == (3, 100)
+    assert paginar(2, 10, 100) == (2, 10)
+
+
+def test_rango_fechas_con_hasta_inclusivo(db):
+    from datetime import date, datetime
+
+    from sqlalchemy import DateTime, cast
+
+    columna = cast(literal(datetime(2026, 9, 25, 23, 59, 59)), DateTime)
+    assert rango_fechas(columna, None, None) == []
+    condiciones = rango_fechas(columna, date(2026, 9, 25), date(2026, 9, 25))
+    assert len(condiciones) == 2
+    assert db.scalar(select(literal(True)).where(*condiciones)) is True
+    assert db.scalar(select(literal(True)).where(*rango_fechas(columna, None, date(2026, 9, 24)))) is None
+    assert db.scalar(select(literal(True)).where(*rango_fechas(columna, date(2026, 9, 26), None))) is None

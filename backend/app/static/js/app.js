@@ -70,6 +70,25 @@
     return datos;
   };
 
+  // ---------- Descartar respuestas viejas ----------
+  /** Devuelve envolver(promesa): resuelve con el resultado solo si es el
+      último pedido lanzado con ese envolver; si llegó uno más nuevo, resuelve
+      con undefined (el llamador no toca el estado). Los errores del último
+      pedido se propagan; los de pedidos viejos se descartan. */
+  window.ultimaRespuesta = function () {
+    let ultimo = 0;
+    return async function envolver(promesa) {
+      const numero = ++ultimo;
+      try {
+        const resultado = await promesa;
+        return numero === ultimo ? resultado : undefined;
+      } catch (e) {
+        if (numero === ultimo) throw e;
+        return undefined;
+      }
+    };
+  };
+
   // ---------- Texto y categorías ----------
   window.normalizarTexto = (texto) =>
     String(texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -95,6 +114,40 @@
       nivel = nodo.hijos;
     }
     return nombres.join(separador);
+  };
+
+  // ---------- HTML seguro y estados ----------
+  const ENTIDADES_HTML = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+  window.escaparHtml = (texto) => String(texto ?? '').replace(/[&<>"']/g, (c) => ENTIDADES_HTML[c]);
+
+  // Mismas clases que estado_texto() de components/badge.html (celdas x-html de tablas).
+  const CLASES_ESTADO = { exito: 'text-success', peligro: 'text-danger', primario: 'text-primary', neutro: 'text-texto-muted' };
+  window.estadoHtml = (texto, variante = 'neutro') =>
+    `<span class="text-sm font-semibold ${CLASES_ESTADO[variante] || CLASES_ESTADO.neutro}">${window.escaparHtml(texto)}</span>`;
+
+  // ---------- Fechas (la API manda hora del negocio sin zona: no convertir) ----------
+  function partesFecha(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(String(iso ?? ''));
+    return m ? { a: m[1], mes: m[2], d: m[3], h: m[4], min: m[5] } : null;
+  }
+  window.fecha = (iso) => { const p = partesFecha(iso); return p ? `${p.d}/${p.mes}/${p.a}` : ''; };
+  window.diaMes = (iso) => { const p = partesFecha(iso); return p ? `${p.d}/${p.mes}` : ''; };
+  window.fechaHora = (iso) => {
+    const p = partesFecha(iso);
+    if (!p) return '';
+    return p.h ? `${p.d}/${p.mes}/${p.a} ${p.h}:${p.min}` : `${p.d}/${p.mes}/${p.a}`;
+  };
+
+  // ---------- Errores de validación (422) por campo ----------
+  window.erroresDeCampos = function (error) {
+    const detalle = error && error.status === 422 && error.datos && error.datos.detail;
+    if (!Array.isArray(detalle)) return {};
+    const errores = {};
+    for (const item of detalle) {
+      const campo = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : null;
+      if (campo && !errores[campo]) errores[campo] = item.msg;
+    }
+    return errores;
   };
 
   // ---------- Combobox (select con búsqueda) ----------

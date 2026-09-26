@@ -1,0 +1,12 @@
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% call modal("Rol", "modal-rol-form", abierto="formAbierto", ancho="max-w-lg", titulo_expr="form.id ? 'Editar rol' : 'Nuevo rol'") %}
+<form @submit.prevent="guardar()" class="flex flex-col gap-4" novalidate>
+  {{ campo("r-nombre", "Nombre", modelo="form.nombre", requerido=True, error="errores.nombre", ayuda="Los roles del sistema no se renombran.", atributos=':disabled="form.es_sistema"') }}
+  {{ campo("r-descripcion", "Descripción", modelo="form.descripcion", error="errores.descripcion") }}
+  <div class="flex justify-end">
+    <button type="submit" class="boton boton-primario" :disabled="guardando"
+            x-text="guardando ? 'Guardando…' : (form.id ? 'Finalizar' : 'Crear')"></button>
+  </div>
+</form>
+{% endcall %}

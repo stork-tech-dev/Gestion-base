@@ -37,6 +37,12 @@ docker compose exec backend pytest
 ```
 Corren contra PostgreSQL real en la base `gestion_test` (se recrea en cada corrida).
 
+Tests de JavaScript (lógica del árbol de permisos, sin Alpine ni red; en el host,
+con Node 22+, sin dependencias):
+```bash
+node --test backend/tests_js/
+```
+
 ## Migraciones
 ```bash
 docker compose exec backend alembic upgrade head
@@ -67,5 +73,12 @@ y borra los que tienen más de `BACKUP_RETENCION_DIAS` días.
   ```
 
 ## Credenciales iniciales
-El usuario administrador se crea en la sesión 02 (`admin` / `Admin1234!`,
-obliga a cambiar la contraseña en el primer ingreso).
+Usuario `admin`, contraseña `Admin1234!`. En el primer ingreso el sistema obliga
+a cambiarla. Los demás usuarios se crean desde Configuraciones → Usuarios (o por
+la API `/api/v1/usuarios`) y también cambian su contraseña al primer ingreso.
+
+## Recuperación de contraseña
+Requiere SMTP configurado (`SMTP_*` en `.env`) y que el usuario tenga email.
+El enlace del mail vence en 30 minutos y sirve una sola vez. Sin SMTP, el Admin
+puede asignar una contraseña nueva editando al usuario (queda obligado a
+cambiarla al ingresar).

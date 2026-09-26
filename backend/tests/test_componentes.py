@@ -108,7 +108,8 @@ def test_barra_filtros_y_tabla():
 @pytest.mark.parametrize(
     "archivo",
     ["badge", "botones", "combobox", "encabezado", "form_field", "hub", "icons", "marca", "miniatura",
-     "modal", "modal_confirmacion", "paginacion", "switch_activos", "switch_estado", "table", "toast", "_sidebar_item"],
+     "modal", "modal_confirmacion", "paginacion", "permisos_tree", "switch_activos", "switch_estado", "table",
+     "toast", "_sidebar_item"],
 )
 def test_todos_los_componentes_compilan(archivo):
     templates.env.get_template(f"components/{archivo}.html")

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/permisos_tree.html" import arbol_permisos %}
+{% block titulo %}Permisos de {{ objetivo.nombre }} · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{{ encabezado("Permisos de " ~ objetivo.nombre, "/usuarios", "Usuarios") }}
+<p class="mb-4 text-sm text-texto-muted">Rol: <span class="font-semibold text-texto">{{ objetivo.rol.nombre }}</span>{% if not editable %} · Solo lectura{% endif %}</p>
+{{ arbol_permisos("/api/v1/usuarios/" ~ objetivo.id ~ "/permisos", "/api/v1/usuarios/" ~ objetivo.id ~ "/permisos", "usuario", editable) }}
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/permisos.js') }}"></script>{% endblock %}

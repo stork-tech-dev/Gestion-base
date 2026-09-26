@@ -10,13 +10,41 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
   dejar al dueño solo para las migraciones.
 - **Compose de producción.** Override sin `--reload` y sin montar el código
   (`./backend`), imagen sin herramientas de compilación, contenedor sin root.
-- **`JWT_SECRET` de ejemplo.** El valor de `.env.example` pasa la validación
-  de producción (tiene más de 32 caracteres). Rechazar también ese valor
-  conocido (módulo 02).
+- **Bloqueo de login deslizante.** Cada intento durante el bloqueo lo
+  extiende 15 minutos más; decidir si se prefiere una duración fija.
 - **Notas de Railway en el README:** volumen para `/uploads`, backups (el
   servicio `backup` no existe allí) y zona horaria del Postgres administrado.
 - **Pin y SRI de los CDN** (Tailwind, htmx, Alpine).
 - `/health/db` con mensaje genérico cuando `APP_ENV=production`.
+
+## Módulo 02-B: pendientes que quedaron
+- **Carrera al cambiar el rol editando un usuario** (`usuarios.js`,
+  `alCambiarRol`): mientras cargan los accesos del rol nuevo, el botón
+  "Finalizar" sigue habilitado; si se guarda en ese instante, los accesos
+  pueden no reconciliarse con el rol nuevo. Bloquear `accesosCargados` también
+  en la edición y secuenciar las respuestas (mismo helper `ultimaRespuesta`).
+  Prioridad alta: arreglarlo al empezar el módulo 03.
+- No hay tests de JS para la lógica del formulario de usuario (solo para el
+  árbol de permisos, en `backend/tests_js/`).
+- Roles sin paginación; filtros de usuarios solo por nombre, rol y estado;
+  para no-admins el filtro de rol muestra solo "vendedor".
+- Convención única para los filtros (placeholder o label) antes de 03-09.
+- El token de recuperación viaja en la URL (queda en logs de acceso):
+  evaluar pasarlo como fragmento `#token`.
+- Advertencia de "el rol tiene usuarios" cuenta todos y no solo los activos.
+
+## Patrones que 03-09 deben copiar (de la revisión del 02-B)
+- Páginas con `Depends(requiere_pagina(ITEM))`, con el ítem definido una vez
+  y compartido por sidebar, hub y página; `resolver_permiso` solo para ocultar.
+- Valores del servidor a Alpine solo con `|js` y solo en atributos.
+- `x-html` solo con markup armado en JS y datos pasados por `escaparHtml` /
+  `estadoHtml`; preferir `x-text`.
+- Escrituras solo con `pedir()`; si algún día se usan formularios HTMX,
+  agregar antes un chequeo de Origin/Referer.
+- Formularios que cargan datos dependientes: bloquear el envío hasta que
+  carguen y mandar la escritura dependiente solo si cambió algo.
+- Listados con `ultimaRespuesta()`, `erroresDeCampos()` y `confirmar()`.
+- Lógica de estado no trivial en JS: extraerla y testearla con `node --test`.
 
 ## Antes de que los módulos 03 y 04 usen mucho los componentes
 - Accesibilidad del combobox (`aria-controls`, `aria-activedescendant`,
@@ -24,6 +52,14 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
   las tarjetas de los hubs, y que el menú del usuario cierre con ESC.
 
 ## Cuando se toque el área
+- Al iniciar sesión no se revoca la sesión anterior del mismo navegador
+  (vence sola por inactividad).
+- Las fechas de la API salen sin zona horaria (son hora del negocio,
+  UTC-03:00): documentarlo en OpenAPI.
+- `PUT /usuarios/{id}` con `rol_id: null` se ignora en silencio.
+- El árbol y los accesos de un usuario inactivo muestran sus permisos como
+  vigentes (la barrera real igual lo bloquea).
+- `catalogo_accesos()` se reconstruye en cada llamada.
 - `custom.css`: sombras y `.switch-perilla` con valores literales en vez de
   tokens.
 - `formatearNumero` redondea si llegan más de 2 decimales (hoy la API

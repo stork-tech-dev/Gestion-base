@@ -1,0 +1,70 @@
+{% from "components/icons.html" import icono %}
+{# Árbol de permisos (rol o usuario). Tabla Módulo | Ver | Crear | Editar |
+   Eliminar; cada módulo se expande para mostrar sus recursos. Las acciones
+   que no aplican se ven "—". Guardar pide confirmación (sin autoguardado). #}
+{% set ACCIONES_ARBOL = [("ver", "Ver"), ("crear", "Crear"), ("editar", "Editar"), ("eliminar", "Eliminar")] %}
+
+{% macro celda_permiso(nodo, accion) -%}
+<template x-if="aplica({{ nodo }}, '{{ accion }}')">
+  <label class="inline-flex min-h-toque min-w-toque items-center justify-center cursor-pointer"
+         :title="cubierto({{ nodo }}, '{{ accion }}') ? 'Incluido en el permiso general del módulo' : ''">
+    <input type="checkbox" class="acceso-check" :class="claseCelda({{ nodo }}, '{{ accion }}')"
+           :checked="marcado({{ nodo }}, '{{ accion }}')" :disabled="bloqueado({{ nodo }}, '{{ accion }}')"
+           @change="alternar({{ nodo }}, '{{ accion }}')" :aria-label="`{{ accion }}: ${ {{ nodo }}.label }`">
+  </label>
+</template>
+<template x-if="!aplica({{ nodo }}, '{{ accion }}')"><span class="text-texto-disabled" title="No aplica">—</span></template>
+{%- endmacro %}
+
+{% macro arbol_permisos(url_datos, url_guardar, modo="rol", editable=True) -%}
+<div x-data="arbolPermisos({ urlDatos: {{ url_datos|js }}, urlGuardar: {{ url_guardar|js }}, modo: {{ modo|js }}, editable: {{ editable|js }} })">
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap gap-2">
+      <button type="button" class="boton boton-secundario" @click="expandirTodo(true)">Expandir todo</button>
+      <button type="button" class="boton boton-secundario" @click="expandirTodo(false)">Colapsar todo</button>
+    </div>
+    <div class="flex flex-wrap items-center gap-3" x-show="editable">
+      <p class="text-sm font-semibold text-danger" x-show="hayCambios" x-cloak>Hay cambios sin guardar</p>
+      <button type="button" class="boton boton-primario" :disabled="!hayCambios || guardando" @click="guardar()"
+              x-text="guardando ? 'Guardando…' : 'Guardar permisos'">Guardar permisos</button>
+    </div>
+  </div>
+  {% if modo == "usuario" %}
+  <p class="mb-3 text-sm text-texto-muted">En gris, lo que hereda del rol (no se quita desde acá). Marcados en color, los permisos propios de este usuario. Lo que no podés otorgar aparece deshabilitado.</p>
+  {% endif %}
+  <div class="tarjeta overflow-hidden p-0" x-show="!cargando">
+    <div class="overflow-x-auto">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th scope="col">Módulo</th>
+            {% for _, titulo in ACCIONES_ARBOL %}<th scope="col" class="text-center">{{ titulo }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <template x-for="m in modulos" :key="m.modulo">
+          <tbody>
+            <tr>
+              <td>
+                <button type="button" class="inline-flex min-h-toque items-center gap-2 font-semibold text-texto"
+                        @click="abiertos[m.modulo] = !abiertos[m.modulo]" :aria-expanded="!!abiertos[m.modulo]"
+                        :disabled="!m.recursos.length">
+                  <span x-show="m.recursos.length" class="transition-transform" :class="abiertos[m.modulo] ? 'rotate-90' : ''">{{ icono("chevron-derecha", "w-4 h-4") }}</span>
+                  <span x-text="m.label"></span>
+                </button>
+              </td>
+              {% for accion, _ in ACCIONES_ARBOL %}<td class="text-center">{{ celda_permiso("m", accion) }}</td>{% endfor %}
+            </tr>
+            <template x-for="r in m.recursos" :key="r.recurso">
+              <tr x-show="abiertos[m.modulo]">
+                <td class="pl-10 text-texto-muted" x-text="r.label"></td>
+                {% for accion, _ in ACCIONES_ARBOL %}<td class="text-center">{{ celda_permiso("r", accion) }}</td>{% endfor %}
+              </tr>
+            </template>
+          </tbody>
+        </template>
+      </table>
+    </div>
+  </div>
+  <p x-show="cargando" class="py-6 text-center text-texto-muted">Cargando…</p>
+</div>
+{%- endmacro %}

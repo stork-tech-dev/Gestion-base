@@ -9,6 +9,7 @@ os.environ["POSTGRES_DB"] = os.environ.get("POSTGRES_DB_TEST", "gestion_test")
 os.environ.pop("DATABASE_URL", None)
 os.environ["UPLOADS_DIR"] = tempfile.mkdtemp(prefix="uploads_test_")
 os.environ["APP_ENV"] = "test"
+os.environ["BCRYPT_ROUNDS"] = "4"
 
 from pathlib import Path  # noqa: E402
 
@@ -105,10 +106,77 @@ def db():
 
 @pytest.fixture
 def client(db):
+    from contextlib import contextmanager
+
     from app.core.database import get_db
     from main import app
 
+    @contextmanager
+    def _misma_sesion():
+        # El middleware usa la misma sesión del test (misma transacción revertida).
+        yield db
+
     app.dependency_overrides[get_db] = lambda: db
+    app.state.abrir_sesion_db = _misma_sesion
     with TestClient(app) as cliente:
         yield cliente
     app.dependency_overrides.clear()
+    del app.state.abrir_sesion_db
+
+
+@pytest.fixture
+def crear_usuario(db):
+    """Fábrica de usuarios de prueba (por defecto: vendedor activo que ya cambió la contraseña)."""
+    import itertools
+
+    from sqlalchemy import select
+
+    from app.core.utils import ahora_db
+    from app.models import Rol, Usuario
+    from app.services.auth import hash_password
+
+    numeros = itertools.count(1)
+
+    def _crear(rol="vendedor", *, username=None, password="Clave1234", activo=True, debe_cambiar=False,
+               nombre="Usuario De Prueba", **extra):
+        rol_obj = rol if isinstance(rol, Rol) else db.scalar(select(Rol).where(Rol.nombre == rol))
+        usuario = Usuario(
+            username=username or f"prueba{next(numeros)}",
+            nombre=nombre,
+            password_hash=hash_password(password),
+            rol_id=rol_obj.id,
+            activo=activo,
+            ultimo_acceso=None if debe_cambiar else ahora_db(),
+            **extra,
+        )
+        db.add(usuario)
+        db.flush()
+        return usuario
+
+    return _crear
+
+
+@pytest.fixture
+def headers_de(db):
+    """Headers Bearer de una sesión nueva del usuario dado."""
+    from app.services.auth import generar_tokens
+
+    def _headers(usuario):
+        access, _, _ = generar_tokens(db, usuario, "127.0.0.1")
+        return {"Authorization": f"Bearer {access}"}
+
+    return _headers
+
+
+@pytest.fixture
+def iniciar_sesion(client, db):
+    """Deja al `client` con las cookies de una sesión nueva del usuario."""
+    from app.services.auth import generar_tokens
+
+    def _iniciar(usuario):
+        access, refresh, _ = generar_tokens(db, usuario, "127.0.0.1")
+        client.cookies.set("access_token", access)
+        client.cookies.set("refresh_token", refresh)
+        return client
+
+    return _iniciar

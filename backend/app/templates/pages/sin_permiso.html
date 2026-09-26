@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% block titulo %}Sin permiso · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{{ encabezado("Sin permiso") }}
+<div class="tarjeta flex flex-col items-start gap-4">
+  <p class="text-texto">No tenés permiso para ver esta pantalla. Si lo necesitás, pedíselo a un administrador.</p>
+  <a href="/" class="boton boton-secundario">Ir al inicio</a>
+</div>
+{% endblock %}

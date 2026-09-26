@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/paginacion.html" import paginacion %}
+{% from "components/switch_activos.html" import switch_activos %}
+{% from "components/combobox.html" import combobox %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Usuarios · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="usuariosListado({ esAdmin: {{ es_admin|js }}, usuarioActualId: {{ usuario_actual.id|js }}, rolesGestionables: {{ roles_gestionables|js }}, rolesFiltro: {{ roles_filtro|js }}, puedeEditar: {{ puede_editar|js }} })">
+  {% call encabezado("Usuarios", "/configuracion", "Configuraciones") %}
+    {% if puede_crear %}
+    <button type="button" class="boton boton-acento" @click="nuevo()">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(extras=switch_activos("soloActivos", "pagina = 1; cargar()")) %}
+    <input type="search" class="campo" placeholder="Nombre" aria-label="Filtrar por nombre" x-model="filtros.nombre" @input="filtrar()">
+    {{ combobox("filtro-rol", "rolesFiltro", "filtros.rol_id", texto="nombre", vacio="Rol (todos)", al_cambiar="pagina = 1; cargar()") }}
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Usuario", "expr": "celdaUsuario(fila)", "html": True},
+    {"titulo": "Nombre", "expr": "fila.nombre"},
+    {"titulo": "Rol", "expr": "fila.rol"},
+    {"titulo": "Celular", "expr": "fila.celular || '—'"},
+    {"titulo": "Cumpleaños", "expr": "fila.fecha_nacimiento ? diaMes(fila.fecha_nacimiento) : '—'"},
+    {"titulo": "Último acceso", "expr": "fila.ultimo_acceso ? fechaHora(fila.ultimo_acceso) : 'Nunca'"},
+  ] %}
+  {% call tabla(columnas, cargando="cargando") %}
+    {% call acciones() %}
+      {{ accion("ver", atributos='@click="ver(fila)"') }}
+      {{ accion("editar", atributos='x-show="puedeGestionar(fila)" @click="editar(fila)"') }}
+      {{ accion("borrar", texto="Desactivar", atributos='x-show="puedeGestionar(fila) && fila.activo" @click="cambiarEstado(fila, false)"') }}
+      {{ accion("activar", atributos='x-show="puedeGestionar(fila) && !fila.activo" @click="cambiarEstado(fila, true)"') }}
+    {% endcall %}
+  {% endcall %}
+  {{ paginacion() }}
+
+  {% include "pages/usuarios/_modal_detalle.html" %}
+  {% include "pages/usuarios/_modal_form.html" %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/usuarios.js') }}"></script>{% endblock %}

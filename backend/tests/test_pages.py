@@ -1,23 +1,22 @@
-def test_inicio_renderiza_layout_y_saludo(client):
-    r = client.get("/")
-    assert r.status_code == 200
-    html = r.text
-    assert "Bienvenido" in html
+def test_inicio_renderiza_layout_y_saludo(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("admin", nombre="Ana")).get("/").text
+    assert "Bienvenido, Ana" in html
     assert 'id="contenido"' in html
-    assert 'aria-label="Menú principal"' in html           # sidebar
+    assert 'aria-label="Menú principal"' in html
     assert ">Inicio<" in html and 'aria-current="page"' in html
-    assert "Ajustes" in html                               # pie del sidebar
-    assert "Auditoría" not in html                         # ítem oculto
+    assert "Ajustes" in html
+    assert "Auditoría" not in html
     assert "cdn.tailwindcss.com" in html
     assert "/static/js/app.js?v=" in html and "/static/css/custom.css?v=" in html
-    assert 'x-data="toasts()"' in html                     # contenedor de toasts
-    assert "dialogoConfirmacion()" in html                 # diálogo global
-    assert "buscador-global" in html                       # buscador comentado
+    assert 'x-data="toasts()"' in html
+    assert "dialogoConfirmacion()" in html
+    assert "buscador-global" in html
     assert "text-welcome" in html
+    assert "avisoSesion(" in html  # aviso de sesión por vencer con usuario logueado
 
 
-def test_ajustes_usa_la_pagina_pendiente(client):
-    r = client.get("/ajustes")
+def test_ajustes_usa_la_pagina_pendiente(crear_usuario, iniciar_sesion):
+    r = iniciar_sesion(crear_usuario("vendedor")).get("/ajustes")
     assert r.status_code == 200
     assert "Este módulo todavía no está disponible." in r.text
 

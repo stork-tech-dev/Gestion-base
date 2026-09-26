@@ -7,8 +7,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api.pages import registrar_manejadores_paginas
 from app.api.pages import router as pages_router
 from app.api.v1 import api_router
+from app.core.errores import registrar_manejadores
+from app.middleware.auth_refresh_middleware import AuthRefreshMiddleware
 from config import settings
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -32,6 +35,9 @@ app = FastAPI(
     openapi_url="/openapi.json" if docs_habilitadas else None,
 )
 
+registrar_manejadores(app)
+registrar_manejadores_paginas(app)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS_LIST,
@@ -39,8 +45,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Punto de montaje del AuthRefreshMiddleware (sesión 02):
-# app.add_middleware(AuthRefreshMiddleware)
+app.add_middleware(AuthRefreshMiddleware)
 
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
 

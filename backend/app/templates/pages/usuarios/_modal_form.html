@@ -1,0 +1,42 @@
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% from "components/combobox.html" import combobox %}
+{% call modal("Usuario", "modal-usuario-form", abierto="formAbierto", titulo_expr="form.id ? 'Editar usuario' : 'Nuevo usuario'") %}
+<form @submit.prevent="guardar()" class="flex flex-col gap-6" novalidate>
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    {{ campo("u-nombre", "Nombre", modelo="form.nombre", requerido=True, error="errores.nombre") }}
+    {{ campo("u-username", "Usuario", modelo="form.username", requerido=True, error="errores.username", atributos=':disabled="form.id !== null" autocomplete="off"') }}
+    <div class="flex flex-col gap-1">
+      {{ combobox("u-rol", "rolesAsignables", "form.rol_id", texto="nombre", etiqueta="Rol *", vacio="Elegí un rol", placeholder="Buscar rol…", al_cambiar="alCambiarRol()") }}
+      <p class="text-sm text-danger" x-show="errores.rol_id" x-text="errores.rol_id" x-cloak></p>
+    </div>
+    {{ campo("u-nacimiento", "Fecha de nacimiento", tipo="date", modelo="form.fecha_nacimiento", error="errores.fecha_nacimiento") }}
+    {{ campo("u-celular", "Celular", tipo="tel", modelo="form.celular", placeholder="+3512108190", error="errores.celular") }}
+    {{ campo("u-email", "Mail", tipo="email", modelo="form.email", error="errores.email") }}
+    {{ campo("u-password", "Contraseña", tipo="password", modelo="form.password", error="errores.password", requerido_si="!form.id", ayuda="Mínimo 8 caracteres. Al editar, dejala vacía para no cambiarla. El usuario la cambia en su primer ingreso.", atributos='autocomplete="new-password"') }}
+  </div>
+
+  <fieldset class="flex flex-col gap-2">
+    <legend class="text-lg font-medium text-texto">Accesos permitidos:</legend>
+    <p class="text-sm text-texto-muted" x-show="!accesos.length">Elegí un rol para ver sus accesos.</p>
+    <p class="text-sm text-texto-muted" x-show="accesos.length">Los marcados en gris vienen del rol. Los que no podés otorgar aparecen deshabilitados.</p>
+    <ul class="grid grid-cols-1 gap-1 sm:grid-cols-2">
+      <template x-for="a in accesos" :key="a.clave">
+        <li>
+          <label class="inline-flex min-h-toque items-center gap-2"
+                 :class="bloqueado(a) ? 'cursor-not-allowed text-texto-disabled' : 'cursor-pointer text-texto'">
+            <input type="checkbox" class="acceso-check" :checked="marcado(a)" :disabled="bloqueado(a)" @change="alternarAcceso(a)">
+            <span x-text="a.label"></span>
+            <span class="text-xs text-texto-muted" x-show="a.heredado">(del rol)</span>
+          </label>
+        </li>
+      </template>
+    </ul>
+  </fieldset>
+
+  <div class="flex justify-end">
+    <button type="submit" class="boton boton-primario" :disabled="guardando || !accesosCargados"
+            x-text="guardando ? 'Guardando…' : (form.id ? 'Finalizar' : 'Crear')"></button>
+  </div>
+</form>
+{% endcall %}

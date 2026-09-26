@@ -1,0 +1,19 @@
+{% from "components/marca.html" import marca %}
+{% from "components/toast.html" import contenedor_toasts %}
+<!doctype html>
+<html lang="es">
+<head>
+  <title>{% block titulo %}{{ APP_NAME }}{% endblock %}</title>
+  {% include "components/_head.html" %}
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="flex min-h-screen items-center justify-center bg-bg p-4 font-sans text-texto antialiased"
+      x-data="temaApp()" x-effect="document.documentElement.classList.toggle('dark', oscuro)">
+  <main class="tarjeta w-full max-w-md p-6 sm:p-8">
+    <div class="mb-6 flex justify-center">{{ marca("max-h-16 w-auto text-center") }}</div>
+    {% block contenido %}{% endblock %}
+  </main>
+  {{ contenedor_toasts() }}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

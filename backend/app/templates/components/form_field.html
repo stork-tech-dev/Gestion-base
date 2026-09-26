@@ -1,20 +1,22 @@
 {% from "components/icons.html" import icono %}
 {# Campos de formulario. `modelo` y `error` son expresiones Alpine
    (error = mensaje del campo, ej. "errores.nombre"; se muestra si tiene valor).
+   `requerido_si`: expresión Alpine; muestra el asterisco solo cuando es verdadera
+   (campo obligatorio según el estado, ej. la contraseña solo en el alta).
    ADVERTENCIA: `atributos` se inyecta con |safe (sin escapar) para poder pasar
    atributos HTML/Alpine crudos. Debe recibir SOLO literales de plantilla
    escritos a mano, nunca texto que venga de un usuario o de la API. #}
-{% macro _etiqueta(nombre, etiqueta, requerido) -%}
-<label for="{{ nombre }}" class="text-lg font-medium text-texto">{{ etiqueta }}{% if requerido %} <span class="text-danger">*</span>{% endif %}</label>
+{% macro _etiqueta(nombre, etiqueta, requerido, requerido_si=None) -%}
+<label for="{{ nombre }}" class="text-lg font-medium text-texto">{{ etiqueta }}{% if requerido %} <span class="text-danger">*</span>{% elif requerido_si %} <span class="text-danger" x-show="{{ requerido_si }}">*</span>{% endif %}</label>
 {%- endmacro %}
 
 {% macro _error(error) -%}
 {% if error %}<p class="text-sm text-danger" x-show="{{ error }}" x-text="{{ error }}" x-cloak></p>{% endif %}
 {%- endmacro %}
 
-{% macro campo(nombre, etiqueta, tipo="text", modelo=None, requerido=False, placeholder="", ayuda=None, error=None, atributos="") -%}
+{% macro campo(nombre, etiqueta, tipo="text", modelo=None, requerido=False, placeholder="", ayuda=None, error=None, atributos="", requerido_si=None) -%}
 <div class="flex flex-col gap-1">
-  {{ _etiqueta(nombre, etiqueta, requerido) }}
+  {{ _etiqueta(nombre, etiqueta, requerido, requerido_si) }}
   <input id="{{ nombre }}" name="{{ nombre }}" type="{{ tipo }}" class="campo" placeholder="{{ placeholder }}"
          {% if modelo %}x-model="{{ modelo }}"{% endif %} {% if requerido %}required{% endif %}
          {% if error %}:class="{ 'campo-error': {{ error }} }"{% endif %} {{ atributos|safe }}>

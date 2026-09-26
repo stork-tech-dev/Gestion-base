@@ -1,0 +1,28 @@
+{% extends "auth/base_auth.html" %}
+{% from "components/form_field.html" import campo %}
+{% block titulo %}Iniciar sesión · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="login()">
+  <form x-show="!olvide" @submit.prevent="ingresar()" class="flex flex-col gap-4" novalidate>
+    <h1 class="text-2xl font-bold text-texto-header">Iniciar sesión</h1>
+    {{ campo("username", "Usuario", modelo="username", requerido=True, atributos='autocomplete="username" autofocus') }}
+    {{ campo("password", "Contraseña", tipo="password", modelo="password", requerido=True, atributos='autocomplete="current-password"') }}
+    <button type="submit" class="boton boton-primario w-full" :disabled="enviando">
+      <span x-text="enviando ? 'Ingresando…' : 'Iniciar Sesión'">Iniciar Sesión</span>
+    </button>
+    <button type="button" class="min-h-toque self-center text-sm text-primary hover:underline" @click="olvide = true">¿Olvidé mi contraseña?</button>
+  </form>
+
+  <form x-show="olvide" x-cloak @submit.prevent="recuperar()" class="flex flex-col gap-4" novalidate>
+    <h1 class="text-2xl font-bold text-texto-header">Recuperar contraseña</h1>
+    <p class="text-sm text-texto-muted">Ingresá tu usuario. Si tiene un email cargado, te mandamos un enlace para elegir una contraseña nueva.</p>
+    {{ campo("usuario_recuperar", "Usuario", modelo="usernameRecuperar", requerido=True, atributos='autocomplete="username"') }}
+    <button type="submit" class="boton boton-primario w-full" :disabled="enviando">
+      <span x-text="enviando ? 'Enviando…' : 'Enviar instrucciones'">Enviar instrucciones</span>
+    </button>
+    <p class="rounded-input bg-success/10 p-3 text-sm text-success" x-show="mensaje" x-text="mensaje"></p>
+    <button type="button" class="min-h-toque self-center text-sm text-primary hover:underline" @click="olvide = false; mensaje = ''">Volver al ingreso</button>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/auth.js') }}"></script>{% endblock %}

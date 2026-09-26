@@ -1,19 +1,12 @@
 """Consulta de la auditoría (solo lectura). El endpoint llega en la sesión 02."""
-from datetime import date, datetime, time, timedelta
+from datetime import date
 
 from sqlalchemy import func, select
 
+from app.core.utils import filtro_texto, paginar, rango_fechas
 from app.models.auditoria import Auditoria
 
 TAMANO_MAXIMO_AUDITORIA = 200
-
-
-def _patron_ilike(valor: str) -> str:
-    """Escapa los comodines de LIKE/ILIKE (%, _ y la propia \\) antes de armar
-    el patrón "%valor%", para que buscar por esos caracteres literales no
-    matchee de más (ver ilike(..., escape="\\") en cada uso)."""
-    escapado = valor.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escapado}%"
 
 
 def listar_auditoria(
@@ -32,18 +25,13 @@ def listar_auditoria(
     if usuario_id is not None:
         condiciones.append(Auditoria.usuario_id == usuario_id)
     if accion:
-        condiciones.append(Auditoria.accion.ilike(_patron_ilike(accion), escape="\\"))
+        condiciones.append(filtro_texto(Auditoria.accion, accion))
     if entidad:
-        condiciones.append(Auditoria.entidad.ilike(_patron_ilike(entidad), escape="\\"))
+        condiciones.append(filtro_texto(Auditoria.entidad, entidad))
     if entidad_id is not None:
         condiciones.append(Auditoria.entidad_id == entidad_id)
-    if desde:
-        condiciones.append(Auditoria.timestamp >= datetime.combine(desde, time.min))
-    if hasta:  # inclusivo: todo el día "hasta"
-        condiciones.append(Auditoria.timestamp < datetime.combine(hasta + timedelta(days=1), time.min))
-
-    tamano = max(1, min(tamano, TAMANO_MAXIMO_AUDITORIA))
-    pagina = max(1, pagina)
+    condiciones.extend(rango_fechas(Auditoria.timestamp, desde, hasta))
+    pagina, tamano = paginar(pagina, tamano, TAMANO_MAXIMO_AUDITORIA)
 
     total = db.scalar(select(func.count()).select_from(Auditoria).where(*condiciones))
     registros = db.scalars(
