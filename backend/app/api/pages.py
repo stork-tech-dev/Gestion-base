@@ -14,6 +14,8 @@ from app.core.permisos import Modulo
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
 from app.models import Usuario
+from app.services import roles as servicio_roles
+from app.services import usuarios as servicio_usuarios
 from app.services.auth import TokenInvalido
 from config import settings
 
@@ -172,5 +174,24 @@ def reset_password(request: Request, token: str = ""):
     respuesta.headers["Referrer-Policy"] = "no-referrer"
     return respuesta
 
-# (Las rutas de usuarios, roles, permisos e historial se agregan en las
-# tareas siguientes, en este mismo archivo.)
+
+@router.get("/usuarios")
+def usuarios(request: Request, db: Session = Depends(get_db),
+            usuario: Usuario = Depends(requiere_pagina(SECCION_USUARIOS))):
+    if usuario.es_admin:
+        roles_filtro = [{"id": r.id, "nombre": r.nombre} for r, _ in servicio_roles.listar_roles(db)]
+        roles_gestionables = None  # el Admin gestiona a todos
+    else:
+        roles_filtro = [{"id": r.id, "nombre": r.nombre} for r in servicio_usuarios.roles_asignables(db, usuario)]
+        roles_gestionables = [r["nombre"] for r in roles_filtro]  # misma regla que validar_puede_gestionar
+    return _pagina(request, "pages/usuarios/listado.html", contexto_base(
+        request, db, "/configuracion", usuario,
+        roles_filtro=roles_filtro,
+        roles_gestionables=roles_gestionables,
+        puede_crear=resolver_permiso(db, usuario.id, Modulo.USUARIOS, "crear"),
+        puede_editar=resolver_permiso(db, usuario.id, Modulo.USUARIOS, "editar"),
+    ))
+
+
+# (Las rutas de roles, permisos e historial se agregan en las tareas
+# siguientes, en este mismo archivo.)

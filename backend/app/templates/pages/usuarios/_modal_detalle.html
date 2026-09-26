@@ -1,0 +1,21 @@
+{% from "components/modal.html" import modal %}
+{% call modal("Usuario", "modal-usuario-detalle", abierto="verAbierto", titulo_expr="detalle ? detalle.nombre : ''") %}
+<template x-if="detalle">
+  <div>
+    <dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div><dt class="text-sm text-texto-muted">Usuario</dt><dd class="text-texto" x-text="detalle.username"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Rol</dt><dd class="text-texto" x-text="detalle.rol"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Mail</dt><dd class="text-texto" x-text="detalle.email || '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Celular</dt><dd class="text-texto" x-text="detalle.celular || '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Cumpleaños</dt><dd class="text-texto" x-text="detalle.fecha_nacimiento ? diaMes(detalle.fecha_nacimiento) : '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Estado</dt><dd x-html="detalle.activo ? estadoHtml('Activo', 'exito') : estadoHtml('Inactivo', 'peligro')"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Último acceso</dt><dd class="text-texto" x-text="detalle.ultimo_acceso ? fechaHora(detalle.ultimo_acceso) : 'Nunca'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Alta</dt><dd class="text-texto" x-text="fecha(detalle.created_at)"></dd></div>
+    </dl>
+    <div class="mt-6 flex flex-wrap gap-2">
+      <a class="boton boton-secundario" :href="`/usuarios/${detalle.id}/permisos`">Permisos</a>
+      <a class="boton boton-secundario" :href="`/usuarios/${detalle.id}/historial`">Historial de accesos</a>
+    </div>
+  </div>
+</template>
+{% endcall %}
