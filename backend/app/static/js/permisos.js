@@ -51,7 +51,27 @@
         return !!nodo[`puede_${accion}`];
       },
 
+      // Un recurso "cubierto" ya está habilitado por el permiso general de su
+      // módulo (en el campo editable: puede_<accion> en modo rol,
+      // override_<accion> en modo usuario). Se ve marcado y no admite click
+      // directo, pero no se manda como fila propia (ver entradas()): única
+      // fuente de esta regla, la usan bloqueado/claseCelda/entradas.
+      cubierto(nodo, accion) {
+        if (nodo.recurso === null) return false;
+        const general = this._modulo(nodo.modulo);
+        return this.aplica(general, accion) && !!general[campo(accion)];
+      },
+
       bloqueado(nodo, accion) {
+        if (!editable) return true;
+        if (this.cubierto(nodo, accion)) return true;
+        return this._bloqueadoPorOtroMotivo(nodo, accion);
+      },
+
+      // Bloqueo por motivos ajenos a estar cubierto por el general: lo usa la
+      // cascada de alternar(), que debe poder marcar/desmarcar un recurso
+      // cubierto aunque el click directo sobre esa celda esté deshabilitado.
+      _bloqueadoPorOtroMotivo(nodo, accion) {
         if (!editable) return true;
         if (modo !== 'usuario') return false;
         if (nodo[`heredado_${accion}`]) return true;
@@ -60,6 +80,7 @@
       },
 
       claseCelda(nodo, accion) {
+        if (this.cubierto(nodo, accion)) return 'opacity-50';
         if (modo === 'usuario' && nodo[`heredado_${accion}`]) return 'opacity-50';
         if (modo === 'usuario' && nodo[`override_${accion}`]) return 'accent-accent';
         return '';
@@ -75,8 +96,10 @@
         nodo[clave] = !nodo[clave];
         if (nodo.recurso === null) {
           // Marcar el general sugiere sus recursos; desmarcarlo los desmarca.
+          // Se cascada aunque el recurso quede "cubierto" al marcar (ese
+          // bloqueo es solo para el click directo, no para esta propagación).
           for (const r of this._modulo(nodo.modulo).recursos) {
-            if (this.aplica(r, accion) && !this.bloqueado(r, accion)) r[clave] = nodo[clave];
+            if (this.aplica(r, accion) && !this._bloqueadoPorOtroMotivo(r, accion)) r[clave] = nodo[clave];
           }
         }
       },
@@ -93,8 +116,8 @@
           for (const nodo of [m, ...m.recursos]) {
             const entrada = { modulo: nodo.modulo, recurso: nodo.recurso };
             for (const accion of ACCIONES) {
-              const cubierto = nodo.recurso !== null && this.aplica(m, accion) && m[campo(accion)];
-              entrada[`puede_${accion}`] = this.aplica(nodo, accion) && !!nodo[campo(accion)] && !cubierto;
+              entrada[`puede_${accion}`] =
+                this.aplica(nodo, accion) && !!nodo[campo(accion)] && !this.cubierto(nodo, accion);
             }
             salida.push(entrada);
           }

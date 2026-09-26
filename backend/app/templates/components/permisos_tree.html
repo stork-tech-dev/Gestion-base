@@ -6,9 +6,12 @@
 
 {% macro celda_permiso(nodo, accion) -%}
 <template x-if="aplica({{ nodo }}, '{{ accion }}')">
-  <input type="checkbox" class="acceso-check" :class="claseCelda({{ nodo }}, '{{ accion }}')"
-         :checked="marcado({{ nodo }}, '{{ accion }}')" :disabled="bloqueado({{ nodo }}, '{{ accion }}')"
-         @change="alternar({{ nodo }}, '{{ accion }}')" :aria-label="`{{ accion }}: ${ {{ nodo }}.label }`">
+  <label class="inline-flex min-h-toque min-w-toque items-center justify-center cursor-pointer"
+         :title="cubierto({{ nodo }}, '{{ accion }}') ? 'Incluido en el permiso general del módulo' : ''">
+    <input type="checkbox" class="acceso-check" :class="claseCelda({{ nodo }}, '{{ accion }}')"
+           :checked="marcado({{ nodo }}, '{{ accion }}')" :disabled="bloqueado({{ nodo }}, '{{ accion }}')"
+           @change="alternar({{ nodo }}, '{{ accion }}')" :aria-label="`{{ accion }}: ${ {{ nodo }}.label }`">
+  </label>
 </template>
 <template x-if="!aplica({{ nodo }}, '{{ accion }}')"><span class="text-texto-disabled" title="No aplica">—</span></template>
 {%- endmacro %}
