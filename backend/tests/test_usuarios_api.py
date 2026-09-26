@@ -141,3 +141,71 @@ def test_accesos_y_permisos_de_usuario(client, crear_usuario, headers_de, db):
 def test_usuario_inexistente(client, crear_usuario, headers_de):
     h = headers_de(crear_usuario("admin"))
     assert client.get(f"{URL}/999999", headers=h).status_code == 404
+
+
+# ---------- Escalada de privilegios (revisión final) ----------
+def test_supervisor_no_otorga_auditoria_por_accesos(client, crear_usuario, headers_de, db):
+    h = headers_de(crear_usuario("supervisor"))
+    vendedor = crear_usuario("vendedor")
+    r = client.put(f"{URL}/{vendedor.id}/accesos", json={"accesos": ["caja:caja.retiro:crear", "auditoria::ver"]}, headers=h)
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Solo el Admin puede otorgar permisos de Auditoría"
+    # Se valida todo antes de escribir: el retiro (que sí podía otorgar) tampoco quedó.
+    retiro = next(a for a in client.get(f"{URL}/{vendedor.id}/accesos", headers=h).json()
+                  if a["clave"] == "caja:caja.retiro:crear")
+    assert retiro["override"] is False
+
+
+def test_supervisor_no_otorga_un_permiso_que_no_tiene(client, crear_usuario, headers_de):
+    h = headers_de(crear_usuario("supervisor"))
+    vendedor = crear_usuario("vendedor")
+    r = client.put(f"{URL}/{vendedor.id}/permisos",
+                   json={"permisos": [{"modulo": "configuracion", "puede_editar": True}]}, headers=h)
+    assert r.status_code == 403
+    assert r.json()["detail"] == "No podés otorgar un permiso que no tenés: editar en configuracion"
+
+
+def test_supervisor_otorga_un_permiso_que_tiene(client, crear_usuario, headers_de):
+    h = headers_de(crear_usuario("supervisor"))
+    vendedor = crear_usuario("vendedor")
+    r = client.put(f"{URL}/{vendedor.id}/permisos",
+                   json={"permisos": [{"modulo": "stock", "recurso": "stock.baja", "puede_crear": True}]}, headers=h)
+    assert r.status_code == 200
+
+
+def test_supervisor_no_otorga_usuarios(client, crear_usuario, headers_de):
+    h = headers_de(crear_usuario("supervisor"))
+    vendedor = crear_usuario("vendedor")
+    r = client.put(f"{URL}/{vendedor.id}/accesos", json={"accesos": ["usuarios::crear"]}, headers=h)
+    assert r.status_code == 403
+    assert r.json()["detail"] == "Solo el Admin puede otorgar permisos de Usuarios"
+
+
+def test_supervisor_puede_quitar_permisos(client, crear_usuario, headers_de):
+    admin_h = headers_de(crear_usuario("admin"))
+    vendedor = crear_usuario("vendedor")
+    assert client.put(f"{URL}/{vendedor.id}/accesos", json={"accesos": ["auditoria::ver"]}, headers=admin_h).status_code == 200
+    h = headers_de(crear_usuario("supervisor"))
+    assert client.put(f"{URL}/{vendedor.id}/accesos", json={"accesos": []}, headers=h).status_code == 200
+
+
+def test_no_admin_no_se_gestiona_a_si_mismo(client, crear_usuario, headers_de):
+    admin_h = headers_de(crear_usuario("admin"))
+    vendedor = crear_usuario("vendedor")
+    r = client.put(f"{URL}/{vendedor.id}/permisos",
+                   json={"permisos": [{"modulo": "usuarios", "puede_ver": True, "puede_editar": True}]}, headers=admin_h)
+    assert r.status_code == 200
+    h = headers_de(vendedor)
+    assert client.put(f"{URL}/{vendedor.id}/accesos", json={"accesos": ["caja:caja.retiro:crear"]}, headers=h).status_code == 403
+    r = client.put(f"{URL}/{vendedor.id}/permisos", json={"permisos": []}, headers=h)
+    assert r.status_code == 403 and r.json()["detail"] == "No podés gestionar tu propio usuario"
+    assert client.put(f"{URL}/{vendedor.id}", json={"nombre": "Yo Mismo"}, headers=h).status_code == 403
+    assert client.patch(f"{URL}/{vendedor.id}/estado", json={"activo": True}, headers=h).status_code == 403
+
+
+def test_admin_otorga_auditoria(client, crear_usuario, headers_de):
+    h = headers_de(crear_usuario("admin"))
+    vendedor = crear_usuario("vendedor")
+    r = client.put(f"{URL}/{vendedor.id}/accesos", json={"accesos": ["auditoria::ver"]}, headers=h)
+    assert r.status_code == 200
+    assert next(a for a in r.json() if a["clave"] == "auditoria::ver")["permitido"]

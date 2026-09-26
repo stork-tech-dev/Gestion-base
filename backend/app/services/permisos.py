@@ -2,13 +2,14 @@
 from sqlalchemy import select
 
 from app.core.auditoria import registrar_auditoria
-from app.core.errores import DatoInvalido, ReglaDeNegocio
+from app.core.errores import DatoInvalido, ReglaDeNegocio, SinPermiso
 from app.core.permisos import (
     ACCIONES,
     LABEL_MODULO,
     LABEL_RECURSO,
     ROL_ADMIN,
     Modulo,
+    Recurso,
     acceso_por_clave,
     acciones_aplicables,
     catalogo_accesos,
@@ -145,10 +146,45 @@ def _borrar_overrides_vacios(db, filas: dict) -> None:
     db.flush()
 
 
+# Módulos cuyos permisos solo otorga el Admin (evita escalar privilegios).
+MODULOS_RESERVADOS_AL_ADMIN = (Modulo.USUARIOS, Modulo.AUDITORIA)
+
+
+def _validar_otorgables(db, autor, nuevas: list[tuple[Modulo, Recurso | None, str]]) -> None:
+    """Un no-admin solo otorga (como override) permisos que él mismo tiene y
+    nunca los de módulos reservados al Admin. Se llama con TODAS las acciones
+    que pasan a concedidas antes de escribir nada: si una falla, no se aplica
+    ninguna. Quitar permisos siempre está permitido (no llegan acá)."""
+    if autor is None or autor.es_admin:
+        return
+    # Import local: core.seguridad importa services.auth; importarlo arriba
+    # arma un ciclo de imports al cargar los services.
+    from app.core.seguridad import resolver_permiso
+
+    for modulo, recurso, accion in nuevas:
+        if modulo in MODULOS_RESERVADOS_AL_ADMIN:
+            raise SinPermiso(f"Solo el Admin puede otorgar permisos de {LABEL_MODULO[modulo]}")
+        if not resolver_permiso(db, autor.id, modulo, accion, recurso):
+            destino = f"{modulo.value}/{recurso.value}" if recurso else modulo.value
+            raise SinPermiso(f"No podés otorgar un permiso que no tenés: {accion} en {destino}")
+
+
+def _concedida_antes(fila, accion: str) -> bool:
+    return fila is not None and fila.puede(accion)
+
+
 def actualizar_permisos_usuario(db, autor, usuario, entradas, ip) -> None:
     """Overrides aditivos: solo se guardan las acciones marcadas."""
     validas = _destinos_validos(entradas)
     filas = _filas_de_usuario(db, usuario.id)
+    nuevas = []
+    for (modulo, recurso), entrada in validas:
+        fila = filas.get((modulo.value, recurso.value if recurso else None))
+        nuevas.extend(
+            (modulo, recurso, accion) for accion in acciones_aplicables(modulo, recurso)
+            if getattr(entrada, f"puede_{accion}") and not _concedida_antes(fila, accion)
+        )
+    _validar_otorgables(db, autor, nuevas)
     antes = _snapshot_filas(filas)
     for (modulo, recurso), entrada in validas:
         clave = (modulo.value, recurso.value if recurso else None)
@@ -222,6 +258,11 @@ def actualizar_accesos_usuario(db, autor, usuario, claves: list[str], ip) -> Non
     marcadas = set(claves)
     filas_rol = _filas_de_rol(db, usuario.rol_id)
     filas = _filas_de_usuario(db, usuario.id)
+    _validar_otorgables(db, autor, [
+        (a.modulo, a.recurso, a.accion) for a in catalogo_accesos()
+        if a.clave in marcadas and not _heredado(a, filas_rol, usuario.es_admin)
+        and not _concedida_antes(filas.get((a.modulo.value, a.recurso.value if a.recurso else None)), a.accion)
+    ])
     antes = _claves_override(filas)
     for acceso in catalogo_accesos():
         if _heredado(acceso, filas_rol, usuario.es_admin):

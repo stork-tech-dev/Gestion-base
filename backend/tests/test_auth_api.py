@@ -117,3 +117,13 @@ def test_password_nueva_corta_da_422(client, crear_usuario):
     _login(client, "hugo", "Clave1234")
     r = client.post("/api/v1/auth/cambiar-password", json={"password_actual": "Clave1234", "password_nueva": "corta"})
     assert r.status_code == 422
+
+
+def test_password_de_mas_de_72_bytes_da_422(client):
+    r = client.post("/api/v1/auth/reset-password", json={"token": "x", "password_nueva": "a" * 73})
+    assert r.status_code == 422
+    assert "72 bytes" in str(r.json())
+    # 40 caracteres pero 80 bytes en UTF-8.
+    assert client.post("/api/v1/auth/reset-password", json={"token": "x", "password_nueva": "ñ" * 40}).status_code == 422
+    # 72 bytes exactos: pasa la validación (falla después por el token).
+    assert client.post("/api/v1/auth/reset-password", json={"token": "x", "password_nueva": "a" * 72}).status_code == 400

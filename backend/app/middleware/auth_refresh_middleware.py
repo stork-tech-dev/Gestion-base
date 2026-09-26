@@ -1,5 +1,6 @@
 """Sesión deslizante: renueva el access vencido usando la cookie de refresh y
-corre la ventana de inactividad en cada request con access vigente.
+corre la ventana de inactividad en cada request con access vigente (por
+cookie o por header Bearer; a los clientes Bearer nunca se les tocan cookies).
 Nunca levanta excepción: ante cualquier error deja pasar el request."""
 import logging
 from contextlib import contextmanager
@@ -50,6 +51,29 @@ def _access_vigente(token: str | None) -> bool:
     return True
 
 
+def _bearer_de(request) -> str | None:
+    autorizacion = request.headers.get("authorization", "")
+    if autorizacion.lower().startswith("bearer "):
+        return autorizacion[7:].strip()
+    return None
+
+
+def _registrar_actividad_bearer(abrir, token: str) -> _Resultado:
+    """Clientes Bearer (API, apps): también corren la ventana de inactividad
+    de su sesión, pero NUNCA se les tocan cookies. Si el token es inválido o
+    la sesión cayó no se hace nada más: la dependency responde 401."""
+    try:
+        with abrir() as db:
+            try:
+                auth.registrar_actividad(db, auth.sesion_de_access(db, auth.verificar_token(token, "access")))
+            except auth.TokenInvalido:
+                pass
+            db.commit()  # también conserva la marca de sesión revocada por inactividad
+    except Exception:  # noqa: BLE001 - el middleware nunca rompe el request
+        log.exception("Error en AuthRefreshMiddleware (Bearer)")
+    return _Resultado()
+
+
 class AuthRefreshMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         if self._excluida(request):
@@ -67,16 +91,17 @@ class AuthRefreshMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _excluida(request) -> bool:
-        if request.headers.get("authorization", "").lower().startswith("bearer "):
-            return True
         return request.url.path.startswith(RUTAS_EXCLUIDAS)
 
     @staticmethod
     def _procesar(request) -> _Resultado:
+        abrir = getattr(request.app.state, "abrir_sesion_db", sesion_por_defecto)
+        bearer = _bearer_de(request)
+        if bearer is not None:
+            return _registrar_actividad_bearer(abrir, bearer)
         refresh = request.cookies.get(settings.JWT_REFRESH_COOKIE_NAME)
         if not refresh:
             return _Resultado()
-        abrir = getattr(request.app.state, "abrir_sesion_db", sesion_por_defecto)
         try:
             with abrir() as db:
                 try:

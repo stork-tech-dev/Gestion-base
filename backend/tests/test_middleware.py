@@ -56,9 +56,31 @@ def test_logout_no_es_pisado_por_el_middleware(client, crear_usuario, db):
     assert all(c.startswith(('access_token=""', 'refresh_token=""')) for c in cookies)
 
 
-def test_bearer_no_pasa_por_el_middleware(client, crear_usuario, headers_de):
-    r = client.get("/api/v1/auth/me", headers=headers_de(crear_usuario()))
+def test_bearer_corre_la_ventana_sin_tocar_cookies(client, crear_usuario, db):
+    access, _, sesion = auth.generar_tokens(db, crear_usuario(), None)
+    sesion.expira_en = ahora_db() + timedelta(minutes=3)
+    db.flush()
+    r = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access}"})
     assert r.status_code == 200 and not r.headers.get_list("set-cookie")
+    db.refresh(sesion)
+    assert sesion.expira_en > ahora_db() + timedelta(minutes=29)
+
+
+def test_bearer_invalido_no_toca_cookies(client):
+    r = client.get("/api/v1/auth/me", headers={"Authorization": "Bearer basura"})
+    assert r.status_code == 401 and not r.headers.get_list("set-cookie")
+
+
+def test_logout_con_access_vencido_no_reinserta_access(client, crear_usuario, db):
+    usuario = crear_usuario()
+    _, _, sesion = _cookies_de_sesion(client, db, usuario)
+    vencido = auth._codificar({"sub": str(usuario.id), "tipo": "access", "sid": sesion.jti}, ahora() - timedelta(seconds=5))
+    client.cookies.set("access_token", vencido)
+    r = client.post("/api/v1/auth/logout")
+    assert r.status_code == 200
+    cookies = r.headers.get_list("set-cookie")
+    assert len(cookies) == 2
+    assert all(c.startswith(('access_token=""', 'refresh_token=""')) for c in cookies)
 
 
 def test_rutas_estaticas_excluidas(client):

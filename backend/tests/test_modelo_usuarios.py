@@ -47,7 +47,7 @@ def test_permiso_de_modulo_no_se_duplica_con_recurso_null(db):
         db.flush()
 
 
-@pytest.mark.parametrize("sentencia", ["UPDATE historial_accesos SET detalle = 'x'", "DELETE FROM historial_accesos"])
+@pytest.mark.parametrize("sentencia", ["UPDATE historial_accesos SET detalle = 'x'", "DELETE FROM historial_accesos", "TRUNCATE historial_accesos"])
 def test_historial_de_accesos_es_inmutable(db, sentencia):
     admin = db.scalar(select(Usuario).where(Usuario.username == "admin"))
     db.add(HistorialAcceso(usuario_id=admin.id, timestamp=ahora_db(), resultado=ResultadoAcceso.EXITOSO))

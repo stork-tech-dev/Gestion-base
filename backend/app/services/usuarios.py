@@ -1,13 +1,13 @@
 """Usuarios: alta, edición, estado e historial. Admin gestiona a todos; el
 resto de los que tienen permiso sobre Usuarios, solo a vendedores."""
-from datetime import date, datetime, time, timedelta
+from datetime import date
 
 from sqlalchemy import func, select
 
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
 from app.core.permisos import ROL_ADMIN, ROL_VENDEDOR
-from app.core.utils import filtro_texto, normalizar_texto
+from app.core.utils import filtro_texto, normalizar_texto, paginar, rango_fechas
 from app.models import HistorialAcceso, ResultadoAcceso, Rol, Usuario
 from app.services import auth
 
@@ -21,9 +21,13 @@ def obtener_usuario(db, usuario_id: int) -> Usuario:
     return usuario
 
 
-def validar_puede_gestionar(autor: Usuario, rol_objetivo: Rol) -> None:
+def validar_puede_gestionar(autor: Usuario, rol_objetivo: Rol, usuario_objetivo: Usuario | None = None) -> None:
+    """El Admin gestiona a todos. El resto solo a vendedores y nunca a sí
+    mismo (si no, podría darse permisos por overrides o reactivarse)."""
     if autor.es_admin:
         return
+    if usuario_objetivo is not None and usuario_objetivo.id == autor.id:
+        raise SinPermiso("No podés gestionar tu propio usuario")
     if rol_objetivo.nombre != ROL_VENDEDOR:
         raise SinPermiso("Solo podés gestionar usuarios con rol vendedor")
 
@@ -45,10 +49,6 @@ def _rol_asignable(db, autor: Usuario, rol_id: int) -> Rol:
     return rol
 
 
-def _paginar(pagina: int, tamano: int) -> tuple[int, int]:
-    return max(1, pagina), max(1, min(tamano, TAMANO_MAXIMO))
-
-
 def listar_usuarios(db, *, nombre=None, username=None, email=None, rol_id=None, activo=None,
                     pagina: int = 1, tamano: int = 10) -> tuple[list[Usuario], int]:
     condiciones = []
@@ -62,7 +62,7 @@ def listar_usuarios(db, *, nombre=None, username=None, email=None, rol_id=None, 
         condiciones.append(Usuario.rol_id == rol_id)
     if activo is not None:
         condiciones.append(Usuario.activo.is_(activo))
-    pagina, tamano = _paginar(pagina, tamano)
+    pagina, tamano = paginar(pagina, tamano, TAMANO_MAXIMO)
     total = db.scalar(select(func.count()).select_from(Usuario).where(*condiciones))
     usuarios = db.scalars(
         select(Usuario).where(*condiciones).order_by(func.lower(Usuario.nombre), Usuario.id)
@@ -119,7 +119,7 @@ def crear_usuario(db, autor: Usuario, datos, ip) -> Usuario:
 
 
 def editar_usuario(db, autor: Usuario, usuario: Usuario, datos, ip) -> Usuario:
-    validar_puede_gestionar(autor, usuario.rol)
+    validar_puede_gestionar(autor, usuario.rol, usuario)
     antes = snapshot(usuario)
     enviados = datos.model_fields_set
     if "rol_id" in enviados and datos.rol_id is not None and datos.rol_id != usuario.rol_id:
@@ -143,7 +143,7 @@ def editar_usuario(db, autor: Usuario, usuario: Usuario, datos, ip) -> Usuario:
 
 
 def cambiar_estado_usuario(db, autor: Usuario, usuario: Usuario, activo: bool, ip) -> Usuario:
-    validar_puede_gestionar(autor, usuario.rol)
+    validar_puede_gestionar(autor, usuario.rol, usuario)
     if not activo:
         if usuario.id == autor.id:
             raise ReglaDeNegocio("No podés desactivarte a vos mismo")
@@ -163,13 +163,10 @@ def historial_de_usuario(db, usuario_id: int, *, desde: date | None = None, hast
                          resultado: ResultadoAcceso | None = None, pagina: int = 1,
                          tamano: int = 10) -> tuple[list[HistorialAcceso], int]:
     condiciones = [HistorialAcceso.usuario_id == usuario_id]
-    if desde:
-        condiciones.append(HistorialAcceso.timestamp >= datetime.combine(desde, time.min))
-    if hasta:
-        condiciones.append(HistorialAcceso.timestamp < datetime.combine(hasta + timedelta(days=1), time.min))
+    condiciones.extend(rango_fechas(HistorialAcceso.timestamp, desde, hasta))
     if resultado is not None:
         condiciones.append(HistorialAcceso.resultado == resultado)
-    pagina, tamano = _paginar(pagina, tamano)
+    pagina, tamano = paginar(pagina, tamano, TAMANO_MAXIMO)
     total = db.scalar(select(func.count()).select_from(HistorialAcceso).where(*condiciones))
     filas = db.scalars(
         select(HistorialAcceso).where(*condiciones)

@@ -3,25 +3,35 @@
 - access token: 30 min, claim `sid` = jti de la sesión (se valida en cada request).
 - refresh token: 7 días, claim `jti`; la fila de `sesiones` guarda la ventana
   deslizante de inactividad (`expira_en`), con tope `creada_en + 7 días`.
-- reset token: 30 min, claim `pwd` = últimos 16 caracteres del hash actual
+- reset token: 30 min, claim `pwd` = HMAC(JWT_SECRET, hash actual) truncado
   (queda inválido apenas cambia la contraseña: un solo uso sin tabla).
 """
+import hmac
+import re
 import secrets
 from datetime import datetime, timedelta
 
 import bcrypt
 import jwt
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.core.auditoria import registrar_auditoria
 from app.core.errores import NoAutenticado
 from app.core.utils import ahora, ahora_db
-from app.models import HistorialAcceso, ResultadoAcceso, Sesion, Usuario
+from app.models import Auditoria, HistorialAcceso, ResultadoAcceso, Sesion, Usuario
 from config import settings
 
 MENSAJE_CREDENCIALES = "Usuario o contraseña incorrectos"
 ACTIVIDAD_MINIMA = timedelta(minutes=1)  # registrar_actividad escribe como mucho una vez por minuto
 RESET_MINUTOS = 30
+# Freno a la fuerza bruta: con INTENTOS_MAXIMOS fallos del mismo username en
+# los últimos BLOQUEO_MINUTOS, el login queda bloqueado (aun con la clave correcta).
+INTENTOS_MAXIMOS = 5
+BLOQUEO_MINUTOS = 15
+DETALLE_BLOQUEADO = "Bloqueado temporalmente"
+# Solo se audita el username tipeado si tiene forma de username (ya en minúscula).
+_USERNAME_AUDITABLE = re.compile(r"^[a-z0-9._-]{1,50}$")
+USERNAME_INVALIDO = "(inválido)"
 
 
 class TokenInvalido(Exception):
@@ -162,6 +172,21 @@ def revocar_sesiones_de_usuario(db, usuario_id: int) -> None:
 
 
 # ---------------------------------------------------------------- login
+def _username_auditable(username: str) -> str:
+    return username if _USERNAME_AUDITABLE.match(username) else USERNAME_INVALIDO
+
+
+def _fallos_recientes(db, username: str) -> int:
+    desde = ahora_db() - timedelta(minutes=BLOQUEO_MINUTOS)
+    return db.scalar(
+        select(func.count()).select_from(Auditoria).where(
+            Auditoria.accion == "auth.login_fallido",
+            Auditoria.timestamp >= desde,
+            Auditoria.estado_nuevo["username"].astext == _username_auditable(username),
+        )
+    )
+
+
 def _registrar_intento(db, usuario, username, exitoso, detalle, ip) -> None:
     if usuario is not None:
         db.add(
@@ -179,7 +204,7 @@ def _registrar_intento(db, usuario, username, exitoso, detalle, ip) -> None:
         entidad="usuario",
         entidad_id=usuario.id if usuario else None,
         usuario_id=usuario.id if usuario else None,
-        estado_nuevo=None if exitoso else {"username": username, "detalle": detalle},
+        estado_nuevo=None if exitoso else {"username": _username_auditable(username), "detalle": detalle},
         ip_origen=ip,
     )
 
@@ -189,7 +214,11 @@ def autenticar_usuario(db, username: str, password: str, ip: str | None) -> Usua
     El llamador debe hacer commit aunque falle (para conservar el registro)."""
     username = (username or "").strip().lower()
     usuario = db.scalar(select(Usuario).where(Usuario.username == username))
-    if usuario is None:
+    if _fallos_recientes(db, username) >= INTENTOS_MAXIMOS:
+        # Se paga igual el costo de bcrypt: el tiempo no revela el bloqueo.
+        verificar_password(password, _HASH_SENUELO)
+        detalle = DETALLE_BLOQUEADO
+    elif usuario is None:
         verificar_password(password, _HASH_SENUELO)
         detalle = "Usuario inexistente"
     elif not verificar_password(password, usuario.password_hash):
@@ -216,7 +245,8 @@ def debe_cambiar_password(usuario: Usuario) -> bool:
 
 # ---------------------------------------------------------------- contraseñas olvidadas
 def _huella(usuario: Usuario) -> str:
-    return usuario.password_hash[-16:]
+    """HMAC del hash actual: cambia con la contraseña y no expone el hash en el JWT."""
+    return hmac.new(settings.JWT_SECRET.encode(), usuario.password_hash.encode(), "sha256").hexdigest()[:16]
 
 
 def generar_token_reset(usuario: Usuario) -> str:

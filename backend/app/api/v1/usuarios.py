@@ -89,7 +89,7 @@ def accesos(usuario_id: int, db: Session = Depends(get_db), _: Usuario = Depends
 def guardar_accesos(usuario_id: int, datos: ActualizarAccesos, request: Request, db: Session = Depends(get_db),
                     autor: Usuario = Depends(puede_editar)):
     usuario = usuarios.obtener_usuario(db, usuario_id)
-    usuarios.validar_puede_gestionar(autor, usuario.rol)
+    usuarios.validar_puede_gestionar(autor, usuario.rol, usuario)
     permisos.actualizar_accesos_usuario(db, autor, usuario, datos.accesos, ip_de_request(request))
     db.commit()
     return permisos.accesos_de_usuario(db, usuario)
@@ -104,7 +104,7 @@ def ver_permisos(usuario_id: int, db: Session = Depends(get_db), _: Usuario = De
 def guardar_permisos(usuario_id: int, datos: ActualizarPermisos, request: Request, db: Session = Depends(get_db),
                      autor: Usuario = Depends(puede_editar)):
     usuario = usuarios.obtener_usuario(db, usuario_id)
-    usuarios.validar_puede_gestionar(autor, usuario.rol)
+    usuarios.validar_puede_gestionar(autor, usuario.rol, usuario)
     permisos.actualizar_permisos_usuario(db, autor, usuario, datos.permisos, ip_de_request(request))
     db.commit()
     return permisos.arbol_de_usuario(db, usuario)

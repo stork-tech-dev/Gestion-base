@@ -12,7 +12,9 @@ from app.core.utils import (
     filtro_texto,
     ip_de_request,
     normalizar_texto,
+    paginar,
     patron_ilike,
+    rango_fechas,
     redondear,
     redondear_hacia_abajo,
     redondear_hacia_arriba,
@@ -134,3 +136,23 @@ def test_ip_de_request_sin_cliente_devuelve_none(monkeypatch):
     monkeypatch.setattr(settings, "PROXIES_DE_CONFIANZA", 0)
     sin_cliente = SimpleNamespace(headers={}, client=None)
     assert ip_de_request(sin_cliente) is None
+
+
+def test_paginar_hace_clamp():
+    assert paginar(0, 0, 100) == (1, 1)
+    assert paginar(3, 500, 100) == (3, 100)
+    assert paginar(2, 10, 100) == (2, 10)
+
+
+def test_rango_fechas_con_hasta_inclusivo(db):
+    from datetime import date, datetime
+
+    from sqlalchemy import DateTime, cast
+
+    columna = cast(literal(datetime(2026, 9, 25, 23, 59, 59)), DateTime)
+    assert rango_fechas(columna, None, None) == []
+    condiciones = rango_fechas(columna, date(2026, 9, 25), date(2026, 9, 25))
+    assert len(condiciones) == 2
+    assert db.scalar(select(literal(True)).where(*condiciones)) is True
+    assert db.scalar(select(literal(True)).where(*rango_fechas(columna, None, date(2026, 9, 24)))) is None
+    assert db.scalar(select(literal(True)).where(*rango_fechas(columna, date(2026, 9, 26), None))) is None

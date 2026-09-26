@@ -8,7 +8,6 @@ sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 alembic==1.14.0
 pyjwt==2.10.1
-passlib[bcrypt]==1.7.4
 bcrypt==4.2.1
 jinja2==3.1.5
 python-barcode==0.15.1        # Code128 en SVG (módulo 04)

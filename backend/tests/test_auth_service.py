@@ -200,3 +200,50 @@ def test_solicitar_reset_envia_solo_a_usuarios_activos_con_email(db, crear_usuar
     assert len(registros) == 4
     con_envio = {r.estado_nuevo["username"]: r.estado_nuevo["con_envio"] for r in registros}
     assert con_envio == {"conmail": True, "sinmail": False, "inactivo": False, "noexiste": False}
+
+
+# ---------- Revisión final: fuerza bruta, huella de reset, username auditado ----------
+def test_cinco_fallos_bloquean_temporalmente_aun_con_la_clave_correcta(db, crear_usuario):
+    usuario = crear_usuario(username="bloqueo", password="Clave1234")
+    for _ in range(auth.INTENTOS_MAXIMOS):
+        with pytest.raises(auth.CredencialesInvalidas):
+            auth.autenticar_usuario(db, "bloqueo", "mala", None)
+    with pytest.raises(auth.CredencialesInvalidas) as error:
+        auth.autenticar_usuario(db, "bloqueo", "Clave1234", None)
+    assert error.value.mensaje == "Usuario o contraseña incorrectos"
+    assert _ultima_auditoria(db, "auth.login_fallido").estado_nuevo == {
+        "username": "bloqueo", "detalle": "Bloqueado temporalmente"}
+    ultimo = db.scalar(select(HistorialAcceso).where(HistorialAcceso.usuario_id == usuario.id)
+                       .order_by(HistorialAcceso.id.desc()))
+    assert ultimo.detalle == "Bloqueado temporalmente"
+
+
+def test_los_fallos_de_otro_username_no_bloquean(db, crear_usuario):
+    usuario = crear_usuario(username="libre", password="Clave1234")
+    for _ in range(auth.INTENTOS_MAXIMOS + 1):
+        with pytest.raises(auth.CredencialesInvalidas):
+            auth.autenticar_usuario(db, "otro.usuario", "mala", None)
+    assert auth.autenticar_usuario(db, "libre", "Clave1234", None) is usuario
+
+
+def test_los_fallos_viejos_no_bloquean(db, crear_usuario):
+    from app.models import Auditoria
+
+    usuario = crear_usuario(username="viejo", password="Clave1234")
+    for _ in range(auth.INTENTOS_MAXIMOS):
+        db.add(Auditoria(accion="auth.login_fallido", entidad="usuario", estado_nuevo={"username": "viejo"},
+                         timestamp=ahora_db() - timedelta(minutes=auth.BLOQUEO_MINUTOS + 1)))
+    db.flush()
+    assert auth.autenticar_usuario(db, "viejo", "Clave1234", None) is usuario
+
+
+def test_huella_de_reset_no_expone_el_hash(crear_usuario):
+    usuario = crear_usuario()
+    huella = auth._huella(usuario)
+    assert len(huella) == 16 and huella not in usuario.password_hash
+
+
+def test_username_invalido_se_audita_como_invalido(db):
+    with pytest.raises(auth.CredencialesInvalidas):
+        auth.autenticar_usuario(db, "Juan Pérez; DROP", "x", None)
+    assert _ultima_auditoria(db, "auth.login_fallido").estado_nuevo["username"] == "(inválido)"

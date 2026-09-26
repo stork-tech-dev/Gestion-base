@@ -102,6 +102,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "JWT_SECRET debe reemplazarse por un secreto de al menos 32 caracteres en producción"
             )
+        if self.APP_ENV == "production" and any(h in self.APP_URL for h in ("localhost", "127.0.0.1")):
+            # APP_URL arma el enlace de recuperación de contraseña de los mails.
+            raise ValueError("APP_URL debe ser la URL pública del sistema en producción")
         if self.SESION_INACTIVIDAD_MINUTOS < self.JWT_ACCESS_TOKEN_MINUTES:
             raise ValueError(
                 "SESION_INACTIVIDAD_MINUTOS debe ser mayor o igual a JWT_ACCESS_TOKEN_MINUTES"

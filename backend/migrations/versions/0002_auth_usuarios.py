@@ -96,6 +96,11 @@ def upgrade() -> None:
             FOR EACH STATEMENT EXECUTE FUNCTION historial_bloquear_modificacion();
         CREATE TRIGGER trg_historial_no_delete BEFORE DELETE ON historial_accesos
             FOR EACH STATEMENT EXECUTE FUNCTION historial_bloquear_modificacion();
+        CREATE TRIGGER trg_historial_no_truncate BEFORE TRUNCATE ON historial_accesos
+            FOR EACH STATEMENT EXECUTE FUNCTION historial_bloquear_modificacion();
+        -- Defensa en profundidad (igual que auditoria en 0001): si el rol es
+        -- superusuario, lo que cuenta es el trigger.
+        REVOKE UPDATE, DELETE, TRUNCATE ON historial_accesos FROM CURRENT_USER;
 
         -- Refresh tokens emitidos: se guarda solo el jti.
         CREATE TABLE sesiones (

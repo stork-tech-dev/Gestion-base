@@ -1,9 +1,18 @@
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
+
+BCRYPT_MAX_BYTES = 72  # bcrypt ignora (o rechaza) lo que pase de 72 bytes
+
+
+def _hasta_72_bytes(valor: str) -> str:
+    if len(valor.encode("utf-8")) > BCRYPT_MAX_BYTES:
+        raise ValueError(f"La contraseña no puede superar {BCRYPT_MAX_BYTES} bytes")
+    return valor
+
 
 # Regla única de longitud de contraseñas (la reusan los schemas de usuarios).
-Password = Annotated[str, Field(min_length=8, max_length=128)]
+Password = Annotated[str, Field(min_length=8, max_length=128), AfterValidator(_hasta_72_bytes)]
 
 
 class LoginRequest(BaseModel):

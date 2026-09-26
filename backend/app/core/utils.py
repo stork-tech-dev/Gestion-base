@@ -1,5 +1,5 @@
 """Utilidades transversales (Principio 2: una sola definición)."""
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func
@@ -111,3 +111,19 @@ def filtro_texto(columna, valor: str):
     """Condición ILIKE insensible a mayúsculas y tildes (Principio 5): única
     definición para los filtros de texto libre sobre VARCHAR/TEXT."""
     return sin_tildes_sql(columna).ilike(patron_ilike(sin_tildes(valor)), escape="\\")
+
+
+def rango_fechas(columna, desde: date | None, hasta: date | None) -> list:
+    """Condiciones de un filtro de rango de fechas (Principio 5) sobre una
+    columna TIMESTAMP; ambos extremos opcionales y `hasta` inclusivo (todo el día)."""
+    condiciones = []
+    if desde:
+        condiciones.append(columna >= datetime.combine(desde, time.min))
+    if hasta:
+        condiciones.append(columna < datetime.combine(hasta + timedelta(days=1), time.min))
+    return condiciones
+
+
+def paginar(pagina: int, tamano: int, maximo: int) -> tuple[int, int]:
+    """(página, tamaño) acotados: página >= 1 y 1 <= tamaño <= maximo."""
+    return max(1, pagina), max(1, min(tamano, maximo))
