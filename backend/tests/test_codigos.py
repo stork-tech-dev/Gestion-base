@@ -34,6 +34,12 @@ def test_decodificar_acepta_minusculas():
     assert decodificar_sku("ab001") == 1000
 
 
+def test_decodificar_sku_rechaza_digitos_unicode():
+    """Dígitos fullwidth (１２３) deben rechazarse."""
+    with pytest.raises(CodigoInvalido):
+        decodificar_sku("AB１２３")
+
+
 @pytest.mark.parametrize("codigo, digito", [
     ("AB123", "1"),   # 3·2 + 2·3 + 1·4 + 11·5 + 10·6 = 131; 131 % 11 = 10; 11 − 10 = 1
     ("AA001", "9"),   # 112 % 11 = 2 → 9
@@ -47,6 +53,12 @@ def test_digito_verificador(codigo, digito):
 def test_verificador_siempre_un_caracter():
     for n in range(1, 3000):
         assert len(digito_verificador(codificar_sku(n))) == 1
+
+
+def test_digito_verificador_rechaza_caracteres_invalidos():
+    """Caracteres no válidos en base36 (como '-') deben lanzar CodigoInvalido."""
+    with pytest.raises(CodigoInvalido):
+        digito_verificador("AB-23")
 
 
 def test_codigo_es_valido():
@@ -83,3 +95,8 @@ def test_cuit_con_verificador_diez_es_invalido():
             assert not any(cuit_es_valido(prefijo + str(d)) for d in range(10))
             return
     pytest.fail("no se encontró un prefijo con verificador 10")
+
+
+def test_cuit_rechaza_digitos_unicode():
+    """Dígitos fullwidth deben rechazarse."""
+    assert cuit_es_valido("２０１７２５４３５９７") is False

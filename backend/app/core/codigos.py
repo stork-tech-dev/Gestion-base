@@ -6,7 +6,7 @@ import string
 LETRAS = string.ascii_uppercase
 NUMEROS_POR_BLOQUE = 999                       # 001..999 por cada par de letras
 MAXIMO_SKU = len(LETRAS) ** 2 * NUMEROS_POR_BLOQUE   # 675.324 → ZZ999
-_PATRON_SKU = re.compile(r"^[A-Z]{2}\d{3}$")
+_PATRON_SKU = re.compile(r"^[A-Z]{2}[0-9]{3}$")
 _ALFABETO = string.digits + LETRAS             # base36: dígitos = su valor, letras desde 10
 _PESOS_CUIT = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
 
@@ -37,7 +37,10 @@ def digito_verificador(codigo: str) -> str:
     v = 11 − (suma % 11): 11 → '0', 10 → 'X', si no el dígito."""
     suma = 0
     for posicion, caracter in enumerate(reversed(codigo.upper())):
-        valor = _ALFABETO.index(caracter)
+        try:
+            valor = _ALFABETO.index(caracter)
+        except ValueError:
+            raise CodigoInvalido(f"Carácter '{caracter}' no válido en base36.")
         suma += valor * (2 + posicion % 6)
     v = 11 - suma % 11
     if v == 11:
@@ -59,7 +62,7 @@ def cuit_es_valido(cuit: str) -> bool:
     """11 dígitos (se ignoran guiones y espacios); verificador módulo 11 con
     pesos 5,4,3,2,7,6,5,4,3,2. v = 11 → 0; v = 10 → CUIT inválido."""
     digitos = re.sub(r"[\s-]", "", cuit or "")
-    if len(digitos) != 11 or not digitos.isdigit():
+    if not re.fullmatch(r"[0-9]{11}", digitos):
         return False
     suma = sum(int(d) * p for d, p in zip(digitos[:10], _PESOS_CUIT))
     v = 11 - suma % 11
