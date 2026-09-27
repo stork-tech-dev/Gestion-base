@@ -32,7 +32,11 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - No hay macro de botón-link: `<a class="boton ...">` se repite en ~6
   plantillas.
 - `importar_dolar` hace un `db.get` por fila (N+1): aceptable a esta escala;
-  si crece, precargar los proveedores con un `IN`.
+  si crece, precargar los proveedores con un `IN`. Hacerlo con
+  `SELECT … WHERE id IN (…) ORDER BY id FOR UPDATE` resuelve además el orden
+  de los locks: hoy el masivo bloquea por nombre/id y el Excel fila por fila en
+  el orden del archivo, así que ambos a la vez sobre proveedores cruzados
+  pueden dar un deadlock (Postgres lo corta con un 500; sin datos corruptos).
 - La pantalla de cambio masivo no tiene entrada en el hub para quien solo
   tiene el permiso puntual `dolar.cambio_masivo` (se entra por URL).
 
