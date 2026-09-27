@@ -223,6 +223,8 @@ def dolar_masivo(request: Request, db: Session = Depends(get_db),
                  usuario: Usuario = Depends(requiere_pagina(PAGINA_DOLAR_MASIVO))):
     return _pagina(request, "pages/proveedores/dolar_masivo.html", contexto_base(
         request, db, "/configuracion", usuario, usa_dolar=servicio_proveedores.hay_proveedores_en_dolares(db),
+        # Con solo el permiso puntual del masivo, /proveedores da 403: el "volver" va al hub.
+        puede_ver=_visible(SECCION_PROVEEDORES, usuario, db),
     ))
 
 

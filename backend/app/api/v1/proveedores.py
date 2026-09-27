@@ -129,8 +129,8 @@ def cambiar_estado(proveedor_id: int, datos: ProveedorEstado, request: Request, 
 @router.patch("/{proveedor_id}/dolar", response_model=ProveedorResponse)
 def cambiar_dolar(proveedor_id: int, datos: CambioDolar, request: Request, db: Session = Depends(get_db),
                   autor: Usuario = Depends(puede_editar)):
-    proveedor = servicio.cambiar_dolar(db, autor, servicio.obtener_proveedor(db, proveedor_id), datos.valor_nuevo,
-                                       ip_de_request(request))
+    proveedor = servicio.cambiar_dolar(db, autor, servicio.obtener_proveedor(db, proveedor_id, bloquear=True),
+                                       datos.valor_nuevo, ip_de_request(request))
     db.commit()
     return proveedor
 

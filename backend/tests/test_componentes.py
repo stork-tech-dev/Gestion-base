@@ -58,6 +58,15 @@ def test_combobox_escapa_la_configuracion():
     assert "Proveedor (todos)" in html and 'for="f-proveedor"' in html
 
 
+def test_combobox_deshabilitado_es_opcional():
+    base = '{% from "components/combobox.html" import combobox %}'
+    sin = render(base + '{{ combobox("f-rol", "roles", "form.rol_id") }}')
+    assert ":disabled=" not in sin
+    con = render(base + '{{ combobox("f-rol", "roles", "form.rol_id", deshabilitado="form.id && !accesosCargados") }}')
+    assert ':disabled="form.id &amp;&amp; !accesosCargados"' in con or ':disabled="form.id && !accesosCargados"' in con
+
+
+
 def test_hub_con_y_sin_secciones():
     con = render('{% from "components/hub.html" import hub %}{{ hub(s) }}', s=[{"nombre": "Usuarios", "descripcion": "Altas", "url": "/usuarios", "title": "Ayuda"}])
     sin = render('{% from "components/hub.html" import hub %}{{ hub([]) }}')

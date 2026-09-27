@@ -33,6 +33,10 @@
       // false mientras no se sepa qué accesos tiene el usuario: guardar
       // antes mandaría accesos: [] y le borraría los propios.
       accesosCargados: false,
+      // En la edición, false hasta que llegan los accesos propios del usuario:
+      // un cambio de rol antes de eso se ignora (si no, su respuesta descartaría
+      // la carga inicial y el PUT posterior borraría los overrides previos).
+      _cargaInicialLista: false,
       _espera: null,
       _ultima: window.ultimaRespuesta(),
       _ultimaRol: window.ultimaRespuesta(),
@@ -101,6 +105,7 @@
         this.marcados = [];
         this.marcadosOriginales = [];
         this.accesosCargados = true;  // sin rol elegido no hay accesos que perder
+        this._cargaInicialLista = true;
         this.formAbierto = true;
       },
 
@@ -115,6 +120,7 @@
         this.marcados = [];
         this.marcadosOriginales = [];
         this.accesosCargados = false;
+        this._cargaInicialLista = false;
         this.formAbierto = true;
         try {
           const accesos = await this._ultimaRol(window.pedir(`${API}/${u.id}/accesos`));
@@ -123,12 +129,19 @@
           this.marcados = this.accesos.filter((a) => a.override && !a.heredado).map((a) => a.clave);
           this.marcadosOriginales = [...this.marcados].sort();
           this.accesosCargados = true;
+          this._cargaInicialLista = true;
         } catch (e) {
           window.toast(e.message, 'error');
         }
       },
 
       async alCambiarRol() {
+        // Edición con la carga inicial en curso (el combobox ya está
+        // deshabilitado; esto cubre cualquier otra vía): se ignora el cambio.
+        if (this.form.id && !this._cargaInicialLista) {
+          this.form.rol_id = this.rolOriginal;
+          return;
+        }
         // Mientras cargan los accesos del rol nuevo no se puede guardar,
         // ni en el alta ni en la edición (quedarían sin reconciliar).
         if (!this.form.rol_id) {

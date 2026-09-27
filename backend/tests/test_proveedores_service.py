@@ -89,6 +89,25 @@ def test_validar_dolar_invalido(valor):
         servicio.validar_dolar(valor)
 
 
+@pytest.mark.parametrize("valor, mensaje", [
+    ("0.004", "El valor del dólar debe ser mayor a cero."),   # redondeado da 0.00
+    ("1e12", "El valor del dólar es demasiado grande."),
+    ("100000000", "El valor del dólar es demasiado grande."),
+    ("99999999.995", "El valor del dólar es demasiado grande."),  # redondeado da 10^8
+    ("-1e40", "El valor del dólar debe ser mayor a cero."),
+    ("1e40", "El valor del dólar es demasiado grande."),
+])
+def test_validar_dolar_limites(valor, mensaje):
+    with pytest.raises(DatoInvalido) as error:
+        servicio.validar_dolar(valor)
+    assert error.value.mensaje == mensaje
+
+
+def test_validar_dolar_maximo_y_minimo_validos():
+    assert servicio.validar_dolar("99999999.99") == Decimal("99999999.99")
+    assert servicio.validar_dolar("0.005") == Decimal("0.01")
+
+
 def test_validar_dolar_redondea_half_up():
     assert servicio.validar_dolar("10.005") == Decimal("10.01")
 
@@ -149,3 +168,13 @@ def test_hay_proveedores_en_dolares_solo_activos(db, crear_usuario):
     assert servicio.hay_proveedores_en_dolares(db) is True
     servicio.cambiar_estado(db, admin, p, EstadoProveedor.DESACTIVADO, False, None)
     assert servicio.hay_proveedores_en_dolares(db) is False
+
+
+def test_editar_audita_estado_anterior_y_nuevo(db, crear_usuario):
+    admin = crear_usuario("admin")
+    p = _crear(db, admin, nombre="Auditado", telefono="111")
+    _editar(db, admin, p, nombre="Auditado Editado", telefono="222")
+    registro = db.scalar(select(Auditoria).where(Auditoria.accion == "proveedor.editar", Auditoria.entidad_id == p.id))
+    assert registro.usuario_id == admin.id and registro.entidad == "proveedor"
+    assert registro.estado_anterior["nombre"] == "Auditado" and registro.estado_anterior["telefono"] == "111"
+    assert registro.estado_nuevo["nombre"] == "Auditado Editado" and registro.estado_nuevo["telefono"] == "222"

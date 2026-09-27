@@ -133,9 +133,11 @@ rentabilidad).
 ### `/app/services/productos.py`
 - `calcular_precio_venta(costo, margen, proveedor)`: la fórmula de arriba
   (única definición; la usan alta, edición, recálculo, preview e importación).
-- `recalcular_precios_de_proveedor(proveedor_id)`: recalcula los productos del
-  proveedor (la llama el service de proveedores en cada cambio real de dólar;
-  para un proveedor en pesos no hace nada).
+- `recalcular_precios_de_proveedor(db, proveedor_id)` (firma real, en
+  `app/services/productos.py`; sin commit): recalcula los productos del
+  proveedor. La llama el service de proveedores en cada cambio real de dólar,
+  después del flush del dólar nuevo (así lee el valor ya actualizado); para un
+  proveedor en pesos no hace nada.
 - `crear_producto(...)`: valida categoría existente, proveedor existente y
   **activo**, descripción obligatoria (normalizada y con inicial en mayúscula
   vía `capitalizar_inicial`), descripción única por categoría y proveedor

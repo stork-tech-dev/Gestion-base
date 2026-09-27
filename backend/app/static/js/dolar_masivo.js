@@ -72,8 +72,8 @@
         if (!ok) return;
         this.aplicando = true;
         try {
-          const aplicados = await window.pedir(`${API}/dolar/masivo`, { method: 'POST', body: this._cuerpo() });
-          window.toast(`Dólar actualizado en ${aplicados.length} proveedor(es).`);
+          const vista = await window.pedir(`${API}/dolar/masivo`, { method: 'POST', body: this._cuerpo() });
+          window.toast(this.mensajeAplicados(vista));
           this.vista = [];
           this.valor = '';
           await this.cargar();
@@ -82,6 +82,12 @@
         } finally {
           this.aplicando = false;
         }
+      },
+
+      // La API devuelve todos los proveedores elegidos; `aplicado` marca los que cambiaron.
+      mensajeAplicados(vista) {
+        const n = vista.filter((fila) => fila.aplicado).length;
+        return n ? `Dólar actualizado en ${n} proveedor(es).` : 'Ningún proveedor cambió.';
       },
 
       elegirArchivo(evento) {

@@ -4,12 +4,10 @@
 (módulo 03) y la importación inicial (módulo 08)."""
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
-from zipfile import BadZipFile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
-from openpyxl.utils.exceptions import InvalidFileException
 
 from app.core.errores import ReglaDeNegocio
 from app.core.utils import normalizar_texto, sin_tildes
@@ -17,6 +15,9 @@ from app.core.utils import normalizar_texto, sin_tildes
 TAMANO_MAXIMO_BYTES = 5 * 1024 * 1024
 FILAS_MAXIMAS = 5000
 TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# Un texto que empiece con alguno de estos caracteres Excel lo puede tomar como
+# fórmula (inyección de fórmulas / CSV injection).
+PREFIJOS_FORMULA = ("=", "+", "-", "@", "\t", "\r")
 
 
 def clave_columna(texto) -> str:
@@ -79,6 +80,16 @@ def leer_tabla(contenido: bytes, requeridas, opcionales=()) -> list[tuple[int, d
         libro.close()
 
 
+def _textos_como_texto(hoja) -> None:
+    """Fuerza como texto (tipo "s") toda celda str que Excel podría ejecutar
+    como fórmula: openpyxl marca como fórmula cualquier str que empiece con
+    "=". Así un nombre como '=HYPERLINK(...)' se guarda y se lee tal cual."""
+    for fila in hoja.iter_rows():
+        for celda in fila:
+            if isinstance(celda.value, str) and celda.value.startswith(PREFIJOS_FORMULA):
+                celda.data_type = "s"
+
+
 def generar_plantilla(hoja: str, columnas: list[str], instrucciones: list[list], filas=None) -> bytes:
     """Libro con la hoja de datos (encabezados en negrita, filas precargadas
     opcionales) y una hoja "Instrucciones" (la primera fila en negrita)."""
@@ -94,6 +105,7 @@ def generar_plantilla(hoja: str, columnas: list[str], instrucciones: list[list],
         largo = max([len(str(columna))] + [len(str(f[indice - 1] or "")) for f in (filas or []) if len(f) >= indice])
         datos.column_dimensions[get_column_letter(indice)].width = min(max(12, largo + 4), 60)
     datos.freeze_panes = "A2"
+    _textos_como_texto(datos)
 
     ayuda = libro.create_sheet("Instrucciones")
     for fila in instrucciones:
@@ -102,6 +114,7 @@ def generar_plantilla(hoja: str, columnas: list[str], instrucciones: list[list],
         celda.font = Font(bold=True)
     for indice in range(1, max((len(f) for f in instrucciones), default=0) + 1):
         ayuda.column_dimensions[get_column_letter(indice)].width = 40
+    _textos_como_texto(ayuda)
 
     buffer = BytesIO()
     libro.save(buffer)

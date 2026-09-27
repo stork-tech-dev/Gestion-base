@@ -26,8 +26,14 @@ INSTRUCCIONES_DOLAR = [
 ]
 
 
-def obtener_proveedor(db, proveedor_id: int) -> Proveedor:
-    proveedor = db.get(Proveedor, proveedor_id)
+# NUMERIC(10, 2): el valor del dólar redondeado tiene que ser menor a 10^8.
+DOLAR_LIMITE = Decimal(10) ** 8
+
+
+def obtener_proveedor(db, proveedor_id: int, bloquear: bool = False) -> Proveedor:
+    """`bloquear=True` (vías de escritura del dólar): SELECT ... FOR UPDATE y
+    relee la fila, para que dos cambios simultáneos no se pisen."""
+    proveedor = db.get(Proveedor, proveedor_id, with_for_update=bloquear or None, populate_existing=bloquear)
     if proveedor is None:
         raise NoEncontrado("Proveedor no encontrado")
     return proveedor
@@ -87,17 +93,30 @@ def contar_productos(db, proveedor_id: int, solo_activos: bool = False) -> int:
 
 
 def validar_dolar(valor) -> Decimal:
-    """Convierte y valida el valor del dólar de un proveedor. Cualquier entrada
-    inválida (None, texto no numérico, NaN/infinito, cero o negativo) da
-    DatoInvalido en lugar de dejar escapar la excepción de `Decimal` —
-    la Task 5 (cambio masivo y Excel) reusa esta función con datos de afuera."""
+    """Convierte, redondea y valida el valor del dólar de un proveedor.
+    Cualquier entrada inválida (None, texto no numérico, NaN/infinito, cero o
+    negativo, o que redondeado no entre en NUMERIC(10, 2)) da DatoInvalido en
+    lugar de dejar escapar la excepción de `Decimal` o de la base — el cambio
+    masivo y el Excel reusan esta función con datos de afuera.
+
+    Se exige el rango sobre el valor YA redondeado (0.004 → 0.00 no pasa;
+    99999999.995 → 100000000.00 tampoco). Los chequeos previos al redondeo
+    solo cortan antes los valores que no pasarían igual, porque `quantize`
+    sobre números enormes excede la precisión de Decimal."""
     try:
         numero = Decimal(valor)
     except (InvalidOperation, TypeError, ValueError):
         raise DatoInvalido("El valor del dólar debe ser mayor a cero.") from None
     if not numero.is_finite() or numero <= 0:
         raise DatoInvalido("El valor del dólar debe ser mayor a cero.")
-    return redondear(numero)
+    if numero >= DOLAR_LIMITE:
+        raise DatoInvalido("El valor del dólar es demasiado grande.")
+    redondeado = redondear(numero)
+    if redondeado <= 0:
+        raise DatoInvalido("El valor del dólar debe ser mayor a cero.")
+    if redondeado >= DOLAR_LIMITE:
+        raise DatoInvalido("El valor del dólar es demasiado grande.")
+    return redondeado
 
 
 def _nombre_libre(db, nombre: str, excepto_id: int | None = None) -> str:
@@ -240,11 +259,14 @@ def historial_dolar(db, proveedor_id: int) -> list[dict]:
     ]
 
 
-def _proveedores_para_masivo(db, proveedor_ids) -> list[Proveedor]:
-    """Solo activos en dólares; los ids en pesos o inactivos se ignoran."""
+def _proveedores_para_masivo(db, proveedor_ids, bloquear: bool = False) -> list[Proveedor]:
+    """Solo activos en dólares; los ids en pesos o inactivos se ignoran.
+    `bloquear=True` (al aplicar): SELECT ... FOR UPDATE, releyendo las filas."""
     consulta = _activos_en_dolares()
     if proveedor_ids is not None:
         consulta = consulta.where(Proveedor.id.in_(proveedor_ids))
+    if bloquear:
+        consulta = consulta.with_for_update().execution_options(populate_existing=True)
     proveedores = list(db.scalars(consulta.order_by(func.lower(Proveedor.nombre), Proveedor.id)).all())
     if not proveedores:
         raise ReglaDeNegocio("No hay proveedores activos en dólares para actualizar.")
@@ -259,19 +281,25 @@ def _valor_masivo(proveedor: Proveedor, modalidad: ModalidadMasiva, valor: Decim
     return validar_dolar(proveedor.dolar_actual * (1 + Decimal(valor) / 100))
 
 
-def preview_masivo(db, proveedor_ids, modalidad: ModalidadMasiva, valor: Decimal) -> list[dict]:
+def _vista_masiva(proveedores, modalidad: ModalidadMasiva, valor: Decimal) -> list[dict]:
+    """Una fila por proveedor; `aplicado` queda en False hasta que se aplique."""
     return [
         {"proveedor_id": p.id, "nombre": p.nombre, "valor_actual": p.dolar_actual,
-         "valor_nuevo": _valor_masivo(p, modalidad, valor)}
-        for p in _proveedores_para_masivo(db, proveedor_ids)
+         "valor_nuevo": _valor_masivo(p, modalidad, valor), "aplicado": False}
+        for p in proveedores
     ]
 
 
+def preview_masivo(db, proveedor_ids, modalidad: ModalidadMasiva, valor: Decimal) -> list[dict]:
+    return _vista_masiva(_proveedores_para_masivo(db, proveedor_ids), modalidad, valor)
+
+
 def aplicar_masivo(db, autor, proveedor_ids, modalidad: ModalidadMasiva, valor: Decimal, ip) -> list[dict]:
-    vista = preview_masivo(db, proveedor_ids, modalidad, valor)  # valida todo antes de escribir
-    for fila in vista:
-        _aplicar_cambio_dolar(db, autor, db.get(Proveedor, fila["proveedor_id"]), fila["valor_nuevo"],
-                              ORIGEN_MASIVO[modalidad], ip)
+    """Devuelve la vista con `aplicado` en True solo para los que cambiaron."""
+    proveedores = _proveedores_para_masivo(db, proveedor_ids, bloquear=True)
+    vista = _vista_masiva(proveedores, modalidad, valor)  # valida todo antes de escribir
+    for proveedor, fila in zip(proveedores, vista):
+        fila["aplicado"] = _aplicar_cambio_dolar(db, autor, proveedor, fila["valor_nuevo"], ORIGEN_MASIVO[modalidad], ip)
     return vista
 
 
@@ -292,19 +320,32 @@ def _validar_fila_dolar(db, fila: dict, vistos: set) -> tuple[Proveedor, Decimal
     if proveedor_id in vistos:
         return "proveedor_id repetido en el archivo"
     vistos.add(proveedor_id)
-    proveedor = db.get(Proveedor, proveedor_id)
-    if proveedor is None:
+    try:
+        proveedor = obtener_proveedor(db, proveedor_id, bloquear=True)
+    except NoEncontrado:
         return "El proveedor no existe"
+    valor, error_valor = None, None
+    try:
+        valor = celda_decimal(fila["dolar_nuevo"])
+    except ValueError:
+        pass
+    if valor is None:
+        error_valor = "dolar_nuevo vacío o inválido"
+    else:
+        try:
+            valor = validar_dolar(valor)
+        except DatoInvalido as exc:
+            error_valor = exc.mensaje
+    # Fila sin modificar (el mismo dólar que tiene hoy): cuenta como "sin
+    # cambios" aunque el proveedor se haya desactivado después de bajar el Excel.
+    if error_valor is None and proveedor.moneda is Moneda.USD and valor == proveedor.dolar_actual:
+        return proveedor, valor
     if proveedor.estado is not EstadoProveedor.ACTIVO:
         return "El proveedor no está activo"
     if proveedor.moneda is not Moneda.USD:
         return "El proveedor trabaja en pesos"
-    try:
-        valor = celda_decimal(fila["dolar_nuevo"])
-    except ValueError:
-        valor = None
-    if valor is None or valor <= 0:
-        return "dolar_nuevo vacío, inválido o menor o igual a cero"
+    if error_valor is not None:
+        return error_valor
     return proveedor, valor
 
 
@@ -325,4 +366,8 @@ def importar_dolar(db, autor, contenido: bytes, ip) -> dict:
         1 for proveedor, valor in validas
         if _aplicar_cambio_dolar(db, autor, proveedor, valor, OrigenCambioDolar.IMPORTACION_EXCEL, ip)
     )
-    return {"aplicados": aplicados, "sin_cambios": len(validas) - aplicados, "errores": []}
+    resumen = {"aplicados": aplicados, "sin_cambios": len(validas) - aplicados}
+    # Además de un dolar.cambio por proveedor que cambió, un registro de la importación en sí.
+    registrar_auditoria(db, accion="dolar.importar", entidad="proveedor", entidad_id=None, usuario_id=autor.id,
+                        estado_nuevo=resumen, ip_origen=ip)
+    return {**resumen, "errores": []}

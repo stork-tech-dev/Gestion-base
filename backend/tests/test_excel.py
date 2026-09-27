@@ -145,3 +145,16 @@ def test_leer_tabla_rechaza_xml_corrupto_despues_encabezado():
     with pytest.raises(ReglaDeNegocio) as error:
         leer_tabla(corrupto, ["proveedor_id", "dolar_nuevo"])
     assert "no es un Excel" in error.value.mensaje
+
+
+def test_plantilla_no_deja_inyectar_formulas():
+    """Un texto que empieza con = + - @ tab o CR se guarda como texto, no
+    como fórmula, y leer_tabla lo devuelve igual."""
+    nombres = ['=HYPERLINK("http://x","x")', "+1+1", "-2+3", "@SUMA(A1)", "\tTab", "\rRetorno", "Normal"]
+    contenido = generar_plantilla("Datos", ["id", "nombre"], [["Ayuda"], ["=1+1"]], [[i, n] for i, n in enumerate(nombres, 1)])
+    libro = load_workbook(BytesIO(contenido))
+    celdas = [fila[1] for fila in libro["Datos"].iter_rows(min_row=2)]
+    assert all(c.data_type == "s" for c in celdas)
+    assert celdas[0].value == '=HYPERLINK("http://x","x")'
+    assert libro["Instrucciones"]["A2"].data_type == "s"
+    assert [f["nombre"] for _, f in leer_tabla(contenido, ["id", "nombre"])][0] == '=HYPERLINK("http://x","x")'

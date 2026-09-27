@@ -31,5 +31,7 @@ def test_formulario_de_usuario_protege_los_accesos(crear_usuario, iniciar_sesion
     html = iniciar_sesion(crear_usuario("admin")).get("/usuarios").text
     # No se puede guardar hasta conocer los accesos (evita mandar accesos: []).
     assert 'guardando || !accesosCargados' in html
+    # En la edición, el rol no se puede cambiar hasta que lleguen los accesos del usuario.
+    assert ':disabled="form.id &amp;&amp; !accesosCargados"' in html
     # La contraseña es obligatoria solo en el alta.
     assert 'x-show="!form.id">*</span>' in html

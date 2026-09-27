@@ -59,3 +59,13 @@ def test_permiso_puntual_entra_al_masivo(crear_usuario, iniciar_sesion, db):
     db.add(UsuarioPermiso(usuario_id=vendedor.id, modulo="proveedores", recurso="dolar.cambio_masivo", puede_editar=True))
     db.flush()
     assert iniciar_sesion(vendedor).get("/proveedores/dolar-masivo").status_code == 200
+
+
+def test_masivo_con_solo_el_permiso_puntual_vuelve_al_hub(crear_usuario, iniciar_sesion, db):
+    """Sin "ver" proveedores, /proveedores le da 403: el volver apunta a /configuracion."""
+    vendedor = crear_usuario("vendedor")
+    db.add(UsuarioPermiso(usuario_id=vendedor.id, modulo="proveedores", recurso="dolar.cambio_masivo", puede_editar=True))
+    db.flush()
+    html = iniciar_sesion(vendedor).get("/proveedores/dolar-masivo").text
+    assert "Volver a Configuraciones" in html and 'href="/configuracion"' in html
+    assert 'href="/proveedores"' not in html

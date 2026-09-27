@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from app.models import EstadoProveedor, Moneda, OrigenCambioDolar
 
 Dolar = Decimal  # alias documental: valor del dólar en pesos, 2 decimales
+# Los campos de dólar no llevan `max_digits`: el tope (NUMERIC(10, 2)) lo
+# aplica `services.proveedores.validar_dolar` sobre el valor redondeado, con
+# un 400 y un mensaje claro, igual que para el masivo y el Excel.
 
 
 class ProveedorDatos(BaseModel):
@@ -20,13 +23,13 @@ class ProveedorDatos(BaseModel):
 
 class ProveedorCrear(ProveedorDatos):
     moneda: Moneda = Moneda.ARS
-    dolar_actual: Dolar | None = Field(default=None, gt=0, max_digits=10, decimal_places=3)
+    dolar_actual: Dolar | None = Field(default=None, gt=0, decimal_places=3)
 
 
 class ProveedorEditar(ProveedorDatos):
     moneda: Moneda
     # Solo se usa al pasar de pesos a dólares: la edición no cambia el dólar.
-    dolar_actual: Dolar | None = Field(default=None, gt=0, max_digits=10, decimal_places=3)
+    dolar_actual: Dolar | None = Field(default=None, gt=0, decimal_places=3)
 
 
 class ProveedorEstado(BaseModel):
@@ -65,7 +68,7 @@ class ProveedorDolarResumen(BaseModel):
 
 
 class CambioDolar(BaseModel):
-    valor_nuevo: Dolar = Field(gt=0, max_digits=10, decimal_places=3)
+    valor_nuevo: Dolar = Field(gt=0, decimal_places=3)
 
 
 class ModalidadMasiva(str, Enum):
@@ -84,6 +87,7 @@ class PreviewDolar(BaseModel):
     nombre: str
     valor_actual: Decimal
     valor_nuevo: Decimal
+    aplicado: bool = False  # siempre False en la vista previa; al aplicar, True si el dólar cambió
 
 
 class HistorialDolarResponse(BaseModel):

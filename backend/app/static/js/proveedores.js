@@ -96,7 +96,7 @@
       },
 
       dolarTexto(p) {
-        return p.moneda === 'usd' ? `US$ ${window.formatearDolar(p.dolar_actual)}` : '—';
+        return p.moneda === 'usd' ? window.dolares(p.dolar_actual) : '—';
       },
 
       origenTexto(origen) {

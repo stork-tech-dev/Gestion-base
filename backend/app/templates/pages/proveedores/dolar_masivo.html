@@ -2,11 +2,12 @@
 {% from "components/encabezado.html" import encabezado %}
 {% block titulo %}Cambio masivo del dólar · {{ APP_NAME }}{% endblock %}
 {% block contenido %}
-{{ encabezado("Cambio masivo del dólar", "/proveedores", "Proveedores") }}
+{% set volver_url, volver_texto = ("/proveedores", "Proveedores") if puede_ver else ("/configuracion", "Configuraciones") %}
+{{ encabezado("Cambio masivo del dólar", volver_url, volver_texto) }}
 {% if not usa_dolar %}
 <div class="tarjeta flex flex-col items-start gap-4">
   <p class="text-texto">No hay proveedores que trabajen en dólares.</p>
-  <a href="/proveedores" class="boton boton-secundario">Volver a Proveedores</a>
+  <a href="{{ volver_url }}" class="boton boton-secundario">Volver a {{ volver_texto }}</a>
 </div>
 {% else %}
 <div x-data="dolarMasivo()" class="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -24,7 +25,7 @@
             <label class="inline-flex min-h-toque cursor-pointer items-center gap-2">
               <input type="checkbox" class="acceso-check" :value="p.id" x-model.number="seleccion" @change="vista = []">
               <span x-text="p.nombre"></span>
-              <span class="text-sm text-texto-muted" x-text="'US$ ' + formatearDolar(p.dolar_actual)"></span>
+              <span class="text-sm text-texto-muted" x-text="dolares(p.dolar_actual)"></span>
             </label>
           </li>
         </template>
@@ -54,8 +55,8 @@
           <template x-for="fila in vista" :key="fila.proveedor_id">
             <tr>
               <td x-text="fila.nombre"></td>
-              <td class="text-right" x-text="'US$ ' + formatearDolar(fila.valor_actual)"></td>
-              <td class="text-right font-semibold" x-text="'US$ ' + formatearDolar(fila.valor_nuevo)"></td>
+              <td class="text-right" x-text="dolares(fila.valor_actual)"></td>
+              <td class="text-right font-semibold" x-text="dolares(fila.valor_nuevo)"></td>
             </tr>
           </template>
         </tbody>

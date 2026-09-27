@@ -25,6 +25,17 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
   evaluar pasarlo como fragmento `#token`.
 - Advertencia de "el rol tiene usuarios" cuenta todos y no solo los activos.
 
+## Módulo 03: pendientes
+- Zip bomb: el límite de 5 MB de `leer_tabla` es sobre el .xlsx comprimido.
+  Antes del módulo 08 (importación), sumar el `file_size` de
+  `ZipFile.infolist()` y limitar lo descomprimido (ej. 50 MB).
+- No hay macro de botón-link: `<a class="boton ...">` se repite en ~6
+  plantillas.
+- `importar_dolar` hace un `db.get` por fila (N+1): aceptable a esta escala;
+  si crece, precargar los proveedores con un `IN`.
+- La pantalla de cambio masivo no tiene entrada en el hub para quien solo
+  tiene el permiso puntual `dolar.cambio_masivo` (se entra por URL).
+
 ## Patrones que 03-09 deben copiar (de la revisión del 02-B)
 - Páginas con `Depends(requiere_pagina(ITEM))`, con el ítem definido una vez
   y compartido por sidebar, hub y página; `resolver_permiso` solo para ocultar.

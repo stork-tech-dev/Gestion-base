@@ -71,7 +71,8 @@ test('edición: alCambiarRol bloquea accesosCargados mientras carga y lo libera 
   const c = crearComponente(window);
   c.form = { id: 7, rol_id: 3 };
   c.marcados = [];
-  c.accesosCargados = true;  // como queda tras editar() con la carga ya resuelta
+  c.accesosCargados = true;
+  c._cargaInicialLista = true;  // editar() ya recibió los accesos del usuario  // como queda tras editar() con la carga ya resuelta
 
   const promesa = c.alCambiarRol();
   assert.equal(c.accesosCargados, false);  // bloqueado mientras no llegó la respuesta
@@ -93,6 +94,7 @@ test('dos cambios de rol seguidos: la respuesta vieja que llega después no pisa
   c.form = { id: 7, rol_id: 3 };
   c.marcados = [];
   c.accesosCargados = true;
+  c._cargaInicialLista = true;  // editar() ya recibió los accesos del usuario
 
   const promesaRol3 = c.alCambiarRol();  // elige el rol 3 primero...
   c.form.rol_id = 4;
@@ -123,6 +125,7 @@ test('si falla la carga de accesos, queda bloqueado y avisa que vuelva a elegir 
   c.form = { id: 7, rol_id: 3 };
   c.marcados = [];
   c.accesosCargados = true;
+  c._cargaInicialLista = true;  // editar() ya recibió los accesos del usuario
 
   const promesa = c.alCambiarRol();
   pendientes[0].rechazar(new Error('Sin conexión'));
@@ -170,7 +173,7 @@ test('alta CON rol elegido: accesosCargados queda false mientras carga', () => {
   assert.match(pendientes[0].url, /rol_id=3/);
 });
 
-test('editar() dispara el GET de accesos y después se cambia el rol: si el GET de editar() llega después, no pisa el rol nuevo', async () => {
+test('edición: un cambio de rol durante la carga inicial se ignora y los overrides del usuario se cargan', async () => {
   const window = cargarComponente();
   const { pedir, pendientes } = pedirDiferido();
   window.pedir = pedir;
@@ -179,21 +182,31 @@ test('editar() dispara el GET de accesos y después se cambia el rol: si el GET 
   const promesaEditar = c.editar({ id: 7, username: 'ana', nombre: 'Ana', rol_id: 3 });
   assert.equal(c.accesosCargados, false);
 
+  // El combobox está deshabilitado; si igual llega un cambio de rol, se ignora.
   c.form.rol_id = 4;
-  const promesaRol = c.alCambiarRol();
+  await c.alCambiarRol();
+  assert.equal(pendientes.length, 1);  // no se pidió nada para el rol 4
+  assert.equal(c.form.rol_id, 3);      // vuelve al rol original
 
-  assert.equal(pendientes.length, 2);
-  const pedidoEditar = pendientes.find((p) => /\/7\/accesos$/.test(p.url));
-  const pedidoRol = pendientes.find((p) => /rol_id=4/.test(p.url));
-
-  // Responde primero el cambio de rol (el vigente)...
-  pedidoRol.resolver([{ clave: 'stock.ver', heredado: false }]);
-  await promesaRol;
-  // ...y DESPUÉS el GET original de editar(), que ya quedó viejo.
-  pedidoEditar.resolver([{ clave: 'ventas.ver', override: true, heredado: false }]);
+  // Llega el GET de editar(): no se descarta y carga los overrides propios.
+  pendientes[0].resolver([
+    { clave: 'ventas.ver', override: true, heredado: false },
+    { clave: 'stock.ver', override: false, heredado: true },
+  ]);
   await promesaEditar;
 
   assert.equal(c.accesosCargados, true);
-  assert.deepEqual(c.accesos, [{ clave: 'stock.ver', heredado: false }]);
-  assert.equal(c.marcados.length, 0);  // ver comentario sobre deepEqual y arrays vacíos cross-realm
+  assert.equal(c.accesos.length, 2);
+  assert.deepEqual([...c.marcados], ['ventas.ver']);
+  assert.deepEqual([...c.marcadosOriginales], ['ventas.ver']);
+
+  // Terminada la carga inicial, el cambio de rol vuelve a funcionar.
+  c.form.rol_id = 4;
+  const promesaRol = c.alCambiarRol();
+  assert.equal(pendientes.length, 2);
+  assert.match(pendientes[1].url, /rol_id=4/);
+  pendientes[1].resolver([{ clave: 'stock.ver', heredado: false }]);
+  await promesaRol;
+  assert.equal(c.accesosCargados, true);
+  assert.deepEqual([...c.marcados], ['ventas.ver']);
 });

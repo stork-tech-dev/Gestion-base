@@ -1,5 +1,6 @@
 from io import BytesIO
 
+import pytest
 from openpyxl import Workbook, load_workbook
 
 from app.core.excel import TIPO_XLSX
@@ -106,9 +107,12 @@ def test_masivo(client, crear_usuario, headers_de):
     p = _alta(client, h, nombre="Masivo API", moneda="usd", dolar_actual="1000").json()
     cuerpo = {"proveedor_ids": None, "modalidad": "porcentaje", "valor": "10"}
     vista = client.post(f"{URL}/dolar/masivo/preview", json=cuerpo, headers=h).json()
-    assert {"proveedor_id": p["id"], "nombre": "Masivo API", "valor_actual": "1000.00", "valor_nuevo": "1100.00"} in vista
+    assert {"proveedor_id": p["id"], "nombre": "Masivo API", "valor_actual": "1000.00", "valor_nuevo": "1100.00",
+            "aplicado": False} in vista
     assert client.get(f"{URL}/{p['id']}", headers=h).json()["dolar_actual"] == "1000.00"
-    assert client.post(f"{URL}/dolar/masivo", json=cuerpo, headers=h).status_code == 200
+    r = client.post(f"{URL}/dolar/masivo", json=cuerpo, headers=h)
+    assert r.status_code == 200
+    assert next(f for f in r.json() if f["proveedor_id"] == p["id"])["aplicado"] is True
     assert client.get(f"{URL}/{p['id']}", headers=h).json()["dolar_actual"] == "1100.00"
 
 
@@ -149,3 +153,47 @@ def test_no_hay_delete(client, crear_usuario, headers_de):
     h = headers_de(crear_usuario("admin"))
     p = _alta(client, h, nombre="Sin delete").json()
     assert client.delete(f"{URL}/{p['id']}", headers=h).status_code == 405
+
+
+@pytest.mark.parametrize("valor, mensaje", [
+    ("0.004", "El valor del dólar debe ser mayor a cero."),
+    ("1e12", "El valor del dólar es demasiado grande."),
+    (1e12, "El valor del dólar es demasiado grande."),
+])
+def test_dolar_fuera_de_rango_da_400(client, crear_usuario, headers_de, valor, mensaje):
+    h = headers_de(crear_usuario("admin"))
+    r = _alta(client, h, nombre="Fuera de rango", moneda="usd", dolar_actual=valor)
+    assert r.status_code == 400 and r.json()["detail"] == mensaje
+    p = _alta(client, h, nombre="Dólar en rango", moneda="usd", dolar_actual="1000").json()
+    r = client.patch(f"{URL}/{p['id']}/dolar", json={"valor_nuevo": valor}, headers=h)
+    assert r.status_code == 400 and r.json()["detail"] == mensaje
+    assert client.get(f"{URL}/{p['id']}", headers=h).json()["dolar_actual"] == "1000.00"
+
+
+def test_masivo_porcentaje_enorme_da_400(client, crear_usuario, headers_de):
+    h = headers_de(crear_usuario("admin"))
+    p = _alta(client, h, nombre="Masivo enorme", moneda="usd", dolar_actual="1000").json()
+    cuerpo = {"proveedor_ids": [p["id"]], "modalidad": "porcentaje", "valor": "9999999"}
+    for ruta in ("dolar/masivo/preview", "dolar/masivo"):
+        r = client.post(f"{URL}/{ruta}", json=cuerpo, headers=h)
+        assert r.status_code == 400 and r.json()["detail"] == "El valor del dólar es demasiado grande."
+    assert client.get(f"{URL}/{p['id']}", headers=h).json()["dolar_actual"] == "1000.00"
+
+
+def test_historial_de_proveedor_inexistente_da_404(client, crear_usuario, headers_de):
+    h = headers_de(crear_usuario("admin"))
+    assert client.get(f"{URL}/999999999/dolar/historial", headers=h).status_code == 404
+
+
+def test_no_admin_con_editar_no_saca_de_inhabilitado(client, db, crear_usuario, headers_de):
+    admin = headers_de(crear_usuario("admin"))
+    p = _alta(client, admin, nombre="Inhabilitado API").json()
+    assert client.patch(f"{URL}/{p['id']}/estado", json={"estado": "inhabilitado"}, headers=admin).status_code == 200
+    vendedor = crear_usuario("vendedor")
+    db.add(UsuarioPermiso(usuario_id=vendedor.id, modulo="proveedores", recurso=None, puede_ver=True, puede_editar=True))
+    db.flush()
+    h = headers_de(vendedor)
+    assert client.put(f"{URL}/{p['id']}", json={"nombre": "Inhabilitado API", "moneda": "ars"}, headers=h).status_code == 200
+    for estado in ("activo", "desactivado"):
+        assert client.patch(f"{URL}/{p['id']}/estado", json={"estado": estado}, headers=h).status_code == 403
+    assert client.get(f"{URL}/{p['id']}", headers=h).json()["estado"] == "inhabilitado"
