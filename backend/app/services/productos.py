@@ -8,7 +8,7 @@ from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.codigos import codificar_sku, digito_verificador
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
 from app.core.utils import capitalizar_inicial, normalizar_texto, redondear, redondear_hacia_arriba, sin_tildes, sin_tildes_sql
-from app.models import EstadoProveedor, Moneda, Producto, Proveedor
+from app.models import Producto, Proveedor
 from app.schemas.productos import ProductoDetalle, ProductoResponse
 from app.services import categorias as servicio_categorias
 from app.services.configuracion import obtener_configuracion
@@ -22,12 +22,16 @@ def obtener_producto(db, producto_id: int) -> Producto:
     return producto
 
 
-def calcular_precio_venta(db, costo, margen, proveedor: Proveedor) -> Decimal:
+def calcular_precio_venta(db, costo, margen, proveedor: Proveedor, redondeo: Decimal | None = None) -> Decimal:
     """ÚNICA definición del precio de venta (alta, edición, recálculo, preview e
-    importación): CEIL(costo × dólar (o 1) × (1 + margen/100), redondeo)."""
-    factor = proveedor.dolar_actual if proveedor.moneda is Moneda.USD else Decimal("1")
+    importación): CEIL(costo × dólar (o 1) × (1 + margen/100), redondeo).
+
+    `redondeo=None` lee la configuración (un solo producto). Quien recalcula
+    varios de una vez (`recalcular_precios_de_proveedor`) la lee una sola vez
+    antes del loop y la pasa acá, en vez de una query por producto."""
+    factor = proveedor.dolar_actual if proveedor.en_dolares else Decimal("1")
     bruto = Decimal(costo) * factor * (1 + Decimal(margen) / 100)
-    precio = redondear_hacia_arriba(bruto, obtener_configuracion(db).redondeo)
+    precio = redondear_hacia_arriba(bruto, redondeo if redondeo is not None else obtener_configuracion(db).redondeo)
     if precio >= Decimal("100000000"):
         raise DatoInvalido("El precio de venta resultante es demasiado grande.")
     return precio
@@ -37,7 +41,7 @@ def precio_preview(db, proveedor_id: int, costo, margen) -> dict:
     proveedor = obtener_proveedor(db, proveedor_id)
     return {
         "moneda": proveedor.moneda.value,
-        "dolar_proveedor": proveedor.dolar_actual if proveedor.moneda is Moneda.USD else None,
+        "dolar_proveedor": proveedor.dolar_actual if proveedor.en_dolares else None,
         "precio_venta": calcular_precio_venta(db, costo, margen, proveedor),
     }
 
@@ -45,13 +49,31 @@ def precio_preview(db, proveedor_id: int, costo, margen) -> dict:
 def recalcular_precios_de_proveedor(db, proveedor_id: int) -> int:
     """Lo llama services.proveedores tras cada cambio REAL del dólar, después del
     flush del valor nuevo (sin commit). Proveedor en pesos: no hace nada. El
-    cambio queda auditado en el registro dolar.cambio del proveedor."""
+    cambio queda auditado en el registro dolar.cambio del proveedor.
+
+    Dos pasadas: primero se calculan TODOS los precios nuevos sin tocar los
+    productos; solo si ninguno desborda se asignan. Si se asignara dentro del
+    mismo loop que calcula, un desborde a mitad de camino dejaría los
+    productos anteriores ya modificados en la sesión (con el precio nuevo en
+    memoria) aunque toda la operación termine fallando."""
     proveedor = db.get(Proveedor, proveedor_id)
-    if proveedor is None or proveedor.moneda is not Moneda.USD:
+    if proveedor is None or not proveedor.en_dolares:
         return 0
     productos = db.scalars(select(Producto).where(Producto.proveedor_id == proveedor_id)).all()
+    redondeo = obtener_configuracion(db).redondeo
+    nuevos_precios = []
     for producto in productos:
-        producto.precio_venta = calcular_precio_venta(db, producto.costo, producto.margen, proveedor)
+        try:
+            nuevos_precios.append(calcular_precio_venta(db, producto.costo, producto.margen, proveedor, redondeo))
+        except DatoInvalido:
+            # Mensaje localizable (qué producto y de qué proveedor): lo ve el
+            # cambio individual, el masivo y la importación por Excel.
+            raise ReglaDeNegocio(
+                f"Con ese dólar, el precio de venta de {producto.sku} ({proveedor.nombre}) "
+                "superaría el máximo permitido."
+            ) from None
+    for producto, precio in zip(productos, nuevos_precios):
+        producto.precio_venta = precio
     db.flush()
     return len(productos)
 
@@ -110,7 +132,7 @@ def _asignar_opcionales(producto: Producto, datos) -> None:
 def crear_producto(db, autor, datos, ip) -> Producto:
     categoria = _categoria_de_producto(db, datos.categoria_id)
     proveedor = obtener_proveedor(db, datos.proveedor_id)
-    if proveedor.estado is not EstadoProveedor.ACTIVO:
+    if not proveedor.activo:
         raise ReglaDeNegocio("El proveedor no está activo: no se le pueden cargar productos.")
     descripcion = _descripcion_libre(db, datos.descripcion, categoria.id, proveedor.id)
     _validar_descuento(db, datos.descuento_producto)

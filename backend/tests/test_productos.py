@@ -92,6 +92,22 @@ def test_recalculo_por_cambio_de_dolar(db, admin, base):
     assert servicio.recalcular_precios_de_proveedor(db, base["pesos"].id) == 0
 
 
+def test_recalculo_desborda_no_modifica_nada_y_localiza_el_producto(db, admin, base):
+    """Dos pasadas: se calculan TODOS los precios antes de asignar ninguno. Si
+    uno desborda el tope, el que ya se había calculado bien no debe quedar
+    modificado en la sesión (se comprueba sin refresh: si se hubiera asignado
+    dentro del mismo loop que calcula, quedaría con el precio nuevo en memoria
+    aunque la operación general falle)."""
+    bajo = _alta(db, admin, base, proveedor_id=base["dolares"].id, descripcion="Bajo el tope", costo="10", margen="0")
+    alto = _alta(db, admin, base, proveedor_id=base["dolares"].id, descripcion="Supera el tope", costo="99000", margen="0")
+    precio_bajo, precio_alto = bajo.precio_venta, alto.precio_venta
+    with pytest.raises(ReglaDeNegocio) as error:
+        servicio_proveedores.cambiar_dolar(db, admin, base["dolares"], Decimal("2000"), None)
+    assert alto.sku in error.value.mensaje and "Prov dólares" in error.value.mensaje
+    assert "máximo permitido" in error.value.mensaje
+    assert bajo.precio_venta == precio_bajo and alto.precio_venta == precio_alto   # nada se tocó, sin refresh
+
+
 def test_edicion_recalcula_y_audita(db, admin, base):
     p = _alta(db, admin, base, costo="1000", margen="0")
     _editar(db, admin, p, costo="2000", margen="10")
