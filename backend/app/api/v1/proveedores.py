@@ -77,6 +77,14 @@ def importar(request: Request, archivo: UploadFile = File(...), db: Session = De
     return resultado
 
 
+@router.get("/dolar/activos", response_model=list[ProveedorResponse])
+def activos_en_dolares(db: Session = Depends(get_db), _: Usuario = Depends(puede_masivo)):
+    """Proveedores activos en dólares. Quien solo tiene el permiso puntual del
+    cambio masivo (sin "ver" proveedores) necesita esta ruta: GET /proveedores
+    le daría 403."""
+    return servicio.listar_activos_en_dolares(db)
+
+
 @router.get("", response_model=list[ProveedorResponse])
 def listar(nombre: str | None = None, email: str | None = None, telefono: str | None = None,
            provincia: str | None = None, pais: str | None = None, estado: EstadoProveedor | None = None,

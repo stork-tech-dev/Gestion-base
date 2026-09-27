@@ -40,6 +40,30 @@ def test_permiso_puntual_del_cambio_masivo(client, db, crear_usuario, headers_de
     assert client.get(URL, headers=h).status_code == 403  # el recurso no habilita el "ver" general del módulo
 
 
+def test_dolar_activos(client, db, crear_usuario, headers_de):
+    """GET /dolar/activos: la pantalla de cambio masivo la usa en vez de
+    GET /proveedores (que exige "ver") para no dejar afuera a quien solo
+    tiene el permiso puntual del cambio masivo."""
+    admin = headers_de(crear_usuario("admin"))
+    activo = _alta(client, admin, nombre="Activo en dólares", moneda="usd", dolar_actual="1000").json()
+    _alta(client, admin, nombre="En pesos", moneda="ars")
+    inactivo = _alta(client, admin, nombre="Inactivo en dólares", moneda="usd", dolar_actual="1000").json()
+    client.patch(f"{URL}/{inactivo['id']}/estado", json={"estado": "desactivado"}, headers=admin)
+
+    r = client.get(f"{URL}/dolar/activos", headers=admin)
+    assert r.status_code == 200
+    assert [p["id"] for p in r.json()] == [activo["id"]]  # solo activos en dólares
+
+    assert client.get(f"{URL}/dolar/activos", headers=headers_de(crear_usuario("supervisor"))).status_code == 403
+
+    vendedor = crear_usuario("vendedor")
+    db.add(UsuarioPermiso(usuario_id=vendedor.id, modulo="proveedores", recurso="dolar.cambio_masivo", puede_editar=True))
+    db.flush()
+    r = client.get(f"{URL}/dolar/activos", headers=headers_de(vendedor))
+    assert r.status_code == 200
+    assert [p["id"] for p in r.json()] == [activo["id"]]
+
+
 def test_alta_edicion_y_ficha(client, crear_usuario, headers_de):
     h = headers_de(crear_usuario("admin"))
     r = _alta(client, h, nombre="Importadora Sur", moneda="usd", dolar_actual="1250.50", pais="China")

@@ -59,7 +59,7 @@ def listar_proveedores(db, *, nombre=None, email=None, telefono=None, provincia=
 def _activos_en_dolares():
     """Único `select` de "proveedores activos que trabajan en dólares" (Principio 2):
     lo reusan `hay_proveedores_en_dolares`, `_proveedores_para_masivo` y
-    `generar_plantilla_dolar`, cada uno con su propio `.where`/`.order_by` encima."""
+    `listar_activos_en_dolares`, cada uno con su propio `.where`/`.order_by` encima."""
     return select(Proveedor).where(Proveedor.moneda == Moneda.USD, Proveedor.estado == EstadoProveedor.ACTIVO)
 
 
@@ -67,6 +67,13 @@ def hay_proveedores_en_dolares(db) -> bool:
     """¿Hay al menos un proveedor ACTIVO en dólares? Si no, las pantallas ocultan el dólar."""
     consulta = _activos_en_dolares().with_only_columns(Proveedor.id).limit(1)
     return db.scalar(consulta) is not None
+
+
+def listar_activos_en_dolares(db) -> list[Proveedor]:
+    """Proveedores activos en dólares, alfabético. La usan `generar_plantilla_dolar`
+    y el endpoint `GET /dolar/activos` (quien solo tiene el permiso puntual del
+    cambio masivo, sin "ver" proveedores, necesita poder listarlos igual)."""
+    return list(db.scalars(_activos_en_dolares().order_by(func.lower(Proveedor.nombre), Proveedor.id)).all())
 
 
 def contar_productos(db, proveedor_id: int, solo_activos: bool = False) -> int:
@@ -269,7 +276,7 @@ def aplicar_masivo(db, autor, proveedor_ids, modalidad: ModalidadMasiva, valor: 
 
 
 def generar_plantilla_dolar(db) -> bytes:
-    proveedores = db.scalars(_activos_en_dolares().order_by(func.lower(Proveedor.nombre), Proveedor.id)).all()
+    proveedores = listar_activos_en_dolares(db)
     filas = [[p.id, p.nombre, p.dolar_actual] for p in proveedores]
     return generar_plantilla("Dolar", COLUMNAS_PLANTILLA_DOLAR, INSTRUCCIONES_DOLAR, filas)
 

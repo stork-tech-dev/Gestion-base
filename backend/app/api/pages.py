@@ -218,6 +218,14 @@ def proveedores(request: Request, db: Session = Depends(get_db),
     ))
 
 
+@router.get("/proveedores/dolar-masivo")
+def dolar_masivo(request: Request, db: Session = Depends(get_db),
+                 usuario: Usuario = Depends(requiere_pagina(PAGINA_DOLAR_MASIVO))):
+    return _pagina(request, "pages/proveedores/dolar_masivo.html", contexto_base(
+        request, db, "/configuracion", usuario, usa_dolar=servicio_proveedores.hay_proveedores_en_dolares(db),
+    ))
+
+
 @router.get("/usuarios")
 def usuarios(request: Request, db: Session = Depends(get_db),
             usuario: Usuario = Depends(requiere_pagina(SECCION_USUARIOS))):

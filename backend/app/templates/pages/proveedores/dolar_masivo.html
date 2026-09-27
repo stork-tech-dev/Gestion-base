@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% block titulo %}Cambio masivo del dólar · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{{ encabezado("Cambio masivo del dólar", "/proveedores", "Proveedores") }}
+{% if not usa_dolar %}
+<div class="tarjeta flex flex-col items-start gap-4">
+  <p class="text-texto">No hay proveedores que trabajen en dólares.</p>
+  <a href="/proveedores" class="boton boton-secundario">Volver a Proveedores</a>
+</div>
+{% else %}
+<div x-data="dolarMasivo()" class="grid grid-cols-1 gap-6 xl:grid-cols-2">
+  <section class="tarjeta flex flex-col gap-4">
+    <h2 class="text-xl font-bold text-texto-header">Por valor o porcentaje</h2>
+    <fieldset class="flex flex-col gap-2">
+      <legend class="font-semibold text-texto">Proveedores en dólares</legend>
+      <label class="inline-flex min-h-toque cursor-pointer items-center gap-2">
+        <input type="checkbox" class="acceso-check" :checked="todos" @change="alternarTodos()">
+        <span>Todos</span>
+      </label>
+      <ul class="flex max-h-64 flex-col gap-1 overflow-y-auto pl-2">
+        <template x-for="p in proveedores" :key="p.id">
+          <li>
+            <label class="inline-flex min-h-toque cursor-pointer items-center gap-2">
+              <input type="checkbox" class="acceso-check" :value="p.id" x-model.number="seleccion" @change="vista = []">
+              <span x-text="p.nombre"></span>
+              <span class="text-sm text-texto-muted" x-text="'US$ ' + formatearDolar(p.dolar_actual)"></span>
+            </label>
+          </li>
+        </template>
+      </ul>
+      <p class="text-sm text-texto-muted" x-show="cargando">Cargando…</p>
+    </fieldset>
+    <fieldset class="flex flex-wrap gap-4">
+      <legend class="sr-only">Modalidad</legend>
+      <label class="inline-flex min-h-toque cursor-pointer items-center gap-2"><input type="radio" class="acceso-check" value="valor" x-model="modalidad" @change="vista = []"><span>Valor fijo</span></label>
+      <label class="inline-flex min-h-toque cursor-pointer items-center gap-2"><input type="radio" class="acceso-check" value="porcentaje" x-model="modalidad" @change="vista = []"><span>Porcentaje</span></label>
+    </fieldset>
+    <label class="flex flex-col gap-1 text-lg font-medium text-texto">
+      <span x-text="modalidad === 'valor' ? 'Nuevo valor del dólar' : 'Porcentaje (+/−)'"></span>
+      <input type="number" step="0.01" inputmode="decimal" class="campo max-w-xs" x-model="valor" @input="vista = []"
+             :placeholder="modalidad === 'valor' ? '1300' : '5 o -3'">
+    </label>
+    <div class="flex flex-wrap gap-2">
+      <button type="button" class="boton boton-secundario" :disabled="calculando || !valor" @click="previsualizar()"
+              x-text="calculando ? 'Calculando…' : 'Vista previa'">Vista previa</button>
+      <button type="button" class="boton boton-primario" x-show="vista.length" x-cloak :disabled="aplicando" @click="aplicar()"
+              x-text="aplicando ? 'Aplicando…' : 'Aplicar cambio'"></button>
+    </div>
+    <div class="overflow-x-auto" x-show="vista.length" x-cloak>
+      <table class="tabla">
+        <thead><tr><th scope="col">Proveedor</th><th scope="col" class="text-right">Actual</th><th scope="col" class="text-right">Nuevo</th></tr></thead>
+        <tbody>
+          <template x-for="fila in vista" :key="fila.proveedor_id">
+            <tr>
+              <td x-text="fila.nombre"></td>
+              <td class="text-right" x-text="'US$ ' + formatearDolar(fila.valor_actual)"></td>
+              <td class="text-right font-semibold" x-text="'US$ ' + formatearDolar(fila.valor_nuevo)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="tarjeta flex flex-col gap-4">
+    <h2 class="text-xl font-bold text-texto-header">Importar desde Excel</h2>
+    <ol class="list-decimal pl-5 text-sm text-texto-muted">
+      <li>Descargá el Excel con los proveedores en dólares.</li>
+      <li>Cambiá la columna <code>dolar_nuevo</code> (no toques <code>proveedor_id</code> ni los encabezados).</li>
+      <li>Subilo. Si alguna fila tiene un error, no se aplica nada y te mostramos cuáles corregir.</li>
+    </ol>
+    <a href="/api/v1/proveedores/dolar/plantilla" class="boton boton-secundario self-start" download>Descargar Excel</a>
+    <label class="flex flex-col gap-1 text-lg font-medium text-texto">Archivo (.xlsx)
+      <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" class="campo py-2" @change="elegirArchivo($event)">
+    </label>
+    <button type="button" class="boton boton-primario self-start" :disabled="!archivo || subiendo" @click="subir()"
+            x-text="subiendo ? 'Subiendo…' : 'Subir y aplicar'">Subir y aplicar</button>
+    <template x-if="resultado">
+      <div class="flex flex-col gap-3">
+        <p class="text-texto" x-show="!resultado.errores.length">
+          Aplicados: <span class="font-semibold" x-text="resultado.aplicados"></span> ·
+          Sin cambios: <span class="font-semibold" x-text="resultado.sin_cambios"></span>
+        </p>
+        <div x-show="resultado.errores.length">
+          <p class="mb-2 font-semibold text-danger">Errores encontrados (no se aplicó nada):</p>
+          <div class="overflow-x-auto">
+            <table class="tabla">
+              <thead><tr><th scope="col" class="text-right">Fila</th><th scope="col">Error</th></tr></thead>
+              <tbody>
+                <template x-for="e in resultado.errores" :key="e.fila">
+                  <tr><td class="text-right" x-text="e.fila"></td><td x-text="e.error"></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
+  </section>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if usa_dolar %}<script src="{{ estatico('/js/dolar_masivo.js') }}"></script>{% endif %}{% endblock %}
