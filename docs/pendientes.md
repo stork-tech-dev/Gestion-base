@@ -18,14 +18,6 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - `/health/db` con mensaje genérico cuando `APP_ENV=production`.
 
 ## Módulo 02-B: pendientes que quedaron
-- **Carrera al cambiar el rol editando un usuario** (`usuarios.js`,
-  `alCambiarRol`): mientras cargan los accesos del rol nuevo, el botón
-  "Finalizar" sigue habilitado; si se guarda en ese instante, los accesos
-  pueden no reconciliarse con el rol nuevo. Bloquear `accesosCargados` también
-  en la edición y secuenciar las respuestas (mismo helper `ultimaRespuesta`).
-  Prioridad alta: arreglarlo al empezar el módulo 03.
-- No hay tests de JS para la lógica del formulario de usuario (solo para el
-  árbol de permisos, en `backend/tests_js/`).
 - Roles sin paginación; filtros de usuarios solo por nombre, rol y estado;
   para no-admins el filtro de rol muestra solo "vendedor".
 - Convención única para los filtros (placeholder o label) antes de 03-09.

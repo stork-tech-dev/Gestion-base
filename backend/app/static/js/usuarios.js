@@ -35,6 +35,7 @@
       accesosCargados: false,
       _espera: null,
       _ultima: window.ultimaRespuesta(),
+      _ultimaRol: window.ultimaRespuesta(),
 
       async init() {
         this.cargar();
@@ -126,22 +127,23 @@
       },
 
       async alCambiarRol() {
-        // En la edición, accesosCargados depende de la carga de los accesos del usuario.
-        const esAlta = !this.form.id;
+        // Mientras cargan los accesos del rol nuevo no se puede guardar,
+        // ni en el alta ni en la edición (quedarían sin reconciliar).
         if (!this.form.rol_id) {
           this.accesos = [];
-          if (esAlta) this.accesosCargados = true;
+          this.accesosCargados = !this.form.id;  // en el alta no hay nada que perder
           return;
         }
-        if (esAlta) this.accesosCargados = false;
+        this.accesosCargados = false;
         try {
-          const delRol = await window.pedir(`${API}/accesos?rol_id=${this.form.rol_id}`);
+          const delRol = await this._ultimaRol(window.pedir(`${API}/accesos?rol_id=${this.form.rol_id}`));
+          if (delRol === undefined) return;  // llegó la respuesta de un rol elegido después
           const heredados = new Set(delRol.filter((a) => a.heredado).map((a) => a.clave));
           this.marcados = this.marcados.filter((clave) => !heredados.has(clave));
           this.accesos = delRol;
-          if (esAlta) this.accesosCargados = true;
+          this.accesosCargados = true;
         } catch (e) {
-          window.toast(e.message, 'error');
+          window.toast(`${e.message} Volvé a elegir el rol.`, 'error');
         }
       },
 
