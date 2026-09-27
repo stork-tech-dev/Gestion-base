@@ -72,12 +72,35 @@ def test_cambio_de_moneda_con_productos_da_409(db, crear_usuario, monkeypatch):
     assert error.value.mensaje == "No se puede cambiar la moneda de un proveedor con productos cargados."
 
 
+def test_editar_con_nombre_repetido_no_cambia_moneda_ni_dolar(db, crear_usuario):
+    """Si _nombre_libre falla, el proveedor no debe quedar con la moneda o el
+    dólar ya modificados (la validación tiene que ser previa a la mutación)."""
+    admin = crear_usuario("admin")
+    _crear(db, admin, nombre="Otro Proveedor")
+    p = _crear(db, admin, nombre="Editable")
+    with pytest.raises(ReglaDeNegocio):
+        _editar(db, admin, p, nombre="Otro Proveedor", moneda="usd", dolar_actual="900")
+    assert p.moneda is Moneda.ARS and p.dolar_actual is None
+
+
+@pytest.mark.parametrize("valor", [None, "abc", "0", "-1", "NaN"])
+def test_validar_dolar_invalido(valor):
+    with pytest.raises(DatoInvalido):
+        servicio.validar_dolar(valor)
+
+
+def test_validar_dolar_redondea_half_up():
+    assert servicio.validar_dolar("10.005") == Decimal("10.01")
+
+
 def test_contar_productos_sin_tabla_da_cero(db, crear_usuario):
     admin = crear_usuario("admin")
     p = _crear(db, admin, nombre="Sin tabla")
     existe = db.execute(text("SELECT to_regclass('public.productos') IS NOT NULL")).scalar_one()
     if not existe:
         assert servicio.contar_productos(db, p.id) == 0
+    else:
+        pytest.skip("la tabla productos ya existe")
 
 
 def test_estados(db, crear_usuario, monkeypatch):

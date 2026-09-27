@@ -1,5 +1,5 @@
 """Proveedores: cada uno trabaja en pesos o en dólares. Baja siempre lógica."""
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import func, select, text
 
@@ -62,9 +62,17 @@ def contar_productos(db, proveedor_id: int, solo_activos: bool = False) -> int:
 
 
 def validar_dolar(valor) -> Decimal:
-    if valor is None or Decimal(valor) <= 0:
+    """Convierte y valida el valor del dólar de un proveedor. Cualquier entrada
+    inválida (None, texto no numérico, NaN/infinito, cero o negativo) da
+    DatoInvalido en lugar de dejar escapar la excepción de `Decimal` —
+    la Task 5 (cambio masivo y Excel) reusa esta función con datos de afuera."""
+    try:
+        numero = Decimal(valor)
+    except (InvalidOperation, TypeError, ValueError):
+        raise DatoInvalido("El valor del dólar debe ser mayor a cero.") from None
+    if not numero.is_finite() or numero <= 0:
         raise DatoInvalido("El valor del dólar debe ser mayor a cero.")
-    return redondear(valor)
+    return redondear(numero)
 
 
 def _nombre_libre(db, nombre: str, excepto_id: int | None = None) -> str:
@@ -106,14 +114,24 @@ def crear_proveedor(db, autor, datos, ip) -> Proveedor:
 
 
 def editar_proveedor(db, autor, proveedor: Proveedor, datos, ip) -> Proveedor:
-    """No toca el dólar (tiene su propio endpoint). Cambiar la moneda solo sin productos."""
+    """No toca el dólar (tiene su propio endpoint). Cambiar la moneda solo sin productos.
+
+    Primero se valida todo (nombre libre, productos cargados, dólar nuevo) y
+    se guarda en variables locales; recién si todo pasa se muta `proveedor`.
+    Si alguna validación falla, el objeto de la sesión queda intacto (si no,
+    una falla a mitad de camino dejaría la moneda cambiada sin que la
+    operación se haya confirmado)."""
     antes = snapshot(proveedor)
-    if datos.moneda is not proveedor.moneda:
+    nombre_nuevo = _nombre_libre(db, datos.nombre, excepto_id=proveedor.id)
+    cambia_moneda = datos.moneda is not proveedor.moneda
+    if cambia_moneda:
         if contar_productos(db, proveedor.id):
             raise ReglaDeNegocio("No se puede cambiar la moneda de un proveedor con productos cargados.")
-        proveedor.dolar_actual = validar_dolar(datos.dolar_actual) if datos.moneda is Moneda.USD else None
+        dolar_nuevo = validar_dolar(datos.dolar_actual) if datos.moneda is Moneda.USD else None
+    proveedor.nombre = nombre_nuevo
+    if cambia_moneda:
         proveedor.moneda = datos.moneda
-    proveedor.nombre = _nombre_libre(db, datos.nombre, excepto_id=proveedor.id)
+        proveedor.dolar_actual = dolar_nuevo
     _asignar_datos(proveedor, datos)
     db.flush()
     db.refresh(proveedor)
