@@ -3,6 +3,7 @@ from io import BytesIO
 from openpyxl import Workbook, load_workbook
 
 from app.core.excel import TIPO_XLSX
+from app.models import UsuarioPermiso
 
 URL = "/api/v1/proveedores"
 
@@ -20,6 +21,23 @@ def test_permisos(client, crear_usuario, headers_de):
     assert _alta(client, supervisor).status_code == 403
     assert client.get(URL, headers=vendedor).status_code == 403
     assert client.get(f"{URL}/dolar/plantilla", headers=supervisor).status_code == 403
+
+
+def test_permiso_puntual_del_cambio_masivo(client, db, crear_usuario, headers_de):
+    """El recurso dolar.cambio_masivo alcanza para plantilla/preview, pero no
+    da el permiso general de 'editar' (PUT) ni de 'ver' (listado): el override
+    queda anclado al recurso puntual y no habilita las filas generales."""
+    admin = headers_de(crear_usuario("admin"))
+    p = _alta(client, admin, nombre="Recurso puntual", moneda="usd", dolar_actual="1000").json()
+    vendedor = crear_usuario("vendedor")
+    db.add(UsuarioPermiso(usuario_id=vendedor.id, modulo="proveedores", recurso="dolar.cambio_masivo", puede_editar=True))
+    db.flush()
+    h = headers_de(vendedor)
+    assert client.get(f"{URL}/dolar/plantilla", headers=h).status_code == 200
+    cuerpo = {"proveedor_ids": None, "modalidad": "porcentaje", "valor": "10"}
+    assert client.post(f"{URL}/dolar/masivo/preview", json=cuerpo, headers=h).status_code == 200
+    assert client.put(f"{URL}/{p['id']}", json={"nombre": "Recurso puntual", "moneda": "usd"}, headers=h).status_code == 403
+    assert client.get(URL, headers=h).status_code == 403  # el recurso no habilita el "ver" general del módulo
 
 
 def test_alta_edicion_y_ficha(client, crear_usuario, headers_de):

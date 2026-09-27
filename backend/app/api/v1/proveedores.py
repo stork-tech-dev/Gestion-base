@@ -51,7 +51,12 @@ def aplicar_masivo(datos: CambioMasivo, request: Request, db: Session = Depends(
     return aplicados
 
 
-@router.get("/dolar/plantilla")
+@router.get(
+    "/dolar/plantilla",
+    response_class=Response,
+    responses={200: {"content": {TIPO_XLSX: {"schema": {"type": "string", "format": "binary"}}},
+                     "description": "Planilla .xlsx con los proveedores activos en dólares"}},
+)
 def plantilla(db: Session = Depends(get_db), _: Usuario = Depends(puede_masivo)):
     nombre = f"dolar-proveedores-{ahora().date().isoformat()}.xlsx"
     return Response(
