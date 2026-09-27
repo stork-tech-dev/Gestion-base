@@ -30,6 +30,7 @@
       filas: [],
       cargando: false,
       _ultima: window.ultimaRespuesta(),
+      _ultimaHistorial: window.ultimaRespuesta(),
       _espera: null,
       ficha: null,
       fichaAbierta: false,
@@ -134,8 +135,14 @@
       },
 
       async cargarHistorial() {
+        const id = this.form.id;
         try {
-          this.historial = await window.pedir(`${API}/${this.form.id}/dolar/historial`);
+          const historial = await this._ultimaHistorial(window.pedir(`${API}/${id}/dolar/historial`));
+          // undefined: llegó un pedido más nuevo. form.id distinto: se pasó a
+          // otro proveedor sin volver a pedir el historial (ej. quedó en
+          // pesos), así que el secuenciador solo no alcanza para descartarla.
+          if (historial === undefined || this.form.id !== id) return;
+          this.historial = historial;
         } catch (e) {
           window.toast(e.message, 'error');
         }
