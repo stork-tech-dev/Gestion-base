@@ -42,6 +42,21 @@ def test_producto_y_propiedades(db):
     assert db.execute(text("SELECT temporada::text FROM productos WHERE id = :i"), {"i": p.id}).scalar_one() == "atemporal"
 
 
+@pytest.mark.parametrize("temporada", list(TemporadaProducto))
+def test_temporada_se_guarda_tal_cual_en_la_base(db, temporada):
+    """El enum de Postgres acepta los 3 valores (incluidos los que llevan tilde
+    y ñ: 'otoño_invierno' y 'primavera_verano'), no solo el default."""
+    hoja, pesos, _ = _base(db)
+    p = _producto(hoja, pesos, sku="AA010", descripcion=f"Prenda {temporada.value}", temporada=temporada)
+    db.add(p)
+    db.flush()
+    db.refresh(p)
+    assert p.temporada is temporada
+    assert db.execute(
+        text("SELECT temporada::text FROM productos WHERE id = :i"), {"i": p.id}
+    ).scalar_one() == temporada.value
+
+
 def test_costo_en_pesos_de_proveedor_en_pesos(db):
     hoja, pesos, _ = _base(db)
     p = _producto(hoja, pesos, costo=Decimal("1234.56"))

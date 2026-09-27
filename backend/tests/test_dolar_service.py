@@ -151,11 +151,44 @@ def test_la_plantilla_se_puede_volver_a_subir_tal_cual(db, admin):
     assert resultado["errores"] == [] and resultado["aplicados"] == 0
 
 
-def test_recalcular_precios_sin_modulo_productos_no_hace_nada(db, monkeypatch):
-    # El módulo app.services.productos todavía no existe (llega en el módulo 04):
-    # nos asegura que no está en sys.modules para que el import realmente falle.
+def test_recalcular_precios_sin_modulo_productos_no_hace_nada(db, admin, monkeypatch):
+    """El módulo app.services.productos ya existe en disco (llegó en el módulo 04):
+    sacarlo de sys.modules ya no alcanza para simular su ausencia, porque Python
+    lo volvería a encontrar y a importar de verdad. Se bloquea la búsqueda con
+    un finder en sys.meta_path, como si el archivo no estuviera, y se comprueba
+    con un producto real que el recálculo NO corrió (si hubiera corrido, el
+    precio reflejaría el dólar nuevo en vez de quedarse con el viejo)."""
+    from app.schemas.categorias import CategoriaCrear
+    from app.schemas.productos import ProductoCrear
+    from app.services import categorias as servicio_categorias
+    from app.services import productos as servicio_productos
+
+    p = _prov(db, admin, "Sin módulo de productos")
+    categoria = servicio_categorias.crear_categoria(db, admin, CategoriaCrear(nombre="Sin módulo"), None)
+    producto = servicio_productos.crear_producto(
+        db, admin, ProductoCrear(categoria_id=categoria.id, proveedor_id=p.id, costo="10", descripcion="Testigo"), None)
+    precio_previo = producto.precio_venta
+    p.dolar_actual = Decimal("2000.00")   # se muta directo, sin pasar por cambiar_dolar (no debe disparar nada)
+    db.flush()
+
+    class _SinModuloDeProductos:
+        """Meta path finder que hace que 'app.services.productos' no se
+        pueda encontrar, como si el módulo no existiera en disco."""
+
+        def find_spec(self, name, path, target=None):
+            if name == "app.services.productos":
+                raise ModuleNotFoundError("simulado: sin módulo de productos", name=name)
+            return None
+
     monkeypatch.delitem(sys.modules, "app.services.productos", raising=False)
-    assert servicio._recalcular_precios(db, 1) is None
+    finder = _SinModuloDeProductos()
+    sys.meta_path.insert(0, finder)
+    try:
+        assert servicio._recalcular_precios(db, p.id) is None
+    finally:
+        sys.meta_path.remove(finder)
+    db.refresh(producto)
+    assert producto.precio_venta == precio_previo  # no se recalculó: quedó con el precio viejo
 
 
 def test_recalcular_precios_con_modulo_incompleto_no_esconde_el_error(db, monkeypatch):
