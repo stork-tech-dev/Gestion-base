@@ -1,5 +1,6 @@
 from decimal import Decimal
 from io import BytesIO
+from zipfile import ZipFile
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -106,3 +107,41 @@ def test_celda_entero():
     assert celda_entero(None) is None
     with pytest.raises(ValueError):
         celda_entero(3.5)
+
+
+def test_leer_tabla_rechaza_xml_truncado():
+    """Archivo xlsx válido como zip pero con XML truncado en la hoja."""
+    contenido_valido = _xlsx([["proveedor_id", "dolar_nuevo"], [1, 1250.5]])
+    buffer = BytesIO()
+    with ZipFile(BytesIO(contenido_valido), "r") as zip_entrada:
+        with ZipFile(buffer, "w") as zip_salida:
+            for item in zip_entrada.infolist():
+                if item.filename == "xl/worksheets/sheet1.xml":
+                    # Truncar el contenido del XML
+                    contenido = zip_entrada.read(item.filename)
+                    zip_salida.writestr(item, contenido[:len(contenido) // 2])
+                else:
+                    zip_salida.writestr(item, zip_entrada.read(item.filename))
+    corrupto = buffer.getvalue()
+    with pytest.raises(ReglaDeNegocio) as error:
+        leer_tabla(corrupto, ["proveedor_id", "dolar_nuevo"])
+    assert "no es un Excel" in error.value.mensaje
+
+
+def test_leer_tabla_rechaza_xml_corrupto_despues_encabezado():
+    """Archivo xlsx válido hasta el encabezado pero con XML corrupto después."""
+    contenido_valido = _xlsx([["proveedor_id", "dolar_nuevo"], [1, 1250.5], [2, 1300.0]])
+    buffer = BytesIO()
+    with ZipFile(BytesIO(contenido_valido), "r") as zip_entrada:
+        with ZipFile(buffer, "w") as zip_salida:
+            for item in zip_entrada.infolist():
+                if item.filename == "xl/worksheets/sheet1.xml":
+                    # Reemplazar contenido con XML que tiene encabezado pero fallo después
+                    contenido_corrupto = b'<?xml version="1.0"?><worksheet><sheetData><row r="1"><c r="A1"><v>proveedor_id</v></c></row><row r="2" corrupto'
+                    zip_salida.writestr(item, contenido_corrupto)
+                else:
+                    zip_salida.writestr(item, zip_entrada.read(item.filename))
+    corrupto = buffer.getvalue()
+    with pytest.raises(ReglaDeNegocio) as error:
+        leer_tabla(corrupto, ["proveedor_id", "dolar_nuevo"])
+    assert "no es un Excel" in error.value.mensaje

@@ -35,14 +35,16 @@ def leer_tabla(contenido: bytes, requeridas, opcionales=()) -> list[tuple[int, d
 
     Las columnas se ubican por nombre de encabezado (cualquier orden, sin
     importar mayúsculas ni tildes; las columnas extra se ignoran). `requeridas`
-    y `opcionales` se pasan ya normalizadas (ej. "proveedor_id")."""
+    y `opcionales` se pasan ya normalizadas (ej. "proveedor_id"). Las fórmulas
+    sin valor calculado (archivos no guardados por Excel) se leen como vacías."""
     if not contenido:
         raise ReglaDeNegocio("El archivo está vacío.")
     if len(contenido) > TAMANO_MAXIMO_BYTES:
         raise ReglaDeNegocio("El archivo supera los 5 MB.")
     try:
         libro = load_workbook(BytesIO(contenido), read_only=True, data_only=True)
-    except (InvalidFileException, BadZipFile, KeyError, OSError, ValueError) as exc:
+    except Exception as exc:
+        # Esta función parsea bytes no confiables; cualquier falla de parseo es "archivo inválido".
         raise ReglaDeNegocio("El archivo no es un Excel (.xlsx) válido.") from exc
     try:
         filas = libro.worksheets[0].iter_rows(values_only=True)
@@ -69,6 +71,10 @@ def leer_tabla(contenido: bytes, requeridas, opcionales=()) -> list[tuple[int, d
                 fila[columna] = valores[indice] if indice is not None and indice < len(valores) else None
             resultado.append((numero, fila))
         return resultado
+    except ReglaDeNegocio:
+        raise
+    except Exception as exc:
+        raise ReglaDeNegocio("El archivo no es un Excel (.xlsx) válido.") from exc
     finally:
         libro.close()
 
