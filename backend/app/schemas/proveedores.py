@@ -1,9 +1,10 @@
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models import EstadoProveedor, Moneda
+from app.models import EstadoProveedor, Moneda, OrigenCambioDolar
 
 Dolar = Decimal  # alias documental: valor del dólar en pesos, 2 decimales
 
@@ -50,3 +51,50 @@ class ProveedorResponse(BaseModel):
     en_dolares: bool
     created_at: datetime
     updated_at: datetime
+
+
+class CambioDolar(BaseModel):
+    valor_nuevo: Dolar = Field(gt=0, max_digits=10, decimal_places=3)
+
+
+class ModalidadMasiva(str, Enum):
+    VALOR = "valor"          # el mismo valor para todos
+    PORCENTAJE = "porcentaje"  # sobre el dólar de cada uno
+
+
+class CambioMasivo(BaseModel):
+    proveedor_ids: list[int] | None = None  # None = todos los activos en dólares
+    modalidad: ModalidadMasiva
+    valor: Decimal = Field(max_digits=10, decimal_places=3)
+
+
+class PreviewDolar(BaseModel):
+    proveedor_id: int
+    nombre: str
+    valor_actual: Decimal
+    valor_nuevo: Decimal
+
+
+class HistorialDolarResponse(BaseModel):
+    id: int
+    valor_anterior: Decimal
+    valor_nuevo: Decimal
+    origen: OrigenCambioDolar
+    timestamp: datetime
+    usuario_id: int
+    usuario_nombre: str
+
+
+class ErrorFila(BaseModel):
+    fila: int
+    error: str
+
+
+class ResultadoImportacionDolar(BaseModel):
+    aplicados: int
+    sin_cambios: int
+    errores: list[ErrorFila]
+
+
+class DolarEnUso(BaseModel):
+    hay_proveedores_en_dolares: bool
