@@ -75,7 +75,10 @@ def test_marcar_principal_desmarca_la_anterior(db, producto):
     servicio.marcar_principal(db, admin, b, None)
     db.refresh(a)
     assert b.es_principal and not a.es_principal
-    assert db.scalar(select(Auditoria).where(Auditoria.accion == "producto.foto_principal", Auditoria.entidad_id == p.id))
+    auditoria = db.scalar(select(Auditoria).where(Auditoria.accion == "producto.foto_principal", Auditoria.entidad_id == p.id))
+    assert auditoria is not None
+    assert auditoria.estado_anterior == {"foto_principal_id": a.id}
+    assert auditoria.estado_nuevo == {"foto_principal_id": b.id}
 
 
 def test_eliminar_principal_promueve_la_mas_antigua(db, producto):
@@ -89,4 +92,20 @@ def test_eliminar_principal_promueve_la_mas_antigua(db, producto):
     db.refresh(c)
     assert b.es_principal and not c.es_principal
     assert not archivo.exists()
-    assert db.scalar(select(Auditoria).where(Auditoria.accion == "producto.foto_eliminar", Auditoria.entidad_id == p.id))
+    auditoria = db.scalar(select(Auditoria).where(Auditoria.accion == "producto.foto_eliminar", Auditoria.entidad_id == p.id))
+    assert auditoria is not None
+    assert auditoria.estado_nuevo is None
+    assert auditoria.estado_anterior["id"] == a.id
+    assert auditoria.estado_anterior["es_principal"] is True
+
+
+def test_eliminar_foto_expira_la_coleccion_del_producto(db, producto):
+    """La colección `producto.fotos` puede estar cargada en la sesión desde
+    antes de borrar (selectin la trae al acceder p.ej. foto_principal_url):
+    después de eliminar_foto no debe seguir mostrando la foto borrada."""
+    admin, p = producto
+    a = servicio.subir_foto(db, admin, p, JPG, None)
+    b = servicio.subir_foto(db, admin, p, JPG, None)
+    assert len(p.fotos) == 2  # fuerza la carga de la colección ANTES de borrar
+    servicio.eliminar_foto(db, admin, a, None)
+    assert [foto.id for foto in p.fotos] == [b.id]

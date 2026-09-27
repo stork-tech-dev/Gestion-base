@@ -5,9 +5,9 @@ from uuid import uuid4
 
 from sqlalchemy import func, select
 
-from app.core.auditoria import registrar_auditoria
+from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
-from app.models import ProductoFoto
+from app.models import Producto, ProductoFoto
 from config import settings
 
 MAXIMO_FOTOS = 5
@@ -39,10 +39,18 @@ def obtener_foto(db, foto_id: int) -> ProductoFoto:
     return foto
 
 
-def _auditar(db, autor, accion, foto, ip) -> None:
-    registrar_auditoria(db, accion=accion, entidad="producto", entidad_id=foto.producto_id, usuario_id=autor.id,
-                        estado_nuevo={"foto_id": foto.id, "url": foto.url, "es_principal": foto.es_principal},
-                        ip_origen=ip)
+def _auditar(db, autor, accion, producto_id, ip, *, estado_anterior=None, estado_nuevo=None) -> None:
+    """Las tres acciones sobre fotos se auditan como acciones del PRODUCTO
+    (la foto en sí no es la entidad que le importa a quien lee la auditoría)."""
+    registrar_auditoria(db, accion=accion, entidad="producto", entidad_id=producto_id, usuario_id=autor.id,
+                        estado_anterior=estado_anterior, estado_nuevo=estado_nuevo, ip_origen=ip)
+
+
+def _bloquear_producto(db, producto_id: int) -> None:
+    """SELECT ... FOR UPDATE de la fila del producto: serializa las altas,
+    bajas y cambios de principal sobre las fotos de un mismo producto (si no,
+    dos subidas simultáneas pueden contar 4 fotos cada una y terminar en 6)."""
+    db.execute(select(Producto.id).where(Producto.id == producto_id).with_for_update())
 
 
 def subir_foto(db, autor, producto, contenido: bytes, ip) -> ProductoFoto:
@@ -51,6 +59,7 @@ def subir_foto(db, autor, producto, contenido: bytes, ip) -> ProductoFoto:
     formato = formato_de_imagen(contenido)
     if formato is None:
         raise DatoInvalido("La foto tiene que ser JPG, PNG o WEBP.")
+    _bloquear_producto(db, producto.id)
     cantidad = db.scalar(select(func.count()).select_from(ProductoFoto).where(ProductoFoto.producto_id == producto.id))
     if cantidad >= MAXIMO_FOTOS:
         raise ReglaDeNegocio(f"Un producto puede tener hasta {MAXIMO_FOTOS} fotos.")
@@ -64,7 +73,8 @@ def subir_foto(db, autor, producto, contenido: bytes, ip) -> ProductoFoto:
         db.add(foto)
         db.flush()
         db.refresh(foto)
-        _auditar(db, autor, "producto.foto_subir", foto, ip)
+        _auditar(db, autor, "producto.foto_subir", producto.id, ip,
+                estado_nuevo={"foto_id": foto.id, "url": foto.url, "es_principal": foto.es_principal})
     except Exception:
         archivo.unlink(missing_ok=True)       # sin fila no queda un archivo huérfano
         raise
@@ -75,21 +85,26 @@ def subir_foto(db, autor, producto, contenido: bytes, ip) -> ProductoFoto:
 def marcar_principal(db, autor, foto: ProductoFoto, ip) -> ProductoFoto:
     if foto.es_principal:
         return foto
+    _bloquear_producto(db, foto.producto_id)
     anterior = db.scalar(select(ProductoFoto).where(ProductoFoto.producto_id == foto.producto_id,
                                                     ProductoFoto.es_principal.is_(True)))
+    anterior_id = anterior.id if anterior is not None else None
     if anterior is not None:
         anterior.es_principal = False
         db.flush()                            # el índice único parcial no admite dos principales a la vez
     foto.es_principal = True
     db.flush()
-    _auditar(db, autor, "producto.foto_principal", foto, ip)
+    db.expire(db.get(Producto, foto.producto_id), ["fotos"])
+    _auditar(db, autor, "producto.foto_principal", foto.producto_id, ip,
+            estado_anterior={"foto_principal_id": anterior_id}, estado_nuevo={"foto_principal_id": foto.id})
     return foto
 
 
 def eliminar_foto(db, autor, foto: ProductoFoto, ip) -> None:
     era_principal, producto_id = foto.es_principal, foto.producto_id
+    _bloquear_producto(db, producto_id)
     archivo = _carpeta() / foto.url.rsplit("/", 1)[1]
-    _auditar(db, autor, "producto.foto_eliminar", foto, ip)
+    antes = snapshot(foto)                    # tomado ANTES del delete: después ya no se puede leer
     db.delete(foto)
     db.flush()
     if era_principal:
@@ -98,5 +113,7 @@ def eliminar_foto(db, autor, foto: ProductoFoto, ip) -> None:
         if siguiente is not None:
             siguiente.es_principal = True
             db.flush()
+    db.expire(db.get(Producto, producto_id), ["fotos"])
+    _auditar(db, autor, "producto.foto_eliminar", producto_id, ip, estado_anterior=antes)
     # Último paso: el archivo no vuelve con un rollback.
     archivo.unlink(missing_ok=True)
