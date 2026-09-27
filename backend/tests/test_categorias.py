@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
 from app.models import Auditoria, Categoria, Moneda, Producto, Proveedor
@@ -143,3 +143,36 @@ def test_listar_con_filtros(db, admin):
 def test_nombre_vacio(db, admin):
     with pytest.raises(DatoInvalido):
         _crear(db, admin, "   ")
+
+
+def test_ciclo_no_cuelga(db, admin):
+    """rama_de_ids y caminos no deben colgarse si el árbol tiene un ciclo
+    (defensa en profundidad; en circunstancias normales el lock de
+    mover_categoria lo evita). El ciclo se arma a mano por SQL: A bajo B y B
+    bajo A, ambos en nivel 2 para no violar el CHECK nivel>1 <-> parent_id
+    NOT NULL."""
+    raiz = _crear(db, admin, "Raiz")
+    a = _crear(db, admin, "A", raiz)
+    b = _crear(db, admin, "B", raiz)
+    db.execute(text("UPDATE categorias SET parent_id = :padre WHERE id = :hijo"), {"padre": b.id, "hijo": a.id})
+    db.execute(text("UPDATE categorias SET parent_id = :padre WHERE id = :hijo"), {"padre": a.id, "hijo": b.id})
+    db.expire_all()  # los objetos a/b quedan en la identity map con el parent_id viejo
+    with pytest.raises(ReglaDeNegocio) as error:
+        servicio.rama_de_ids(db, a.id)
+    assert "ciclo" in error.value.mensaje
+    with pytest.raises(ReglaDeNegocio) as error:
+        servicio.caminos(db)
+    assert "ciclo" in error.value.mensaje
+
+
+def test_mover_sigue_funcionando_con_el_lock(db, admin):
+    """mover_categoria toma un advisory lock de transacción antes de leer el
+    árbol; esto no debe romper el uso normal (mismo lock, misma transacción,
+    dos movimientos seguidos)."""
+    ropa = _crear(db, admin, "Ropa")
+    calzado = _crear(db, admin, "Calzado")
+    remeras = _crear(db, admin, "Remeras", ropa)
+    servicio.mover_categoria(db, admin, remeras, calzado.id, None)
+    assert (remeras.parent_id, remeras.nivel) == (calzado.id, 2)
+    servicio.mover_categoria(db, admin, remeras, None, None)
+    assert (remeras.parent_id, remeras.nivel) == (None, 1)
