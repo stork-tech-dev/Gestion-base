@@ -7,7 +7,7 @@
     {{ campo("u-nombre", "Nombre", modelo="form.nombre", requerido=True, error="errores.nombre") }}
     {{ campo("u-username", "Usuario", modelo="form.username", requerido=True, error="errores.username", atributos=':disabled="form.id !== null" autocomplete="off"') }}
     <div class="flex flex-col gap-1">
-      {{ combobox("u-rol", "rolesAsignables", "form.rol_id", texto="nombre", etiqueta="Rol *", vacio="Elegí un rol", placeholder="Buscar rol…", al_cambiar="alCambiarRol()") }}
+      {{ combobox("u-rol", "rolesAsignables", "form.rol_id", texto="nombre", etiqueta="Rol *", vacio="Elegí un rol", placeholder="Buscar rol…", al_cambiar="alCambiarRol()", deshabilitado="form.id && !_cargaInicialLista") }}
       <p class="text-sm text-danger" x-show="errores.rol_id" x-text="errores.rol_id" x-cloak></p>
     </div>
     {{ campo("u-nacimiento", "Fecha de nacimiento", tipo="date", modelo="form.fecha_nacimiento", error="errores.fecha_nacimiento") }}

@@ -1,0 +1,15 @@
+{% from "components/modal.html" import modal %}
+{% call modal("Proveedor", "modal-proveedor-ficha", abierto="fichaAbierta", titulo_expr="ficha ? ficha.nombre : ''") %}
+<template x-if="ficha">
+  <dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    <div><dt class="text-sm text-texto-muted">País</dt><dd class="text-texto" x-text="ficha.pais || '—'"></dd></div>
+    <div><dt class="text-sm text-texto-muted">Provincia</dt><dd class="text-texto" x-text="ficha.provincia || '—'"></dd></div>
+    <div><dt class="text-sm text-texto-muted">Teléfono</dt><dd class="text-texto" x-text="ficha.telefono || '—'"></dd></div>
+    <div><dt class="text-sm text-texto-muted">Email</dt><dd class="break-all text-texto" x-text="ficha.email || '—'"></dd></div>
+    <div><dt class="text-sm text-texto-muted">Moneda</dt><dd class="text-texto" x-text="monedaTexto(ficha)"></dd></div>
+    <div x-show="ficha.en_dolares"><dt class="text-sm text-texto-muted">Valor actual del dólar</dt><dd class="text-texto" x-text="dolarTexto(ficha)"></dd></div>
+    <div><dt class="text-sm text-texto-muted">Estado</dt><dd x-html="celdaEstado(ficha)"></dd></div>
+    <div class="sm:col-span-2"><dt class="text-sm text-texto-muted">Notas</dt><dd class="whitespace-pre-line text-texto" x-text="ficha.notas || '—'"></dd></div>
+  </dl>
+</template>
+{% endcall %}

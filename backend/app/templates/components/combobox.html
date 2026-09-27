@@ -1,14 +1,16 @@
 {% from "components/icons.html" import icono %}
 {# Select con búsqueda (catálogos largos). `opciones` y `modelo` son expresiones
-   Alpine del componente de la página. Emite el evento `cambio` al elegir. #}
-{% macro combobox(id, opciones, modelo, texto="texto", valor="id", etiqueta=None, placeholder="Buscar…", vacio="Todos", al_cambiar="") -%}
+   Alpine del componente de la página. Emite el evento `cambio` al elegir.
+   `deshabilitado` (opcional): expresión Alpine; mientras sea verdadera no se puede abrir. #}
+{% macro combobox(id, opciones, modelo, texto="texto", valor="id", etiqueta=None, placeholder="Buscar…", vacio="Todos", al_cambiar="", deshabilitado="") -%}
 <div class="relative flex flex-col gap-1"
      x-data="combobox({ fuente: () => ({{ opciones }}), texto: {{ texto|js }}, valor: {{ valor|js }} })"
      x-modelable="seleccion" x-model="{{ modelo }}"
      @click.outside="cerrar()"{% if al_cambiar %} @cambio="{{ al_cambiar }}"{% endif %}>
   {% if etiqueta %}<label for="{{ id }}" class="text-lg font-medium text-texto">{{ etiqueta }}</label>{% endif %}
   <button type="button" id="{{ id }}" class="campo flex items-center justify-between gap-2 text-left"
-          @click="alternar()" @keydown.arrow-down.prevent="abrir()" :aria-expanded="abierto" aria-haspopup="listbox">
+          @click="alternar()" @keydown.arrow-down.prevent="abrir()" :aria-expanded="abierto" aria-haspopup="listbox"{% if deshabilitado %}
+          :disabled="{{ deshabilitado }}"{% endif %}>
     <span class="truncate" :class="etiqueta ? '' : 'text-texto-disabled'" x-text="etiqueta || {{ vacio|js }}"></span>
     {{ icono("chevron-abajo", "w-4 h-4 shrink-0 text-texto-muted") }}
   </button>

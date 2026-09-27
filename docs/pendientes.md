@@ -18,20 +18,27 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - `/health/db` con mensaje genérico cuando `APP_ENV=production`.
 
 ## Módulo 02-B: pendientes que quedaron
-- **Carrera al cambiar el rol editando un usuario** (`usuarios.js`,
-  `alCambiarRol`): mientras cargan los accesos del rol nuevo, el botón
-  "Finalizar" sigue habilitado; si se guarda en ese instante, los accesos
-  pueden no reconciliarse con el rol nuevo. Bloquear `accesosCargados` también
-  en la edición y secuenciar las respuestas (mismo helper `ultimaRespuesta`).
-  Prioridad alta: arreglarlo al empezar el módulo 03.
-- No hay tests de JS para la lógica del formulario de usuario (solo para el
-  árbol de permisos, en `backend/tests_js/`).
 - Roles sin paginación; filtros de usuarios solo por nombre, rol y estado;
   para no-admins el filtro de rol muestra solo "vendedor".
 - Convención única para los filtros (placeholder o label) antes de 03-09.
 - El token de recuperación viaja en la URL (queda en logs de acceso):
   evaluar pasarlo como fragmento `#token`.
 - Advertencia de "el rol tiene usuarios" cuenta todos y no solo los activos.
+
+## Módulo 03: pendientes
+- Zip bomb: el límite de 5 MB de `leer_tabla` es sobre el .xlsx comprimido.
+  Antes del módulo 08 (importación), sumar el `file_size` de
+  `ZipFile.infolist()` y limitar lo descomprimido (ej. 50 MB).
+- No hay macro de botón-link: `<a class="boton ...">` se repite en ~6
+  plantillas.
+- `importar_dolar` hace un `db.get` por fila (N+1): aceptable a esta escala;
+  si crece, precargar los proveedores con un `IN`. Hacerlo con
+  `SELECT … WHERE id IN (…) ORDER BY id FOR UPDATE` resuelve además el orden
+  de los locks: hoy el masivo bloquea por nombre/id y el Excel fila por fila en
+  el orden del archivo, así que ambos a la vez sobre proveedores cruzados
+  pueden dar un deadlock (Postgres lo corta con un 500; sin datos corruptos).
+- La pantalla de cambio masivo no tiene entrada en el hub para quien solo
+  tiene el permiso puntual `dolar.cambio_masivo` (se entra por URL).
 
 ## Patrones que 03-09 deben copiar (de la revisión del 02-B)
 - Páginas con `Depends(requiere_pagina(ITEM))`, con el ítem definido una vez

@@ -23,6 +23,8 @@
   }
   window.pesos = formatearNumero;
   window.formatearDolar = formatearNumero;
+  // Valor del dólar con su prefijo (única definición del "US$ ").
+  window.dolares = (v) => 'US$ ' + window.formatearDolar(v);
 
   // ---------- Toasts ----------
   window.toast = function (mensaje, tipo = 'exito', duracion = 4000) {

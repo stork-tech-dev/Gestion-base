@@ -1,0 +1,22 @@
+{% from "components/modal.html" import modal %}
+{% call modal("Dar de baja", "modal-proveedor-baja", abierto="bajaAbierta", ancho="max-w-lg", titulo_expr="baja ? 'Dar de baja a ' + baja.proveedor.nombre : ''") %}
+<template x-if="baja">
+  <div class="flex flex-col gap-4">
+    <label class="flex min-h-toque cursor-pointer items-start gap-3">
+      <input type="radio" class="acceso-check mt-1" value="desactivado" x-model="baja.estado" @change="baja.advertencia = ''">
+      <span><span class="font-semibold text-texto">Desactivar</span><br><span class="text-sm text-texto-muted">Se puede reactivar libremente.</span></span>
+    </label>
+    <label class="flex min-h-toque cursor-pointer items-start gap-3">
+      <input type="radio" class="acceso-check mt-1" value="inhabilitado" x-model="baja.estado" @change="baja.advertencia = ''">
+      <span><span class="font-semibold text-texto">Inhabilitar</span><br><span class="text-sm text-texto-muted">Solo Admin puede reactivarlo.</span></span>
+    </label>
+    <p class="rounded-input bg-danger/10 p-3 text-sm text-danger" x-show="baja.advertencia" x-text="baja.advertencia"></p>
+    <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <button type="button" class="boton boton-secundario" @click="bajaAbierta = false">Cancelar</button>
+      <button type="button" class="boton boton-peligro" x-show="!baja.advertencia" :disabled="dandoDeBaja" @click="confirmarBaja(false)"
+              x-text="dandoDeBaja ? 'Guardando…' : 'Confirmar baja'"></button>
+      <button type="button" class="boton boton-peligro" x-show="baja.advertencia" x-cloak :disabled="dandoDeBaja" @click="confirmarBaja(true)">Dar de baja igual</button>
+    </div>
+  </div>
+</template>
+{% endcall %}

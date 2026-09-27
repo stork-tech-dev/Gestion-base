@@ -2,10 +2,10 @@ from datetime import datetime
 from enum import Enum
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String
-from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.models.tipos import enum_db
 
 
 class ResultadoAcceso(str, Enum):
@@ -22,9 +22,7 @@ class HistorialAcceso(Base):
     usuario_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("usuarios.id", ondelete="CASCADE"))
     timestamp: Mapped[datetime] = mapped_column(DateTime)
     ip_origen: Mapped[str | None] = mapped_column(String(45))
-    resultado: Mapped[ResultadoAcceso] = mapped_column(
-        SAEnum(ResultadoAcceso, name="resultado_acceso", values_callable=lambda e: [i.value for i in e])
-    )
+    resultado: Mapped[ResultadoAcceso] = mapped_column(enum_db(ResultadoAcceso, "resultado_acceso"))
     detalle: Mapped[str | None] = mapped_column(String(255))
 
 
