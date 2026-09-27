@@ -117,7 +117,9 @@
         this.accesosCargados = false;
         this.formAbierto = true;
         try {
-          this.accesos = await window.pedir(`${API}/${u.id}/accesos`);
+          const accesos = await this._ultimaRol(window.pedir(`${API}/${u.id}/accesos`));
+          if (accesos === undefined) return;  // se cambió el rol o se editó otro usuario antes de que llegue
+          this.accesos = accesos;
           this.marcados = this.accesos.filter((a) => a.override && !a.heredado).map((a) => a.clave);
           this.marcadosOriginales = [...this.marcados].sort();
           this.accesosCargados = true;

@@ -146,9 +146,54 @@ test('alta sin rol elegido: no hay accesos que perder y no se llama a la API', a
   await c.alCambiarRol();
 
   assert.equal(c.accesosCargados, true);
-  // c.accesos es un array del contexto vm: deepEqual con un [] de este
-  // realm falla por una particularidad de Node con colecciones vacías
-  // entre realms distintos aunque tengan la misma estructura.
+  // c.accesos es un array del contexto vm, con su propio Array.prototype:
+  // deepEqual con un [] de este realm falla porque el prototipo no es el
+  // mismo objeto, no por estar vacío (los arrays no vacíos de otro realm sí
+  // comparan bien más arriba porque ahí no importa el prototipo).
   assert.equal(c.accesos.length, 0);
   assert.equal(pendientes.length, 0);
+});
+
+test('alta CON rol elegido: accesosCargados queda false mientras carga', () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crearComponente(window);
+  c.form = { id: null, rol_id: 3 };
+  c.marcados = [];
+  c.accesosCargados = true;  // como queda tras nuevo()
+
+  c.alCambiarRol();
+
+  assert.equal(c.accesosCargados, false);
+  assert.equal(pendientes.length, 1);
+  assert.match(pendientes[0].url, /rol_id=3/);
+});
+
+test('editar() dispara el GET de accesos y después se cambia el rol: si el GET de editar() llega después, no pisa el rol nuevo', async () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crearComponente(window);
+
+  const promesaEditar = c.editar({ id: 7, username: 'ana', nombre: 'Ana', rol_id: 3 });
+  assert.equal(c.accesosCargados, false);
+
+  c.form.rol_id = 4;
+  const promesaRol = c.alCambiarRol();
+
+  assert.equal(pendientes.length, 2);
+  const pedidoEditar = pendientes.find((p) => /\/7\/accesos$/.test(p.url));
+  const pedidoRol = pendientes.find((p) => /rol_id=4/.test(p.url));
+
+  // Responde primero el cambio de rol (el vigente)...
+  pedidoRol.resolver([{ clave: 'stock.ver', heredado: false }]);
+  await promesaRol;
+  // ...y DESPUÉS el GET original de editar(), que ya quedó viejo.
+  pedidoEditar.resolver([{ clave: 'ventas.ver', override: true, heredado: false }]);
+  await promesaEditar;
+
+  assert.equal(c.accesosCargados, true);
+  assert.deepEqual(c.accesos, [{ clave: 'stock.ver', heredado: false }]);
+  assert.equal(c.marcados.length, 0);  // ver comentario sobre deepEqual y arrays vacíos cross-realm
 });
