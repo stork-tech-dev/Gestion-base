@@ -11,10 +11,11 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.errores import NoEncontrado, SinPermiso
-from app.core.permisos import Modulo, ROL_ADMIN
+from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
 from app.models import Usuario
+from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
 from app.services import usuarios as servicio_usuarios
 from app.services.auth import TokenInvalido
@@ -23,6 +24,10 @@ from config import settings
 router = APIRouter(include_in_schema=False)
 
 # Tarjetas del hub Configuraciones (cada sesión agrega la suya).
+SECCION_PROVEEDORES = {
+    "nombre": "Proveedores", "descripcion": "Datos de proveedores nacionales e internacionales",
+    "url": "/proveedores", "modulo": Modulo.PROVEEDORES,
+}
 SECCION_USUARIOS = {
     "nombre": "Usuarios", "descripcion": "Altas, permisos e historial de accesos",
     "url": "/usuarios", "modulo": Modulo.USUARIOS,
@@ -31,7 +36,13 @@ SECCION_ROLES = {
     "nombre": "Roles", "descripcion": "Perfiles de permisos y su alcance por módulo",
     "url": "/roles", "solo_admin": True,
 }
-CONFIGURACION_SECCIONES: list[dict] = [SECCION_USUARIOS, SECCION_ROLES]
+CONFIGURACION_SECCIONES: list[dict] = [SECCION_PROVEEDORES, SECCION_USUARIOS, SECCION_ROLES]
+
+# Página propia sin tarjeta en el hub: se entra desde el listado de proveedores.
+PAGINA_DOLAR_MASIVO = {
+    "nombre": "Cambio masivo del dólar", "url": "/proveedores/dolar-masivo",
+    "modulo": Modulo.PROVEEDORES, "accion": "editar", "recurso": Recurso.DOLAR_CAMBIO_MASIVO,
+}
 
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
 # hub_configuracion / modulo (+ accion, recurso). Cada módulo suma su ítem
@@ -193,6 +204,18 @@ def reset_password(request: Request, token: str = ""):
     # El token viaja en la URL: que no se filtre a los CDN por el Referer.
     respuesta.headers["Referrer-Policy"] = "no-referrer"
     return respuesta
+
+
+@router.get("/proveedores")
+def proveedores(request: Request, db: Session = Depends(get_db),
+                usuario: Usuario = Depends(requiere_pagina(SECCION_PROVEEDORES))):
+    return _pagina(request, "pages/proveedores/listado.html", contexto_base(
+        request, db, "/configuracion", usuario,
+        usa_dolar=servicio_proveedores.hay_proveedores_en_dolares(db),
+        puede_crear=resolver_permiso(db, usuario.id, Modulo.PROVEEDORES, "crear"),
+        puede_editar=resolver_permiso(db, usuario.id, Modulo.PROVEEDORES, "editar"),
+        puede_masivo=_visible(PAGINA_DOLAR_MASIVO, usuario, db),
+    ))
 
 
 @router.get("/usuarios")

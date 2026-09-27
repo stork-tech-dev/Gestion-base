@@ -1,0 +1,65 @@
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% call modal("Proveedor", "modal-proveedor-form", abierto="formAbierto", titulo_expr="form.id ? 'Editar proveedor' : 'Nuevo proveedor'") %}
+<form @submit.prevent="guardar()" class="flex flex-col gap-6" novalidate>
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    {{ campo("p-nombre", "Nombre", modelo="form.nombre", requerido=True, error="errores.nombre") }}
+    {{ campo("p-pais", "País", modelo="form.pais", error="errores.pais") }}
+    {{ campo("p-provincia", "Provincia", modelo="form.provincia", error="errores.provincia") }}
+    {{ campo("p-telefono", "Teléfono", tipo="tel", modelo="form.telefono", error="errores.telefono") }}
+    {{ campo("p-email", "Email", tipo="email", modelo="form.email", error="errores.email") }}
+    <div class="flex flex-col gap-1 sm:col-span-2">
+      <label for="p-notas" class="text-lg font-medium text-texto">Notas</label>
+      <textarea id="p-notas" rows="3" class="campo" x-model="form.notas"></textarea>
+    </div>
+  </div>
+
+  <fieldset class="flex flex-col gap-2">
+    <legend class="text-lg font-medium text-texto">Moneda <span class="text-danger">*</span></legend>
+    <div class="flex flex-wrap gap-4">
+      <label class="inline-flex min-h-toque cursor-pointer items-center gap-2"><input type="radio" class="acceso-check" value="ars" x-model="form.moneda"><span>Pesos</span></label>
+      <label class="inline-flex min-h-toque cursor-pointer items-center gap-2"><input type="radio" class="acceso-check" value="usd" x-model="form.moneda"><span>Dólares</span></label>
+    </div>
+    <p class="text-sm text-texto-muted" x-show="form.id">La moneda solo se puede cambiar si el proveedor no tiene productos cargados.</p>
+  </fieldset>
+
+  <div x-show="pideDolarInicial()" x-cloak>
+    {{ campo("p-dolar", "Valor actual del dólar", tipo="number", modelo="form.dolar_actual", requerido=True, error="errores.dolar_actual", ayuda="Debe ser mayor a cero.", atributos='min="0.01" step="0.01" inputmode="decimal"') }}
+  </div>
+
+  <template x-if="form.id && form.monedaOriginal === 'usd'">
+    <section class="flex flex-col gap-3 rounded-input border border-borde p-4">
+      <h3 class="font-semibold text-texto-header">Dólar de este proveedor</h3>
+      <p class="text-texto">Actual: <span class="font-semibold" x-text="'US$ ' + formatearDolar(form.dolar_actual)"></span></p>
+      <div class="flex flex-wrap items-end gap-2">
+        <label class="flex flex-col gap-1 text-sm text-texto-muted">Nuevo
+          <input type="number" min="0.01" step="0.01" inputmode="decimal" class="campo w-40" x-model="dolarNuevo"></label>
+        <button type="button" class="boton boton-secundario" :disabled="!dolarNuevo || aplicandoDolar" @click="aplicarDolar()"
+                x-text="aplicandoDolar ? 'Aplicando…' : 'Aplicar'"></button>
+      </div>
+      <h4 class="text-sm font-semibold text-texto-muted">Historial del dólar</h4>
+      <div class="overflow-x-auto">
+        <table class="tabla">
+          <thead><tr><th scope="col">Fecha</th><th scope="col" class="text-right">Anterior</th><th scope="col" class="text-right">Nuevo</th><th scope="col">Origen</th></tr></thead>
+          <tbody>
+            <template x-for="h in historial" :key="h.id">
+              <tr>
+                <td x-text="fechaHora(h.timestamp)"></td>
+                <td class="text-right" x-text="'US$ ' + formatearDolar(h.valor_anterior)"></td>
+                <td class="text-right" x-text="'US$ ' + formatearDolar(h.valor_nuevo)"></td>
+                <td x-text="origenTexto(h.origen)"></td>
+              </tr>
+            </template>
+            <tr x-show="!historial.length"><td colspan="4" class="py-4 text-center text-texto-muted">Sin cambios registrados.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </template>
+
+  <div class="flex justify-end">
+    <button type="submit" class="boton boton-primario" :disabled="guardando"
+            x-text="guardando ? 'Guardando…' : (form.id ? 'Finalizar' : 'Crear')"></button>
+  </div>
+</form>
+{% endcall %}

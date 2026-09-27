@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Proveedores · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="proveedoresListado({ usaDolar: {{ usa_dolar|js }}, puedeEditar: {{ puede_editar|js }}, esAdmin: {{ es_admin|js }} })">
+  {% call encabezado("Proveedores", "/configuracion", "Configuraciones") %}
+    {% if usa_dolar and puede_masivo %}
+    <a href="/proveedores/dolar-masivo" class="boton boton-secundario">Cambio masivo del dólar</a>
+    {% endif %}
+    {% if puede_crear %}
+    <button type="button" class="boton boton-acento" @click="nuevo()">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="proveedores encontrados") %}
+    <input type="search" class="campo" placeholder="Nombre" aria-label="Filtrar por nombre" x-model="filtros.nombre" @input="filtrar()">
+    <input type="search" class="campo" placeholder="País" aria-label="Filtrar por país" x-model="filtros.pais" @input="filtrar()">
+    <input type="search" class="campo" placeholder="Provincia" aria-label="Filtrar por provincia" x-model="filtros.provincia" @input="filtrar()">
+    <select class="campo" aria-label="Estado" x-model="filtros.estado" @change="cargar()">
+      <option value="">Estado (todos)</option>
+      <option value="activo">Activo</option>
+      <option value="desactivado">Desactivado</option>
+      <option value="inhabilitado">Inhabilitado</option>
+    </select>
+    <select class="campo" aria-label="Moneda" x-model="filtros.moneda" @change="cargar()">
+      <option value="">Moneda (todas)</option>
+      <option value="ars">Pesos</option>
+      <option value="usd">Dólares</option>
+    </select>
+    {% if usa_dolar %}
+    <input type="number" min="0" step="0.01" inputmode="decimal" class="campo" placeholder="Dólar desde" aria-label="Dólar desde" x-model="filtros.dolar_desde" @input="filtrar()">
+    <input type="number" min="0" step="0.01" inputmode="decimal" class="campo" placeholder="Dólar hasta" aria-label="Dólar hasta" x-model="filtros.dolar_hasta" @input="filtrar()">
+    {% endif %}
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Nombre", "expr": "fila.nombre"},
+    {"titulo": "Contacto", "expr": "celdaContacto(fila)", "html": True},
+    {"titulo": "Provincia", "expr": "fila.provincia || '—'"},
+    {"titulo": "País", "expr": "fila.pais || '—'"},
+    {"titulo": "Moneda", "expr": "monedaTexto(fila)"},
+  ] %}
+  {% if usa_dolar %}
+    {% set columnas = columnas + [{"titulo": "Dólar", "expr": "dolarTexto(fila)", "clase": "text-right whitespace-nowrap"}] %}
+  {% endif %}
+  {% set columnas = columnas + [{"titulo": "Estado", "expr": "celdaEstado(fila)", "html": True}] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay proveedores con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("ver", atributos='@click="ver(fila)"') }}
+      {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(fila)"') }}
+      {{ accion("borrar", texto="Dar de baja", atributos='x-show="puedeEditar && fila.estado === \'activo\'" @click="abrirBaja(fila)"') }}
+      {{ accion("activar", texto="Reactivar", atributos='x-show="puedeReactivar(fila)" @click="reactivar(fila)"') }}
+    {% endcall %}
+  {% endcall %}
+
+  {% include "pages/proveedores/_modal_ficha.html" %}
+  {% include "pages/proveedores/_modal_form.html" %}
+  {% include "pages/proveedores/_modal_baja.html" %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/proveedores.js') }}"></script>{% endblock %}
