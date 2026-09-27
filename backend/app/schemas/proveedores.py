@@ -53,6 +53,17 @@ class ProveedorResponse(BaseModel):
     updated_at: datetime
 
 
+class ProveedorDolarResumen(BaseModel):
+    """Versión mínima de ProveedorResponse para GET /dolar/activos: quien solo
+    tiene el permiso puntual del cambio masivo (sin "ver" proveedores) no debe
+    recibir datos de contacto (email, teléfono, notas, país, provincia)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    dolar_actual: Decimal
+
+
 class CambioDolar(BaseModel):
     valor_nuevo: Dolar = Field(gt=0, max_digits=10, decimal_places=3)
 

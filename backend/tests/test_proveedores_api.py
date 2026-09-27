@@ -52,7 +52,9 @@ def test_dolar_activos(client, db, crear_usuario, headers_de):
 
     r = client.get(f"{URL}/dolar/activos", headers=admin)
     assert r.status_code == 200
-    assert [p["id"] for p in r.json()] == [activo["id"]]  # solo activos en dólares
+    cuerpo = r.json()
+    assert [p["id"] for p in cuerpo] == [activo["id"]]  # solo activos en dólares
+    assert set(cuerpo[0].keys()) == {"id", "nombre", "dolar_actual"}  # sin datos de contacto
 
     assert client.get(f"{URL}/dolar/activos", headers=headers_de(crear_usuario("supervisor"))).status_code == 403
 

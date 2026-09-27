@@ -18,6 +18,7 @@ from app.schemas.proveedores import (
     HistorialDolarResponse,
     PreviewDolar,
     ProveedorCrear,
+    ProveedorDolarResumen,
     ProveedorEditar,
     ProveedorEstado,
     ProveedorResponse,
@@ -77,11 +78,12 @@ def importar(request: Request, archivo: UploadFile = File(...), db: Session = De
     return resultado
 
 
-@router.get("/dolar/activos", response_model=list[ProveedorResponse])
+@router.get("/dolar/activos", response_model=list[ProveedorDolarResumen])
 def activos_en_dolares(db: Session = Depends(get_db), _: Usuario = Depends(puede_masivo)):
     """Proveedores activos en dólares. Quien solo tiene el permiso puntual del
     cambio masivo (sin "ver" proveedores) necesita esta ruta: GET /proveedores
-    le daría 403."""
+    le daría 403. Devuelve solo id/nombre/dolar_actual (ProveedorDolarResumen):
+    sin datos de contacto, que ese permiso no habilita a ver."""
     return servicio.listar_activos_en_dolares(db)
 
 

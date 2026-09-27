@@ -72,8 +72,8 @@
         if (!ok) return;
         this.aplicando = true;
         try {
-          await window.pedir(`${API}/dolar/masivo`, { method: 'POST', body: this._cuerpo() });
-          window.toast('Dólar actualizado.');
+          const aplicados = await window.pedir(`${API}/dolar/masivo`, { method: 'POST', body: this._cuerpo() });
+          window.toast(`Dólar actualizado en ${aplicados.length} proveedor(es).`);
           this.vista = [];
           this.valor = '';
           await this.cargar();
