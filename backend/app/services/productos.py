@@ -1,14 +1,21 @@
 """Productos: alta, edición, estado, precio de venta y recálculo en cascada.
 Sin variantes: cada artículo vendible es un producto con su código y precio."""
+import re
 from decimal import Decimal
+from io import BytesIO
 
-from sqlalchemy import func, select, text
+import barcode
+from barcode.writer import SVGWriter
+from sqlalchemy import func, or_, select, text
 
 from app.core.auditoria import registrar_auditoria, snapshot
-from app.core.codigos import codificar_sku, digito_verificador
+from app.core.codigos import codificar_sku, codigo_es_valido, digito_verificador
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
-from app.core.utils import capitalizar_inicial, normalizar_texto, redondear, redondear_hacia_arriba, sin_tildes, sin_tildes_sql
-from app.models import Producto, Proveedor
+from app.core.utils import (
+    capitalizar_inicial, filtro_texto, normalizar_texto, paginar, patron_ilike,
+    redondear, redondear_hacia_arriba, sin_tildes, sin_tildes_sql,
+)
+from app.models import Producto, Proveedor, TemporadaProducto
 from app.schemas.productos import ProductoDetalle, ProductoResponse
 from app.services import categorias as servicio_categorias
 from app.services.configuracion import obtener_configuracion
@@ -199,3 +206,108 @@ def a_respuesta(db, productos) -> list[ProductoResponse]:
 
 def a_detalle(db, producto: Producto) -> ProductoDetalle:
     return ProductoDetalle.desde(producto, servicio_categorias.caminos(db)[producto.categoria_id])
+
+
+TAMANO_MAXIMO = 100
+MINIMO_SIMILARES = 10
+_OPCIONES_BARCODE = {"module_width": 0.2, "module_height": 4.0, "write_text": False, "quiet_zone": 1.0}
+_MEDIDA = re.compile(r'(\d+(?:\.\d+)?)mm')
+
+
+def condiciones_codigo(texto: str):
+    """ÚNICA definición de "buscar por código" (la reusan stock y ventas): ILIKE
+    parcial sobre el SKU y, si el texto es SKU + verificador válido, también el
+    match EXACTO del SKU sin el verificador."""
+    limpio = (texto or "").strip().upper()
+    condicion = Producto.sku.ilike(patron_ilike(limpio), escape="\\")
+    if len(limpio) == 6 and codigo_es_valido(limpio):
+        condicion = or_(condicion, Producto.sku == limpio[:5])
+    return condicion
+
+
+def buscar_por_codigo(db, codigo: str) -> Producto:
+    """Etiqueta con verificador válido o el SKU solo; un verificador incorrecto no resuelve."""
+    limpio = (codigo or "").strip().upper()
+    sku = limpio[:5] if len(limpio) == 6 and codigo_es_valido(limpio) else limpio
+    producto = db.scalar(select(Producto).where(Producto.sku == sku)) if len(sku) == 5 else None
+    if producto is None:
+        raise NoEncontrado("No hay ningún producto con ese código")
+    return producto
+
+
+def listar_productos(db, *, busqueda: str | None = None, categoria_id: int | None = None,
+                     proveedor_id: int | None = None, temporada: TemporadaProducto | None = None,
+                     activo: bool | None = None, precio_desde: Decimal | None = None,
+                     precio_hasta: Decimal | None = None, pagina: int = 1, tamano: int = 10) -> tuple[list[Producto], int]:
+    condiciones = []
+    if busqueda and busqueda.strip():
+        condiciones.append(or_(condiciones_codigo(busqueda), filtro_texto(Producto.sku_proveedor, busqueda),
+                               filtro_texto(Producto.descripcion, busqueda)))
+    if categoria_id is not None:
+        condiciones.append(Producto.categoria_id.in_(servicio_categorias.rama_de_ids(db, categoria_id)))
+    if proveedor_id is not None:
+        condiciones.append(Producto.proveedor_id == proveedor_id)
+    if temporada is not None:
+        condiciones.append(Producto.temporada == temporada)
+    if activo is not None:
+        condiciones.append(Producto.activo.is_(activo))
+    if precio_desde is not None:
+        condiciones.append(Producto.precio_venta >= precio_desde)
+    if precio_hasta is not None:
+        condiciones.append(Producto.precio_venta <= precio_hasta)
+    pagina, tamano = paginar(pagina, tamano, TAMANO_MAXIMO)
+    total = db.scalar(select(func.count()).select_from(Producto).where(*condiciones))
+    productos = db.scalars(
+        select(Producto).where(*condiciones).order_by(func.lower(Producto.descripcion), Producto.sku)
+        .offset((pagina - 1) * tamano).limit(tamano)
+    ).unique().all()
+    return list(productos), total
+
+
+def buscar_similares(db, descripcion: str, categoria_id: int | None = None, proveedor_id: int | None = None,
+                     limite: int = 8) -> list[dict]:
+    """Parecidos al tipear la descripción (incluye inactivos): desde 10 caracteres,
+    con TODAS las palabras de 3+ letras, en la rama de categoría y el proveedor."""
+    limpia = normalizar_texto(descripcion) or ""
+    if len(limpia) < MINIMO_SIMILARES:
+        return []
+    palabras = [p for p in limpia.split() if len(p) >= 3]
+    if not palabras:
+        return []
+    condiciones = [filtro_texto(Producto.descripcion, p) for p in palabras]
+    if categoria_id is not None:
+        condiciones.append(Producto.categoria_id.in_(servicio_categorias.rama_de_ids(db, categoria_id)))
+    if proveedor_id is not None:
+        condiciones.append(Producto.proveedor_id == proveedor_id)
+    filas = db.execute(
+        select(Producto.id, Producto.sku, Producto.descripcion, Producto.activo).where(*condiciones)
+        .order_by(func.lower(Producto.descripcion), Producto.sku).limit(limite)
+    ).all()
+    return [{"id": f.id, "sku": f.sku, "descripcion": f.descripcion, "activo": f.activo} for f in filas]
+
+
+def svg_code128(texto: str, ancho_mm=None, alto_mm=None) -> str:
+    """Code128 en SVG escalable: python-barcode usa unidades "mm" en cada
+    atributo (no escala); se pasan a números con un viewBox en mm. Con ancho y
+    alto, el SVG se fuerza a ese tamaño (preserveAspectRatio none)."""
+    salida = BytesIO()
+    barcode.get("code128", texto, writer=SVGWriter()).write(salida, _OPCIONES_BARCODE)
+    svg = salida.getvalue().decode()
+    svg = svg[svg.index("<svg"):]                                   # sin <?xml ...> ni DOCTYPE
+    raiz = svg[:svg.index(">") + 1]
+    ancho = _MEDIDA.search(re.search(r'width="([^"]+)"', raiz).group(1)).group(1)
+    alto = _MEDIDA.search(re.search(r'height="([^"]+)"', raiz).group(1)).group(1)
+    cuerpo = _MEDIDA.sub(r"\1", svg[len(raiz):])
+    final_ancho = f"{ancho_mm}mm" if ancho_mm else f"{ancho}mm"
+    final_alto = f"{alto_mm}mm" if alto_mm else f"{alto}mm"
+    ajuste = ' preserveAspectRatio="none"' if ancho_mm and alto_mm else ""
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 {ancho} {alto}" '
+            f'width="{final_ancho}" height="{final_alto}"{ajuste}>{cuerpo}')
+
+
+def barcode_svg(db, producto_id: int) -> str:
+    return svg_code128(obtener_producto(db, producto_id).codigo_con_verificador)
+
+
+def barcode_svg_para_etiqueta(db, producto_id: int) -> str:
+    return svg_code128(obtener_producto(db, producto_id).codigo_con_verificador, ancho_mm=16, alto_mm=4.5)
