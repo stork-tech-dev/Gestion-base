@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  {% if tipo == "rectangular" %}
+  @page { size: 105mm 10mm; margin: 0; }
+  {% else %}
+  @page { size: 66mm 11mm; margin: 0; }
+  {% endif %}
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "DejaVu Sans", sans-serif; }
+  .pagina { display: flex; page-break-after: always; }
+  .pagina:last-child { page-break-after: auto; }
+  .rectangular { width: 105mm; height: 10mm; gap: 3mm; }
+  .colita { width: 66mm; height: 11mm; }
+  .cola { width: 33mm; height: 11mm; }                 /* cola izquierda sin imprimir */
+  .etiqueta { width: 33mm; display: flex; align-items: center; justify-content: center; }
+  .rectangular .etiqueta { height: 10mm; }
+  .colita .etiqueta { height: 11mm; }
+  {# .contenido apila imagen y texto con layout de bloque (no flex-column): WeasyPrint
+     63.1 fragmenta en páginas de más un flex-item en columna que tenga texto adentro
+     (bug de fragmentación, visto y confirmado a mano); con .etiqueta en fila (fila es
+     el eje por defecto) y un único hijo en bloque no aparece. #}
+  .etiqueta .contenido { text-align: center; }
+  .etiqueta img { display: block; width: 16mm; height: 4.5mm; margin: 0 auto; }
+  .codigo { display: block; font-size: 6pt; letter-spacing: 0.3pt; margin-top: 0.5mm; }
+</style>
+</head>
+<body>
+{% for pagina in paginas %}
+  <div class="pagina {{ tipo }}">
+    {% if tipo == "colita" %}<div class="cola"></div>{% endif %}
+    {% for etiqueta in pagina %}
+      <div class="etiqueta">
+        <div class="contenido">
+          <img src="{{ etiqueta.barcode }}" alt="">
+          <span class="codigo">{{ etiqueta.codigo }}</span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endfor %}
+</body>
+</html>
