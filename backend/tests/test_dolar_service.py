@@ -1,3 +1,5 @@
+import sys
+import types
 from decimal import Decimal
 from io import BytesIO
 
@@ -147,3 +149,19 @@ def test_la_plantilla_se_puede_volver_a_subir_tal_cual(db, admin):
     _prov(db, admin, "Ida y vuelta", dolar="1000")
     resultado = servicio.importar_dolar(db, admin, servicio.generar_plantilla_dolar(db), None)
     assert resultado["errores"] == [] and resultado["aplicados"] == 0
+
+
+def test_recalcular_precios_sin_modulo_productos_no_hace_nada(db, monkeypatch):
+    # El módulo app.services.productos todavía no existe (llega en el módulo 04):
+    # nos asegura que no está en sys.modules para que el import realmente falle.
+    monkeypatch.delitem(sys.modules, "app.services.productos", raising=False)
+    assert servicio._recalcular_precios(db, 1) is None
+
+
+def test_recalcular_precios_con_modulo_incompleto_no_esconde_el_error(db, monkeypatch):
+    # Un módulo app.services.productos que EXISTE pero no tiene la función
+    # esperada (ej. le cambiaron el nombre) tiene que romper, no tragarse el error.
+    falso = types.ModuleType("app.services.productos")
+    monkeypatch.setitem(sys.modules, "app.services.productos", falso)
+    with pytest.raises(ImportError):
+        servicio._recalcular_precios(db, 1)

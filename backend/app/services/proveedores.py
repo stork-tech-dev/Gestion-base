@@ -56,9 +56,16 @@ def listar_proveedores(db, *, nombre=None, email=None, telefono=None, provincia=
     return list(db.scalars(select(Proveedor).where(*condiciones).order_by(func.lower(Proveedor.nombre), Proveedor.id)).all())
 
 
+def _activos_en_dolares():
+    """Único `select` de "proveedores activos que trabajan en dólares" (Principio 2):
+    lo reusan `hay_proveedores_en_dolares`, `_proveedores_para_masivo` y
+    `generar_plantilla_dolar`, cada uno con su propio `.where`/`.order_by` encima."""
+    return select(Proveedor).where(Proveedor.moneda == Moneda.USD, Proveedor.estado == EstadoProveedor.ACTIVO)
+
+
 def hay_proveedores_en_dolares(db) -> bool:
     """¿Hay al menos un proveedor ACTIVO en dólares? Si no, las pantallas ocultan el dólar."""
-    consulta = select(Proveedor.id).where(Proveedor.moneda == Moneda.USD, Proveedor.estado == EstadoProveedor.ACTIVO).limit(1)
+    consulta = _activos_en_dolares().with_only_columns(Proveedor.id).limit(1)
     return db.scalar(consulta) is not None
 
 
@@ -172,10 +179,16 @@ def cambiar_estado(db, autor, proveedor: Proveedor, nuevo: EstadoProveedor, conf
 
 def _recalcular_precios(db, proveedor_id: int) -> None:
     """Recalcula el precio de venta de los productos del proveedor (módulo 04).
-    Import local para no acoplar módulos; sin el módulo de productos, no hace nada."""
+    Import local para no acoplar módulos; sin el módulo de productos, no hace
+    nada. Solo se traga el ModuleNotFoundError de ESE módulo puntual: un
+    ImportError por otro motivo (ej. el módulo existe pero cambió el nombre
+    de la función, o un import roto adentro suyo) se deja propagar para no
+    esconder un error real y dejar los precios viejos en silencio."""
     try:
         from app.services.productos import recalcular_precios_de_proveedor
-    except ImportError:
+    except ModuleNotFoundError as exc:
+        if exc.name != "app.services.productos":
+            raise
         return
     recalcular_precios_de_proveedor(db, proveedor_id)
 
@@ -222,7 +235,7 @@ def historial_dolar(db, proveedor_id: int) -> list[dict]:
 
 def _proveedores_para_masivo(db, proveedor_ids) -> list[Proveedor]:
     """Solo activos en dólares; los ids en pesos o inactivos se ignoran."""
-    consulta = select(Proveedor).where(Proveedor.moneda == Moneda.USD, Proveedor.estado == EstadoProveedor.ACTIVO)
+    consulta = _activos_en_dolares()
     if proveedor_ids is not None:
         consulta = consulta.where(Proveedor.id.in_(proveedor_ids))
     proveedores = list(db.scalars(consulta.order_by(func.lower(Proveedor.nombre), Proveedor.id)).all())
@@ -256,10 +269,7 @@ def aplicar_masivo(db, autor, proveedor_ids, modalidad: ModalidadMasiva, valor: 
 
 
 def generar_plantilla_dolar(db) -> bytes:
-    proveedores = db.scalars(
-        select(Proveedor).where(Proveedor.moneda == Moneda.USD, Proveedor.estado == EstadoProveedor.ACTIVO)
-        .order_by(func.lower(Proveedor.nombre), Proveedor.id)
-    ).all()
+    proveedores = db.scalars(_activos_en_dolares().order_by(func.lower(Proveedor.nombre), Proveedor.id)).all()
     filas = [[p.id, p.nombre, p.dolar_actual] for p in proveedores]
     return generar_plantilla("Dolar", COLUMNAS_PLANTILLA_DOLAR, INSTRUCCIONES_DOLAR, filas)
 
