@@ -49,3 +49,26 @@ def test_validaciones(db, productos):
         etiquetas_pdf.generar_etiquetas(db, [(productos[0].id, 1001)], "colita")
     with pytest.raises(NoEncontrado):
         etiquetas_pdf.generar_etiquetas(db, [(999999, 1)], "colita")
+
+
+def _posiciones(caja, salida):
+    """(x, ancho) en mm de cada caja con clase "etiqueta" de la página."""
+    if getattr(caja, "element", None) is not None and "etiqueta" in (caja.element.get("class") or "").split():
+        salida.append((round(caja.border_box_x() / MM, 1), round(caja.border_width() / MM, 1)))
+    for hijo in getattr(caja, "children", None) or []:
+        _posiciones(hijo, salida)
+    return salida
+
+
+def test_posicion_de_cada_etiqueta(db, productos):
+    rectangular = etiquetas_pdf.etiquetas_documento(db, [(productos[0].id, 3)], "rectangular")
+    assert _posiciones(rectangular.pages[0]._page_box, []) == [(0.0, 33.0), (36.0, 33.0), (72.0, 33.0)]
+    colita = etiquetas_pdf.etiquetas_documento(db, [(productos[0].id, 1)], "colita")
+    assert _posiciones(colita.pages[0]._page_box, []) == [(33.0, 33.0)]     # la cola izquierda queda libre
+
+
+@pytest.mark.parametrize("items", [[], [(0, 0)], [(0, 5), (0, -3)]])
+def test_cantidades_invalidas(db, productos, items):
+    items = [(productos[0].id, cantidad) for _, cantidad in items]
+    with pytest.raises(DatoInvalido):
+        etiquetas_pdf.generar_etiquetas(db, items, "rectangular")

@@ -12,10 +12,12 @@
   body { font-family: "DejaVu Sans", sans-serif; }
   .pagina { display: flex; page-break-after: always; }
   .pagina:last-child { page-break-after: auto; }
-  .rectangular { width: 105mm; height: 10mm; gap: 3mm; }
+  .rectangular { width: 105mm; height: 10mm; }
+  /* 3mm entre etiquetas: WeasyPrint 63.1 ignora `gap` en flex, se usa margen. */
+  .rectangular .etiqueta:not(:first-child) { margin-left: 3mm; }
   .colita { width: 66mm; height: 11mm; }
   .cola { width: 33mm; height: 11mm; }                 /* cola izquierda sin imprimir */
-  .etiqueta { width: 33mm; display: flex; align-items: center; justify-content: center; }
+  .etiqueta { width: 33mm; flex: none; display: flex; align-items: center; justify-content: center; }
   .rectangular .etiqueta { height: 10mm; }
   .colita .etiqueta { height: 11mm; }
   {# .contenido apila imagen y texto con layout de bloque (no flex-column): WeasyPrint

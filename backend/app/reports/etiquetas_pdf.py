@@ -15,6 +15,8 @@ PLANTILLA = "reports/etiquetas.html"
 def _contexto(db, items, tipo) -> dict:
     if tipo not in TIPOS:
         raise DatoInvalido("El tipo de etiqueta tiene que ser 'rectangular' o 'colita'.")
+    if not items or any(cantidad < 1 for _, cantidad in items):
+        raise DatoInvalido("Cada producto tiene que llevar al menos una etiqueta.")
     if sum(cantidad for _, cantidad in items) > MAXIMO_ETIQUETAS:
         raise ReglaDeNegocio(f"Se pueden imprimir hasta {MAXIMO_ETIQUETAS} etiquetas por vez.")
     etiquetas = []
