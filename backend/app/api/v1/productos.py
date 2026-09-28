@@ -48,13 +48,13 @@ PAGINA_MAXIMA = 100_000
 def listar(busqueda: str | None = None, categoria_id: int | None = None, proveedor_id: int | None = None,
            temporada: TemporadaProducto | None = None, activo: bool | None = None,
            precio_desde: Decimal | None = Query(None, ge=0, lt=PRECIO_MAXIMO),
-           precio_hasta: Decimal | None = Query(None, ge=0, lt=PRECIO_MAXIMO),
+           precio_hasta: Decimal | None = Query(None, ge=0, lt=PRECIO_MAXIMO), stock_cero: bool = False,
            pagina: int = Query(1, ge=1, le=PAGINA_MAXIMA), tamano: int = Query(10, ge=1, le=TAMANO_MAXIMO),
            db: Session = Depends(get_db), _: Usuario = Depends(puede_ver)):
     items, total = servicio.listar_productos(db, busqueda=busqueda, categoria_id=categoria_id,
                                               proveedor_id=proveedor_id, temporada=temporada, activo=activo,
                                               precio_desde=precio_desde, precio_hasta=precio_hasta,
-                                              pagina=pagina, tamano=tamano)
+                                              stock_cero=stock_cero, pagina=pagina, tamano=tamano)
     return RespuestaPaginada(total=total, pagina=pagina, tamano=tamano, resultados=servicio.a_respuesta(db, items))
 
 

@@ -118,6 +118,13 @@ class ItemEditar(BaseModel):
     cantidad_contada: int = Field(ge=0, le=1_000_000)
 
 
+class ItemPorCodigo(BaseModel):
+    """Registrar un ítem contado escaneando o tipeando el código (SKU o
+    etiqueta con verificador) en vez de mandar el `producto_id`."""
+    codigo: str = Field(min_length=1, max_length=20)
+    cantidad_contada: int = Field(ge=0, le=1_000_000)
+
+
 class AuditoriaItemResponse(BaseModel):
     id: int
     producto_id: int

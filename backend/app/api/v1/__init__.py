@@ -1,7 +1,9 @@
 """Router único de la API v1: agrega los routers de cada módulo."""
 from fastapi import APIRouter
 
-from app.api.v1 import auditoria, auth, categorias, health, productos, proveedores, roles, usuarios
+from app.api.v1 import (
+    auditoria, auditorias_inventario, auth, categorias, health, productos, proveedores, roles, stock, usuarios,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -12,3 +14,5 @@ api_router.include_router(proveedores.router)
 api_router.include_router(categorias.router)
 api_router.include_router(productos.router)
 api_router.include_router(auditoria.router)
+api_router.include_router(stock.router)
+api_router.include_router(auditorias_inventario.router)
