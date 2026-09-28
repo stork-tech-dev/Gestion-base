@@ -8,11 +8,8 @@
   const PROMOCIONES_API = '/api/v1/configuracion/promociones';
 
   const filtrosVacios = () => ({ busqueda: '', localidad: '', condicion_iva: '' });
-  const formVacio = () => ({
-    id: null, nombre: '', dni: '', cuit: '', condicion_iva: 'consumidor_final',
-    domicilio: '', codigo_postal: '', localidad: '', telefono: '', email: '',
-  });
-  const textoONull = (valor) => String(valor ?? '').trim() || null;
+  // Formulario vacío y cuerpo del request: static/js/cliente_form.js (compartidos con la pantalla de venta).
+  const formVacio = () => window.clienteFormulario.vacio();
 
   window.clientesListado = function ({ puedeCrear, puedeEditar, puedeVerPromociones, condicionesIva }) {
     return {
@@ -110,17 +107,7 @@
       },
 
       _cuerpo() {
-        return {
-          nombre: this.form.nombre,
-          dni: textoONull(this.form.dni),
-          cuit: textoONull(this.form.cuit),
-          condicion_iva: this.form.condicion_iva,
-          domicilio: textoONull(this.form.domicilio),
-          codigo_postal: textoONull(this.form.codigo_postal),
-          localidad: textoONull(this.form.localidad),
-          telefono: textoONull(this.form.telefono),
-          email: textoONull(this.form.email),
-        };
+        return window.clienteFormulario.cuerpo(this.form);
       },
 
       async guardar() {

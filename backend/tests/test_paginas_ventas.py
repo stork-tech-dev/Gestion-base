@@ -1,7 +1,8 @@
 """Páginas HTML de la sesión de Ventas construidas en la Task 6: /clientes
 (ítem propio del sidebar) y los tres catálogos de configuración registrados
 en bucle (`_CATALOGOS_VENTAS`): /medios-de-pago, /motivos-descuento y
-/promociones. La visibilidad usa la misma barrera que la API
+/promociones; y los de la Task 7: el hub /ventas y la pantalla /ventas/nueva.
+La visibilidad usa la misma barrera que la API
 (resolver_permiso); acá solo se verifica que el layout arme lo esperado."""
 from app.models import Rol
 
@@ -112,3 +113,63 @@ def test_promociones_supervisor_puede_ver_y_editar(crear_usuario, iniciar_sesion
 def test_promociones_vendedor_da_403(crear_usuario, iniciar_sesion):
     respuesta = iniciar_sesion(crear_usuario("vendedor")).get("/promociones")
     assert respuesta.status_code == 403
+
+
+# --- Hub /ventas y /ventas/nueva (Task 7) -----------------------------------------
+
+def test_sidebar_muestra_ventas_al_vendedor(crear_usuario, iniciar_sesion):
+    # Vendedor tiene VENTAS ver + crear (seed.sql).
+    html = iniciar_sesion(crear_usuario("vendedor")).get("/").text
+    assert 'href="/ventas"' in html and ">Ventas<" in html
+
+
+def test_hub_ventas_muestra_las_dos_tarjetas(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("vendedor")).get("/ventas").text
+    assert 'href="/ventas/nueva"' in html and "Nueva venta" in html
+    assert 'title="Cargar productos, aplicar descuentos y cobrar"' in html
+    assert 'href="/ventas/resumen-ventas"' in html and "Resumen de Ventas" in html
+    assert 'title="Ventas del período con subtotal, descuento, total y medio de pago"' in html
+
+
+def test_hub_ventas_con_venta_en_curso_dice_continuar(db, crear_usuario, iniciar_sesion):
+    from app.api.pages import SECCION_NUEVA_VENTA
+    from app.services import ventas as servicio_ventas
+    usuario = crear_usuario("vendedor")
+    venta = servicio_ventas.iniciar_venta(db, usuario, None)
+    html = iniciar_sesion(usuario).get("/ventas").text
+    assert f"Continuar venta {venta.numero}" in html
+    assert venta.numero.startswith("V-")
+    # La constante compartida no se muta.
+    assert SECCION_NUEVA_VENTA["nombre"] == "Nueva venta"
+
+
+def test_hub_ventas_sin_permiso_da_403(db, crear_usuario, iniciar_sesion):
+    respuesta = iniciar_sesion(_sin_permisos(db, crear_usuario)).get("/ventas")
+    assert respuesta.status_code == 403
+
+
+def test_venta_nueva_vendedor(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("vendedor")).get("/ventas/nueva").text
+    assert "ventaPantalla(" in html and "/static/js/venta.js?v=" in html
+    assert "/static/js/cliente_form.js?v=" in html
+    # Vendedor: venta.descuento (seed.sql) y CLIENTES ver + crear.
+    assert "puedeDescontar: true" in html
+    assert "puedeVerClientes: true" in html and "puedeCrearCliente: true" in html
+    assert "hayTurno: true" in html
+    assert 'href="/ventas"' in html
+
+
+def test_venta_nueva_sin_ventas_crear_da_403(client, crear_usuario, iniciar_sesion, headers_de):
+    # Rol con VENTAS ver solamente: ve el hub pero no la pantalla de venta.
+    admin = crear_usuario("admin")
+    h = headers_de(admin)
+    r = client.post("/api/v1/roles", json={"nombre": "Solo mira ventas"}, headers=h)
+    assert r.status_code == 201
+    r = client.put(f"/api/v1/roles/{r.json()['id']}/permisos",
+                   json={"permisos": [{"modulo": "ventas", "recurso": None, "puede_ver": True}]}, headers=h)
+    assert r.status_code == 200
+    sesion = iniciar_sesion(crear_usuario("Solo mira ventas"))
+    assert sesion.get("/ventas/nueva").status_code == 403
+    html = sesion.get("/ventas").text
+    assert 'href="/ventas/nueva"' not in html
+    assert 'href="/ventas/resumen-ventas"' in html

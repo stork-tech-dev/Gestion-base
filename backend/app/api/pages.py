@@ -20,6 +20,7 @@ from app.services import descuentos as servicio_descuentos
 from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
 from app.services import usuarios as servicio_usuarios
+from app.services import ventas as servicio_ventas
 from app.services.auth import TokenInvalido
 from app.services.configuracion import obtener_configuracion
 from config import settings
@@ -104,6 +105,21 @@ CONDICIONES_IVA = [
     (CondicionIva.EXENTO.value, "Exento"),
 ]
 
+# Ítem del sidebar del módulo de ventas (sesión 06): hub "Ventas".
+PAGINA_VENTAS_HUB = {"nombre": "Ventas", "url": "/ventas", "icono": "ventas", "modulo": Modulo.VENTAS}
+# Tarjetas del hub de ventas (`title` = el texto explicativo de cada una).
+SECCION_NUEVA_VENTA = {
+    "nombre": "Nueva venta", "descripcion": "Cargar productos, aplicar descuentos y cobrar",
+    "title": "Cargar productos, aplicar descuentos y cobrar",
+    "url": "/ventas/nueva", "modulo": Modulo.VENTAS, "accion": "crear",
+}
+SECCION_RESUMEN_VENTAS = {
+    "nombre": "Resumen de Ventas", "descripcion": "Ventas del período con subtotal, descuento, total y medio de pago",
+    "title": "Ventas del período con subtotal, descuento, total y medio de pago",
+    "url": "/ventas/resumen-ventas", "modulo": Modulo.VENTAS,
+}
+SECCIONES_VENTAS: list[dict] = [SECCION_NUEVA_VENTA, SECCION_RESUMEN_VENTAS]
+
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
 # hub_configuracion / modulo (+ accion, recurso). Cada módulo suma su ítem
 # ANTES de "Configuraciones".
@@ -111,7 +127,7 @@ MENU_SIDEBAR: list[dict] = [
     {"nombre": "Inicio", "url": "/", "icono": "inicio"},
     PAGINA_PRODUCTOS,
     PAGINA_STOCK_HUB,
-    # Ventas: ítem propio del módulo VENTAS, lo agrega la Task 7.
+    PAGINA_VENTAS_HUB,
     PAGINA_CLIENTES,
     {"nombre": "Configuraciones", "url": "/configuracion", "icono": "configuracion", "hub_configuracion": True},
     # Sin pantalla HTML de auditoría: el ítem existe pero está oculto.
@@ -473,4 +489,48 @@ def clientes(request: Request, db: Session = Depends(get_db),
         # /configuracion/promociones (para no disparar toasts de 403).
         puede_ver_promociones=resolver_permiso(db, usuario.id, Modulo.CONFIGURACION, "ver", Recurso.PROMOCIONES),
         condiciones_iva=CONDICIONES_IVA,
+    ))
+
+
+# --- Ventas (sesión 06) ----------------------------------------------------------
+
+def _contexto_ventas(request: Request, db: Session, usuario: Usuario, **extra) -> dict:
+    """Contexto común a las páginas del módulo de ventas: mismos permisos
+    puntuales que exige la API (app/api/v1/ventas.py y clientes.py), para
+    mostrar/ocultar acciones sin depender de que el backend las rechace.
+    `actual` siempre apunta al hub: todas resaltan "Ventas" en el sidebar."""
+    return contexto_base(
+        request, db, "/ventas", usuario,
+        puede_vender=resolver_permiso(db, usuario.id, Modulo.VENTAS, "crear"),
+        puede_descontar=resolver_permiso(db, usuario.id, Modulo.VENTAS, "crear", Recurso.VENTA_DESCUENTO),
+        puede_anular=(resolver_permiso(db, usuario.id, Modulo.VENTAS, "ver")
+                      and resolver_permiso(db, usuario.id, Modulo.VENTAS, "eliminar", Recurso.VENTA_ANULAR)),
+        puede_crear_cliente=resolver_permiso(db, usuario.id, Modulo.CLIENTES, "crear"),
+        puede_ver_clientes=resolver_permiso(db, usuario.id, Modulo.CLIENTES, "ver"),
+        condiciones_iva=CONDICIONES_IVA,
+        **extra,
+    )
+
+
+@router.get("/ventas")
+def ventas_hub(request: Request, db: Session = Depends(get_db),
+               usuario: Usuario = Depends(requiere_pagina(PAGINA_VENTAS_HUB, actual="/ventas"))):
+    secciones = menu_visible(SECCIONES_VENTAS, usuario, db)
+    en_curso = servicio_ventas.venta_en_curso(db, usuario)
+    if en_curso is not None:
+        # Copia: la constante la comparten el sidebar y la página.
+        secciones = [{**s, "nombre": f"Continuar venta {en_curso.numero}"} if s is SECCION_NUEVA_VENTA else s
+                     for s in secciones]
+    return _pagina(request, "pages/ventas/hub.html", _contexto_ventas(request, db, usuario, secciones=secciones))
+
+
+@router.get("/ventas/nueva")
+def venta_nueva(request: Request, db: Session = Depends(get_db),
+                usuario: Usuario = Depends(requiere_pagina(SECCION_NUEVA_VENTA, actual="/ventas"))):
+    # La venta en curso (si hay) la retoma la pantalla con GET /ventas/en-curso.
+    return _pagina(request, "pages/ventas/nueva.html", _contexto_ventas(
+        request, db, usuario,
+        # Sesión 07: saldrá de services.turnos (turno de caja abierto de hoy).
+        # Hasta entonces no hay turnos y confirmar no se bloquea.
+        hay_turno=True,
     ))

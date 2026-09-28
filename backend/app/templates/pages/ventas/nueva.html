@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/miniatura.html" import miniatura %}
+{% from "components/modal.html" import modal %}
+{% from "components/cliente_form.html" import cliente_form %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Nueva venta · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{# Toda la aritmética viene de la API: el componente solo muestra `venta` (la
+   última VentaResponse) y manda acciones. Atajos: F2 buscar, F10 confirmar,
+   ESC descartar (eventos globales de app.js). #}
+<div x-data="ventaPantalla({ puedeDescontar: {{ puede_descontar|js }}, puedeVerClientes: {{ puede_ver_clientes|js }}, puedeCrearCliente: {{ puede_crear_cliente|js }}, hayTurno: {{ hay_turno|js }}, condicionesIva: {{ condiciones_iva|js }} })"
+     @atajo-buscar.window="alBuscar()" @atajo-confirmar.window="confirmarVenta()" @atajo-cancelar.window="alCancelar()">
+  {% call encabezado("Nueva venta", "/ventas", "Ventas") %}
+    <span x-show="venta" x-cloak class="rounded-pill bg-surface-alt px-3 py-1 font-mono text-sm font-semibold text-texto-header"
+          x-text="venta ? venta.numero : ''"></span>
+  {% endcall %}
+
+  {# Sesión 07: hoy `hay_turno` siempre es verdadero. #}
+  <p x-show="!hayTurno" x-cloak class="mb-4 rounded-input bg-danger/10 p-3 text-sm text-danger">
+    No hay un turno de caja abierto: no vas a poder confirmar la venta.
+  </p>
+
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">
+    {# ================= Columna izquierda: productos ================= #}
+    <section class="flex min-w-0 flex-col gap-4" aria-label="Productos">
+      <div class="relative" @click.outside="productos.cerrar()">
+        <label for="venta-buscador" class="sr-only">Código, SKU o descripción</label>
+        <div class="relative">
+          <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-texto-muted">{{ icono("buscar", "w-4 h-4") }}</span>
+          <input id="venta-buscador" x-ref="buscador" type="search" class="campo pl-9" placeholder="Código, SKU o descripción"
+                 autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="venta-productos"
+                 :aria-expanded="productos.abierto"
+                 :aria-activedescendant="productos.activo >= 0 ? 'venta-producto-' + productos.activo : null"
+                 x-model="productos.texto" @input="productos.programar()"
+                 @keydown.enter.prevent="alEnter()"
+                 @keydown.arrow-down.prevent="productos.mover(1)" @keydown.arrow-up.prevent="productos.mover(-1)"
+                 @keydown.escape="escapeEn(productos, $event)">
+        </div>
+        <ul id="venta-productos" x-show="productos.abierto" x-cloak role="listbox" aria-label="Productos encontrados"
+            class="absolute top-full z-30 mt-1 max-h-96 w-full overflow-y-auto rounded-input border border-borde bg-surface py-1 shadow-lg">
+          <template x-for="(p, indice) in productos.resultados" :key="p.id">
+            <li :id="'venta-producto-' + indice" role="option" :aria-selected="indice === productos.activo"
+                :aria-disabled="!ventaLogica.puedeAgregar(p)">
+              <button type="button" class="combobox-opcion flex items-center gap-3 disabled:cursor-not-allowed disabled:opacity-50"
+                      :disabled="!ventaLogica.puedeAgregar(p)" :aria-disabled="!ventaLogica.puedeAgregar(p)"
+                      :class="indice === productos.activo ? 'bg-surface-alt' : ''"
+                      @mouseenter="productos.activo = indice" @click="agregarProducto(p)">
+                {{ miniatura("p.foto_url", "sm") }}
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate font-medium" x-text="p.descripcion"></span>
+                  <span class="block font-mono text-xs text-texto-muted" x-text="p.codigo"></span>
+                </span>
+                <span class="shrink-0 text-right">
+                  <span class="block font-semibold" x-text="plata(p.precio)"></span>
+                  <span class="block text-xs" :class="!p.stock_infinito && p.stock <= 0 ? 'font-semibold text-danger' : 'text-texto-muted'"
+                        x-text="p.stock_infinito ? 'Stock ∞' : 'Stock ' + p.stock"></span>
+                </span>
+              </button>
+            </li>
+          </template>
+          <li x-show="!productos.resultados.length" class="px-3 py-2 text-sm text-texto-muted">Sin resultados.</li>
+        </ul>
+      </div>
+
+      {# Carrito: una fila por unidad. #}
+      <div class="tarjeta overflow-hidden p-0">
+        <div class="overflow-x-auto">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th scope="col"><span class="sr-only">Foto</span></th>
+                <th scope="col">Código</th>
+                <th scope="col">Descripción</th>
+                <th scope="col" class="text-right">Precio</th>
+                <th scope="col">Descuento</th>
+                <th scope="col" class="text-right">Final</th>
+                <th scope="col" class="text-right"><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="item in items" :key="item.id">
+                <tr>
+                  <td>{{ miniatura("item.foto_url", "sm") }}</td>
+                  <td class="whitespace-nowrap font-mono" x-text="item.codigo"></td>
+                  <td class="min-w-[10rem]" x-text="item.descripcion"></td>
+                  <td class="whitespace-nowrap text-right">
+                    <s class="mr-1 text-texto-muted" x-show="item.precio_lista !== item.precio_unitario" x-text="plata(item.precio_lista)"></s>
+                    <span x-text="plata(item.precio_unitario)"></span>
+                  </td>
+                  <td class="whitespace-nowrap" :class="item.en_promocion ? 'font-semibold text-success' : ''" x-text="textoDescuento(item)"></td>
+                  <td class="whitespace-nowrap text-right font-semibold" x-text="plata(item.precio_final)"></td>
+                  <td class="text-right">
+                    {% call acciones() %}
+                      {{ accion("descuento", texto="Descuento", icono_nombre="porcentaje", atributos='x-show="puedeDescontarItem(item)" @click="abrirDescuento(item)"') }}
+                      {{ accion("borrar", texto="Quitar", atributos='@click="quitarItem(item)"') }}
+                    {% endcall %}
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="cargando"><td colspan="7" class="py-10 text-center text-texto-muted">Cargando…</td></tr>
+              <tr x-show="!cargando && !items.length"><td colspan="7" class="py-10 text-center text-texto-muted">Escaneá o buscá un producto para empezar.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    {# ================= Columna derecha: cobro ================= #}
+    <aside class="tarjeta flex flex-col gap-6 lg:sticky lg:top-[calc(var(--header-height)+1.5rem)]" aria-label="Cobro">
+      {# ----- Cliente ----- #}
+      <section class="flex flex-col gap-2" x-show="puedeVerClientes || venta?.cliente" x-cloak>
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-lg font-semibold text-texto-header">Cliente</h2>
+          <button type="button" class="min-h-toque text-sm font-semibold text-primary hover:underline"
+                  x-show="puedeCrearCliente" x-cloak @click="nuevoCliente()">+ Nuevo cliente</button>
+        </div>
+        <template x-if="venta && venta.cliente">
+          <div class="flex items-center justify-between gap-2 rounded-input bg-surface-alt p-3">
+            <div class="min-w-0">
+              <p class="truncate font-medium text-texto" x-text="venta.cliente.nombre"></p>
+              <p class="text-sm text-texto-muted" x-text="textoCondicionIva(venta.cliente.condicion_iva)"></p>
+            </div>
+            <button type="button" class="boton boton-secundario min-h-toque" @click="elegirCliente(null)">Quitar</button>
+          </div>
+        </template>
+        <div class="relative" x-show="puedeVerClientes && !(venta && venta.cliente)" @click.outside="clientes.cerrar()">
+          <label for="venta-cliente" class="sr-only">Buscar cliente por DNI, CUIT o nombre</label>
+          <input id="venta-cliente" type="search" class="campo" placeholder="DNI, CUIT o nombre" autocomplete="off"
+                 role="combobox" aria-autocomplete="list" aria-controls="venta-clientes" :aria-expanded="clientes.abierto"
+                 :aria-activedescendant="clientes.activo >= 0 ? 'venta-cliente-' + clientes.activo : null"
+                 x-model="clientes.texto" @input="clientes.programar()" @keydown.enter.prevent="alEnterCliente()"
+                 @keydown.arrow-down.prevent="clientes.mover(1)" @keydown.arrow-up.prevent="clientes.mover(-1)"
+                 @keydown.escape="escapeEn(clientes, $event)">
+          <ul id="venta-clientes" x-show="clientes.abierto" x-cloak role="listbox" aria-label="Clientes encontrados"
+              class="absolute top-full z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-input border border-borde bg-surface py-1 shadow-lg">
+            <template x-for="(c, indice) in clientes.resultados" :key="c.id">
+              <li :id="'venta-cliente-' + indice" role="option" :aria-selected="indice === clientes.activo">
+                <button type="button" class="combobox-opcion" :class="indice === clientes.activo ? 'bg-surface-alt' : ''"
+                        @mouseenter="clientes.activo = indice" @click="elegirCliente(c)">
+                  <span class="block truncate font-medium" x-text="c.nombre"></span>
+                  <span class="block text-xs text-texto-muted"
+                        x-text="[c.dni, c.cuit, textoCondicionIva(c.condicion_iva)].filter(Boolean).join(' · ')"></span>
+                </button>
+              </li>
+            </template>
+            <li x-show="!clientes.resultados.length" class="px-3 py-2 text-sm text-texto-muted">Sin resultados.</li>
+          </ul>
+        </div>
+      </section>
+
+      {# ----- Promoción ----- #}
+      <section class="flex flex-col gap-2" x-show="items.length" x-cloak>
+        <h2 class="text-lg font-semibold text-texto-header">Promoción</h2>
+        <p class="text-sm" :class="venta && venta.promocion ? 'font-semibold text-success' : 'text-texto-muted'"
+           x-text="venta && venta.promocion ? venta.promocion.nombre + (venta.promocion_a_mano ? ' (elegida a mano)' : ' (automática)') : 'Sin promoción aplicada.'"></p>
+        <label for="venta-promocion" class="sr-only">Elegir promoción</label>
+        <select id="venta-promocion" class="campo" x-model="promocionElegida" @change="elegirPromocion()">
+          <option value="">Sin promoción</option>
+          <template x-for="promo in promociones" :key="promo.id">
+            <option :value="String(promo.id)" :title="promo.nota || ''" :selected="String(promo.id) === promocionElegida"
+                    x-text="promo.nombre + ' (ahorro ' + plata(promo.ahorro) + ')'"></option>
+          </template>
+        </select>
+      </section>
+
+      {# ----- Medios de pago (hasta 2) ----- #}
+      <section class="flex flex-col gap-3" x-show="items.length" x-cloak>
+        <h2 class="text-lg font-semibold text-texto-header">Medios de pago</h2>
+        <template x-for="(fila, indice) in pagos" :key="indice">
+          <div class="flex flex-col gap-2 rounded-input border border-borde p-3">
+            <div class="flex items-center gap-2">
+              <label :for="'venta-medio-' + indice" class="sr-only">Medio de pago</label>
+              <select :id="'venta-medio-' + indice" class="campo flex-1" x-model="fila.medio_de_pago_id" @change="cambioPago(indice, 'medio')">
+                <option value="">Elegí un medio</option>
+                <template x-for="m in (opcionesPago[indice] || [])" :key="m.id">
+                  <option :value="String(m.id)" :selected="String(m.id) === fila.medio_de_pago_id" x-text="m.nombre"></option>
+                </template>
+              </select>
+              <button type="button" class="btn-accion hover:text-danger" title="Quitar medio" aria-label="Quitar medio"
+                      x-show="pagos.length > 1 || fila.medio_de_pago_id" @click="quitarMedio(indice)">{{ icono("cerrar") }}</button>
+            </div>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2" x-show="fila.medio_de_pago_id">
+              <div class="flex flex-col gap-1">
+                <label :for="'venta-monto-' + indice" class="text-sm text-texto-muted">Monto</label>
+                <template x-if="montoEditable(indice)">
+                  <input :id="'venta-monto-' + indice" type="number" class="campo text-right" min="0.01" step="0.01" inputmode="decimal"
+                         x-model="fila.monto" @change="cambioPago(indice, 'monto')">
+                </template>
+                <template x-if="!montoEditable(indice)">
+                  <output :id="'venta-monto-' + indice" class="campo flex items-center justify-end bg-surface-alt"
+                          x-text="venta && venta.pagos[indice] ? plata(venta.pagos[indice].monto) : '—'"></output>
+                </template>
+              </div>
+              <div class="flex flex-col gap-1" x-show="planesDe(indice).length || fila.plan_cuotas_id">
+                <label :for="'venta-plan-' + indice" class="text-sm text-texto-muted">Plan de cuotas</label>
+                <select :id="'venta-plan-' + indice" class="campo" x-model="fila.plan_cuotas_id" @change="cambioPago(indice, 'plan')">
+                  <option value="">Un pago</option>
+                  <template x-for="plan in planesDe(indice)" :key="plan.id">
+                    <option :value="String(plan.id)" :selected="String(plan.id) === fila.plan_cuotas_id" x-text="textoPlan(plan)"></option>
+                  </template>
+                </select>
+              </div>
+            </div>
+            <p class="text-sm text-texto-muted" x-show="venta && venta.pagos[indice] && Number(venta.pagos[indice].recargo) > 0"
+               x-text="venta && venta.pagos[indice] ? 'Recargo ' + plata(venta.pagos[indice].recargo) + ' · total ' + plata(venta.pagos[indice].monto_total) : ''"></p>
+          </div>
+        </template>
+        <button type="button" class="min-h-toque self-start text-sm font-semibold text-primary hover:underline disabled:opacity-50"
+                x-show="pagos.length < 2" :disabled="!puedeOtroMedio" @click="otroMedio()">+ Otro medio</button>
+      </section>
+
+      {# ----- Totales (todo de la respuesta de la API) ----- #}
+      <dl class="flex flex-col gap-2 border-t border-borde pt-4 text-sm">
+        <div class="flex justify-between gap-4"><dt class="text-texto-muted">Subtotal</dt><dd x-text="plata(venta ? venta.subtotal : 0)"></dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-texto-muted">Descuentos y promociones</dt><dd x-text="'− ' + plata(venta ? venta.descuento_total : 0)"></dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-texto-muted">Recargo por cuotas</dt><dd x-text="plata(venta ? venta.recargo_total : 0)"></dd></div>
+        <div class="flex items-baseline justify-between gap-4 border-t border-borde pt-2">
+          <dt class="text-lg font-bold text-texto-header">Total</dt>
+          <dd class="text-2xl font-bold text-texto-header" x-text="plata(venta ? venta.total : 0)"></dd>
+        </div>
+      </dl>
+
+      <div class="flex flex-col gap-2">
+        <button type="button" class="boton boton-acento min-h-toque w-full" :disabled="!puedeConfirmar" @click="confirmarVenta()"
+                x-text="confirmando ? 'Confirmando…' : 'Confirmar venta (F10)'"></button>
+        <button type="button" class="boton boton-secundario min-h-toque w-full" :disabled="!venta || descartando" @click="descartar()">Descartar venta (ESC)</button>
+      </div>
+    </aside>
+  </div>
+
+  {# ----- Descuento de un ítem ----- #}
+  {% call modal("Descuento", "modal-venta-descuento", abierto="descuentoAbierto", ancho="max-w-md") %}
+  <form @submit.prevent="aplicarDescuento()" class="flex flex-col gap-4" novalidate>
+    <p class="text-sm text-texto-muted" x-text="descuento.item ? descuento.item.descripcion : ''"></p>
+    <div class="flex flex-col gap-1">
+      <label for="venta-descuento-motivo" class="text-lg font-medium text-texto">Motivo <span class="text-danger">*</span></label>
+      <select id="venta-descuento-motivo" class="campo" x-model="descuento.motivo_id">
+        <option value="">Elegí un motivo</option>
+        <template x-for="m in opcionesDescuento.motivos" :key="m.id">
+          <option :value="String(m.id)" :title="m.nota || ''" :selected="String(m.id) === descuento.motivo_id"
+                  x-text="m.porcentaje_sugerido !== null ? m.nombre + ' (' + Number(m.porcentaje_sugerido) + '%)' : m.nombre"></option>
+        </template>
+      </select>
+      <p class="text-sm text-texto-muted" x-show="motivoElegido && motivoElegido.nota" x-text="motivoElegido ? motivoElegido.nota : ''"></p>
+    </div>
+    <div class="flex flex-col gap-1" x-show="motivoElegido && motivoElegido.porcentaje_sugerido === null">
+      <label for="venta-descuento-porcentaje" class="text-lg font-medium text-texto">Porcentaje <span class="text-danger">*</span></label>
+      <select id="venta-descuento-porcentaje" class="campo" x-model="descuento.porcentaje">
+        <option value="">Elegí un porcentaje</option>
+        <template x-for="p in opcionesDescuento.porcentajes" :key="p">
+          <option :value="String(p)" :selected="String(p) === descuento.porcentaje" x-text="p + '%'"></option>
+        </template>
+      </select>
+    </div>
+    <p class="text-sm text-texto-muted" x-show="opcionesDescuento.tope !== null"
+       x-text="'Tope de descuento: ' + Number(opcionesDescuento.tope) + '%'"></p>
+    <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <button type="button" class="boton boton-secundario min-h-toque" x-show="descuento.item && Number(descuento.item.descuento_item) > 0"
+              @click="aplicarDescuento(true)">Quitar descuento</button>
+      <button type="submit" class="boton boton-primario min-h-toque">Aplicar</button>
+    </div>
+  </form>
+  {% endcall %}
+
+  {# ----- Alta rápida de cliente ----- #}
+  {% if puede_crear_cliente %}
+  {% call modal("Nuevo cliente", "modal-venta-cliente", abierto="clienteAbierto") %}
+  <form @submit.prevent="guardarCliente()" class="flex flex-col gap-6" novalidate>
+    {{ cliente_form(modelo="clienteForm", errores="errores", prefijo="venta-cliente-form", condiciones_iva=condiciones_iva) }}
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario min-h-toque" :disabled="guardandoCliente"
+              x-text="guardandoCliente ? 'Guardando…' : 'Crear y asociar'"></button>
+    </div>
+  </form>
+  {% endcall %}
+  {% endif %}
+
+  {# ----- Venta confirmada ----- #}
+  {% call modal("Venta confirmada", "modal-venta-confirmada", abierto="confirmadaAbierta", ancho="max-w-md") %}
+  <div class="flex flex-col items-center gap-4 text-center">
+    <p class="text-sm text-texto-muted" x-text="confirmada ? 'Venta ' + confirmada.numero : ''"></p>
+    <div>
+      <p class="text-sm font-medium text-texto-muted">Código de cambio</p>
+      <p class="text-5xl font-mono font-bold tracking-widest text-texto-header" x-text="confirmada ? confirmada.codigo_cambio : ''"></p>
+    </div>
+    <div>
+      <p class="text-sm font-medium text-texto-muted">Total cobrado</p>
+      <p class="text-2xl font-bold text-texto-header" x-text="confirmada ? plata(confirmada.total) : ''"></p>
+    </div>
+    <div class="flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+      <a href="/ventas/resumen-ventas" class="boton boton-secundario min-h-toque">Ir al resumen</a>
+      <button type="button" class="boton boton-primario min-h-toque" @click="nuevaVenta()">Nueva venta</button>
+    </div>
+  </div>
+  {% endcall %}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ estatico('/js/cliente_form.js') }}"></script>
+<script src="{{ estatico('/js/venta.js') }}"></script>
+{% endblock %}
