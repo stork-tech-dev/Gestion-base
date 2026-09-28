@@ -14,7 +14,7 @@ from app.core.errores import NoEncontrado, SinPermiso
 from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
-from app.models import Usuario
+from app.models import NIVEL_MAXIMO, Usuario
 from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
 from app.services import usuarios as servicio_usuarios
@@ -44,11 +44,16 @@ PAGINA_DOLAR_MASIVO = {
     "modulo": Modulo.PROVEEDORES, "accion": "editar", "recurso": Recurso.DOLAR_CAMBIO_MASIVO,
 }
 
+# Ítem del sidebar del módulo de productos (la pantalla /productos la agrega
+# la Task 11; por ahora solo existe /categorias).
+PAGINA_PRODUCTOS = {"nombre": "Productos", "url": "/productos", "icono": "productos", "modulo": Modulo.PRODUCTOS}
+
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
 # hub_configuracion / modulo (+ accion, recurso). Cada módulo suma su ítem
 # ANTES de "Configuraciones".
 MENU_SIDEBAR: list[dict] = [
     {"nombre": "Inicio", "url": "/", "icono": "inicio"},
+    PAGINA_PRODUCTOS,
     {"nombre": "Configuraciones", "url": "/configuracion", "icono": "configuracion", "hub_configuracion": True},
     # Sin pantalla HTML de auditoría: el ítem existe pero está oculto.
     {"nombre": "Auditoría", "url": "/auditoria", "icono": "auditoria", "oculto": True},
@@ -225,6 +230,18 @@ def dolar_masivo(request: Request, db: Session = Depends(get_db),
         request, db, "/configuracion", usuario, usa_dolar=servicio_proveedores.hay_proveedores_en_dolares(db),
         # Con solo el permiso puntual del masivo, /proveedores da 403: el "volver" va al hub.
         puede_ver=_visible(SECCION_PROVEEDORES, usuario, db),
+    ))
+
+
+@router.get("/categorias")
+def categorias(request: Request, db: Session = Depends(get_db),
+               usuario: Usuario = Depends(requiere_pagina(PAGINA_PRODUCTOS, actual="/productos"))):
+    return _pagina(request, "pages/categorias/arbol.html", contexto_base(
+        request, db, "/productos", usuario,
+        puede_crear=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "crear"),
+        puede_editar=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "editar"),
+        puede_eliminar=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "eliminar"),
+        nivel_maximo=NIVEL_MAXIMO,
     ))
 
 

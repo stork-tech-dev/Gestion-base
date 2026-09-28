@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Categorías · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="categoriasArbol({ puedeCrear: {{ puede_crear|js }}, puedeEditar: {{ puede_editar|js }}, puedeEliminar: {{ puede_eliminar|js }}, nivelMaximo: {{ nivel_maximo|js }} })">
+  {% call encabezado("Categorías", "/productos", "Productos") %}
+    {% if puede_crear %}
+    <button type="button" class="boton boton-acento" @click="nuevaRaiz()">{{ icono("mas", "w-4 h-4") }}<span>Nueva categoría</span></button>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="categorías encontradas") %}
+    <input type="search" class="campo" placeholder="Nombre" aria-label="Filtrar por nombre" x-model="filtros.nombre" @input="filtrar()">
+    <select class="campo" aria-label="Nivel" x-model="filtros.nivel" @change="cargar()">
+      <option value="">Nivel (todos)</option>
+      {% for n in range(1, nivel_maximo + 1) %}
+      <option value="{{ n }}">Nivel {{ n }}</option>
+      {% endfor %}
+    </select>
+  {% endcall %}
+
+  {# Con algún filtro activo: lista plana de la API con nombre, nivel y camino. #}
+  <template x-if="hayFiltro">
+    {% set columnas_planas = [
+      {"titulo": "Nombre", "expr": "fila.nombre"},
+      {"titulo": "Nivel", "expr": "fila.nivel"},
+      {"titulo": "Camino", "expr": "rutaCategoria(arbol, fila.id)"},
+    ] %}
+    {{ tabla(columnas_planas, filas="planas", cargando="cargando", vacio="No hay categorías con esos filtros.") }}
+  </template>
+
+  {# Sin filtros: árbol colapsable (lista aplanada en JS respetando `abiertos`). #}
+  <template x-if="!hayFiltro">
+    <div class="tarjeta overflow-hidden p-0">
+      <p class="p-6 text-center text-texto-muted" x-show="cargando">Cargando…</p>
+      <p class="p-6 text-center text-texto-muted" x-show="!cargando && !visibles.length">No hay categorías creadas.</p>
+      <ul>
+        <template x-for="n in visibles" :key="n.id">
+          <li class="flex min-h-toque flex-wrap items-center gap-2 border-b border-borde py-2 pl-4 pr-3 last:border-b-0">
+            <div class="flex min-w-0 flex-1 items-center gap-2" :style="'padding-left:' + (n.profundidad * 1.5) + 'rem'">
+              <button type="button" class="btn-accion shrink-0" x-show="n.hijos.length" @click="abiertos[n.id] = !abiertos[n.id]"
+                      :aria-label="abiertos[n.id] ? 'Contraer' : 'Expandir'">
+                <span x-show="abiertos[n.id]" x-cloak>{{ icono("chevron-abajo", "w-4 h-4") }}</span>
+                <span x-show="!abiertos[n.id]">{{ icono("chevron-derecha", "w-4 h-4") }}</span>
+              </button>
+              <span class="shrink-0" x-show="!n.hijos.length" style="width:2.5rem"></span>
+              <span class="min-w-0 truncate text-texto" x-text="n.nombre"></span>
+            </div>
+            {% call acciones() %}
+              {{ accion("agregar", texto="Agregar subcategoría", icono_nombre="mas", atributos='x-show="puedeCrear && n.nivel < nivelMaximo" @click="nuevaHija(n)"') }}
+              {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(n)"') }}
+              {{ accion("mover", texto="Mover", icono_nombre="chevron-derecha", atributos='x-show="puedeEditar" @click="abrirMover(n)"') }}
+              {{ accion("borrar", atributos='x-show="puedeEliminar" @click="eliminar(n)"') }}
+            {% endcall %}
+          </li>
+        </template>
+      </ul>
+    </div>
+  </template>
+
+  {# Modal de alta / edición: no se renderiza si el usuario no puede ni crear
+     ni editar (evita que su texto quede en el HTML de un usuario de solo consulta). #}
+  {% if puede_crear or puede_editar %}
+  {% call modal("Categoría", "modal-categoria-form", abierto="formAbierto", titulo_expr="form.id ? 'Editar categoría' : 'Nueva categoría'") %}
+  <form @submit.prevent="guardar()" class="flex flex-col gap-4" novalidate>
+    <p class="text-sm text-texto-muted" x-show="!form.id" x-text="caminoPadre"></p>
+    {{ campo("cat-nombre", "Nombre", modelo="form.nombre", requerido=True, error="errores.nombre", atributos='maxlength="150"') }}
+    {{ campo("cat-orden", "Orden", tipo="number", modelo="form.orden", error="errores.orden", atributos='min="0" max="32767" step="1"') }}
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario" :disabled="guardando"
+              x-text="guardando ? 'Guardando…' : (form.id ? 'Finalizar' : 'Crear')"></button>
+    </div>
+  </form>
+  {% endcall %}
+  {% endif %}
+
+  {# Modal para mover una rama a otro padre (o a raíz): solo con permiso de edición. #}
+  {% if puede_editar %}
+  {% call modal("Mover categoría", "modal-categoria-mover", abierto="moverAbierto") %}
+  <form @submit.prevent="mover()" class="flex flex-col gap-4" novalidate>
+    <p class="text-texto">Moviendo: <span class="font-semibold" x-text="moverNodo ? moverNodo.nombre : ''"></span></p>
+    <div class="flex flex-col gap-1">
+      <label for="cat-destino" class="text-lg font-medium text-texto">Destino</label>
+      <select id="cat-destino" class="campo" x-model="moverDestino">
+        <template x-for="d in destinosPosibles" :key="d.id === null ? 'raiz' : d.id">
+          <option :value="d.id === null ? '' : d.id" x-text="d.texto"></option>
+        </template>
+      </select>
+    </div>
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario" :disabled="moviendo" x-text="moviendo ? 'Moviendo…' : 'Mover'"></button>
+    </div>
+  </form>
+  {% endcall %}
+  {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/categorias.js') }}"></script>{% endblock %}
