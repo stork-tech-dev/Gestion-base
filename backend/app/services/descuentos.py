@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
-from app.core.utils import filtro_texto, normalizar_texto, redondear, redondear_hacia_abajo, sin_tildes, sin_tildes_sql
+from app.core.utils import filtro_texto, nombre_libre, normalizar_texto, redondear, redondear_hacia_abajo
 from app.models import MedioDePago, MotivoDescuento
 from app.services.configuracion import obtener_configuracion
 
@@ -94,16 +94,8 @@ def resolver_porcentaje(db, motivo_id: int, porcentaje) -> tuple[MotivoDescuento
 
 
 def _nombre_libre(db, nombre: str, excepto_id: int | None = None) -> str:
-    limpio = normalizar_texto(nombre)
-    if not limpio:
-        raise DatoInvalido("El nombre es obligatorio")
-    condiciones = [func.lower(sin_tildes_sql(MotivoDescuento.nombre)) == sin_tildes(limpio).lower()]
-    if excepto_id is not None:
-        condiciones.append(MotivoDescuento.id != excepto_id)
-    existente = db.scalar(select(MotivoDescuento).where(*condiciones))
-    if existente is not None:
-        raise ReglaDeNegocio(f"Ya existe el motivo '{existente.nombre}'")
-    return limpio
+    return nombre_libre(db, MotivoDescuento, nombre, excepto_id=excepto_id,
+                        mensaje_duplicado=lambda m: f"Ya existe el motivo '{m.nombre}'")
 
 
 def _validar_fechas(fecha_inicio, fecha_fin) -> None:

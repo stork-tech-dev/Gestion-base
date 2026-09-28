@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
-from app.core.utils import filtro_texto, normalizar_texto, redondear, sin_tildes, sin_tildes_sql
+from app.core.utils import filtro_texto, nombre_libre, redondear
 from app.models import MedioDePago, PlanCuotas
 
 
@@ -41,16 +41,8 @@ def medio_efectivo(db) -> MedioDePago:
 
 
 def _nombre_libre(db, nombre: str, excepto_id: int | None = None) -> str:
-    limpio = normalizar_texto(nombre)
-    if not limpio:
-        raise DatoInvalido("El nombre es obligatorio")
-    condiciones = [func.lower(sin_tildes_sql(MedioDePago.nombre)) == sin_tildes(limpio).lower()]
-    if excepto_id is not None:
-        condiciones.append(MedioDePago.id != excepto_id)
-    existente = db.scalar(select(MedioDePago).where(*condiciones))
-    if existente is not None:
-        raise ReglaDeNegocio(f"Ya existe un medio de pago llamado '{existente.nombre}'")
-    return limpio
+    return nombre_libre(db, MedioDePago, nombre, excepto_id=excepto_id,
+                        mensaje_duplicado=lambda m: f"Ya existe un medio de pago llamado '{m.nombre}'")
 
 
 def _validar_efectivo_sin_cuotas(es_efectivo: bool, soporta_cuotas: bool) -> None:
@@ -93,6 +85,11 @@ def editar_medio(db, autor, medio: MedioDePago, datos, ip) -> MedioDePago:
     _validar_efectivo_sin_cuotas(datos.es_efectivo, datos.soporta_cuotas)
     nombre = _nombre_libre(db, datos.nombre, excepto_id=medio.id)
     _validar_un_solo_efectivo(db, datos.es_efectivo, excepto_id=medio.id)
+    # Si se pudiera desmarcar, después cambiar_estado_medio ya no vería este
+    # medio como "el efectivo" y lo dejaría desactivar: el arqueo (módulo 07)
+    # se queda sin medio_efectivo(). Por eso se corta acá, no solo al desactivar.
+    if medio.es_efectivo and not datos.es_efectivo:
+        raise ReglaDeNegocio("El efectivo no se puede desmarcar: lo usa la caja")
     if medio.soporta_cuotas and not datos.soporta_cuotas and _planes_activos(db, medio.id):
         raise ReglaDeNegocio("Desactivá primero sus planes de cuotas")
     antes = snapshot(medio)

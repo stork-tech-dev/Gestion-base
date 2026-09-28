@@ -36,6 +36,19 @@ def test_efectivo_no_se_desactiva(db, crear_usuario):
         servicio.cambiar_estado_medio(db, admin, efectivo, False, None)
 
 
+def test_efectivo_no_se_puede_desmarcar(db, crear_usuario):
+    """Si se pudiera desmarcar es_efectivo, después cambiar_estado_medio ya no
+    lo vería como "el efectivo" y lo dejaría desactivar (bypass de
+    test_efectivo_no_se_desactiva): medio_efectivo() se quedaría sin medio
+    (lo usa el arqueo del módulo 07)."""
+    admin = crear_usuario("admin")
+    efectivo = servicio.medio_efectivo(db)
+    with pytest.raises(ReglaDeNegocio, match="desmarcar"):
+        servicio.editar_medio(db, admin, efectivo, MedioDePagoEditar(nombre="Efectivo", es_efectivo=False), None)
+    assert efectivo.es_efectivo is True
+    assert efectivo.nombre == "Efectivo"
+
+
 def test_desactivar_soporta_cuotas_con_planes_activos(db, crear_usuario):
     admin = crear_usuario("admin")
     medio = servicio.crear_medio(db, admin, MedioDePagoCrear(nombre="Tarjeta test", soporta_cuotas=True), None)
