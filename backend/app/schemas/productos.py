@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -115,3 +116,20 @@ class PrecioPreview(BaseModel):
     moneda: Moneda
     dolar_proveedor: Decimal | None
     precio_venta: Decimal
+
+
+class Similar(BaseModel):
+    id: int
+    sku: str
+    descripcion: str
+    activo: bool
+
+
+class ItemEtiqueta(BaseModel):
+    producto_id: int
+    cantidad: int = Field(ge=1, le=1000)
+
+
+class PedidoEtiquetas(BaseModel):
+    items: list[ItemEtiqueta] = Field(min_length=1, max_length=200)
+    tipo: Literal["rectangular", "colita"]
