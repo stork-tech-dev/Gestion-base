@@ -172,6 +172,11 @@ def editar_producto(db, autor, producto: Producto, datos, ip) -> Producto:
     # Mismo lock que en el alta (ver crear_producto), tomado ANTES de leer
     # nada: después se relee el producto por si un cambio de dólar que
     # terminó mientras se esperaba el lock le recalculó el precio.
+    if datos.categoria_id != producto.categoria_id:
+        # Mismo orden de locks que el alta (árbol → proveedor): si no, un alta,
+        # esta edición y una escritura de categorías pueden quedar esperando
+        # hasta que Postgres detecte el deadlock (deadlock_timeout).
+        servicio_categorias.bloquear_arbol(db, compartido=True)
     proveedor = obtener_proveedor(db, producto.proveedor_id, bloquear=True)
     db.refresh(producto)
     # Primero se valida todo; recién después se modifica el producto.
