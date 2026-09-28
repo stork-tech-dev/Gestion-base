@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Numeric, SmallInteger, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text, and_, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -60,6 +60,11 @@ class Producto(Base):
     )
     ubicacion_deposito: Mapped[str | None] = mapped_column(String(100))
     stock_infinito: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Desnormalizado a propósito (campo calculable desde movimientos_stock):
+    # se guarda para listar/filtrar/vender sin sumar el historial. SOLO lo
+    # escribe services.stock.aplicar_movimiento (bloquea la fila).
+    stock: Mapped[int] = mapped_column(Integer, default=0)
+    stock_minimo: Mapped[int] = mapped_column(Integer, default=0)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -90,6 +95,15 @@ class Producto(Base):
         if self.proveedor.moneda is Moneda.USD:
             return redondear(self.costo * self.proveedor.dolar_actual)
         return redondear(self.costo)
+
+    @property
+    def bajo_minimo(self) -> bool:
+        return self.stock_minimo > 0 and self.stock <= self.stock_minimo
+
+
+# Expresión SQLAlchemy equivalente a Producto.bajo_minimo, para usar en filtros
+# (WHERE) donde no hay una instancia Python sobre la que evaluar la propiedad.
+BAJO_MINIMO_SQL = and_(Producto.stock_minimo > 0, Producto.stock <= Producto.stock_minimo)
 
 
 class ProductoFoto(Base):
