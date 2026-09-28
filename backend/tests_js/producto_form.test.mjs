@@ -266,3 +266,41 @@ test('duplicadoExacto: en la edición el propio producto no cuenta', () => {
   c.similares.push({ id: 2, sku: 'SKU2', descripcion: 'remera lisa', activo: false });
   assert.equal(c.duplicadoExacto.id, 2);
 });
+
+// ---------- Stock inicial (módulo 05, Task 10) ----------
+
+test('cuerpo: el alta manda stock_inicial truncado (Math.trunc, ≥0); la edición no lo manda', () => {
+  const window = cargarComponente();
+  const c = crearComponente(window);
+  c.arbol = ARBOL;
+  c.elegidos = [1, 2, 3];  // Ropa > Remeras > Lisas (hoja): categoriaId válido
+  c.form.proveedor_id = 9;
+  c.form.descripcion = 'Producto nuevo';
+  c.form.costo = '100';
+  c.form.margen = '40';
+
+  c.form.stock_inicial = '7.9';
+  const cuerpoAlta = c.cuerpo();
+  assert.equal(cuerpoAlta.stock_inicial, 7);
+  assert.equal(cuerpoAlta.proveedor_id, 9);
+
+  // Edición: ni stock_inicial ni proveedor_id (no se editan).
+  c.form.id = 1;
+  const cuerpoEdicion = c.cuerpo();
+  assert.equal('stock_inicial' in cuerpoEdicion, false);
+  assert.equal('proveedor_id' in cuerpoEdicion, false);
+});
+
+test('cuerpo: stock_inicial negativo o inválido en el alta queda en 0', () => {
+  const window = cargarComponente();
+  const c = crearComponente(window);
+  c.arbol = ARBOL;
+  c.elegidos = [1, 2, 3];
+  c.form.proveedor_id = 9;
+
+  c.form.stock_inicial = '-5';
+  assert.equal(c.cuerpo().stock_inicial, 0);
+
+  c.form.stock_inicial = 'no-es-numero';
+  assert.equal(c.cuerpo().stock_inicial, 0);
+});

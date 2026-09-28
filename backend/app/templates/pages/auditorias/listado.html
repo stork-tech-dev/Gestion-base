@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/paginacion.html" import paginacion %}
+{% from "components/combobox.html" import combobox %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% from "components/modal.html" import modal %}
+{% block titulo %}Auditorías de Stock · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="auditoriasListado({ puedeAuditar: {{ puede_auditar|js }} })">
+  {% call encabezado("Auditorías de Stock", "/gestion-de-stock", "Gestión de Stock") %}
+    {% if puede_auditar %}
+    <div class="flex flex-col items-end gap-1">
+      <button type="button" class="boton boton-acento" :disabled="hayEnCurso" @click="abrirIniciar()">
+        {{ icono("mas", "w-4 h-4") }}<span>Iniciar conteo</span>
+      </button>
+      <p class="text-sm text-texto-muted" x-show="hayEnCurso" x-cloak>Ya hay un conteo en curso.</p>
+    </div>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="auditorías encontradas", buscar="cargar(1)") %}
+    <div class="flex flex-col gap-1">
+      <label for="filtro-estado" class="text-lg font-medium text-texto">Estado</label>
+      <select id="filtro-estado" class="campo" x-model="filtros.estado">
+        <option value="">Todos</option>
+        <option value="en_curso">En curso</option>
+        <option value="cerrada">Cerrada</option>
+      </select>
+    </div>
+    <div class="flex flex-col gap-1">
+      <label for="filtro-desde" class="text-lg font-medium text-texto">Desde</label>
+      <input id="filtro-desde" type="date" class="campo" x-model="filtros.desde">
+    </div>
+    <div class="flex flex-col gap-1">
+      <label for="filtro-hasta" class="text-lg font-medium text-texto">Hasta</label>
+      <input id="filtro-hasta" type="date" class="campo" x-model="filtros.hasta">
+    </div>
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Iniciada", "expr": "fechaHora(fila.fecha_inicio)"},
+    {"titulo": "Usuario", "expr": "fila.usuario_nombre"},
+    {"titulo": "Estado", "expr": "estadoTexto(fila)", "html": True},
+    {"titulo": "Ítems", "expr": "fila.cantidad_items", "clase": "text-right"},
+  ] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay auditorías con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("continuar", texto="Continuar", icono_nombre="editar", enlace=True, atributos=':href="`/auditorias-inventario/${fila.id}`" x-show="fila.estado === \'en_curso\'"') }}
+      {{ accion("ver", enlace=True, atributos=':href="`/auditorias-inventario/${fila.id}`" x-show="fila.estado === \'cerrada\'"') }}
+      {{ accion("pdf", texto="PDF", icono_nombre="reportes", atributos='@click="imprimirPdf(fila)"') }}
+      {{ accion("excel", texto="Excel", icono_nombre="descargar", enlace=True, atributos=':href="`/api/v1/auditorias-inventario/${fila.id}/xls`" target="_blank"') }}
+    {% endcall %}
+  {% endcall %}
+  {{ paginacion() }}
+
+  {# ---------- Iniciar conteo ---------- #}
+  {% call modal("Iniciar conteo", "modal-auditoria-iniciar", abierto="iniciarAbierto", ancho="max-w-md") %}
+  <template x-if="nuevoConteo">
+    <form @submit.prevent="iniciarConteo()" class="flex flex-col gap-4" novalidate>
+      {{ combobox("auditoria-categoria", "categoriasOpciones", "nuevoConteo.filtro_categoria_id", texto="texto", etiqueta="Categoría (opcional)", vacio="Todas las categorías") }}
+      <div class="flex flex-col gap-1">
+        <label for="auditoria-notas" class="text-lg font-medium text-texto">Notas</label>
+        <textarea id="auditoria-notas" rows="2" class="campo" x-model="nuevoConteo.notas"></textarea>
+      </div>
+      <div class="flex justify-end">
+        <button type="submit" class="boton boton-primario" :disabled="guardandoInicio" x-text="guardandoInicio ? 'Iniciando…' : 'Iniciar conteo'"></button>
+      </div>
+    </form>
+  </template>
+  {% endcall %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/auditorias.js') }}"></script>{% endblock %}

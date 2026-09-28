@@ -9,9 +9,11 @@
    configuración del servidor (no datos de usuario), por eso es seguro
    interpolarlos directo en atributos HTML como `max`.
    `puede_editar`: la foto inicial se sube con PRODUCTOS editar; sin ese
-   permiso el bloque no se muestra. `temporadas`: [(valor, texto)] de pages.py. #}
-{% macro producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas) -%}
-<div x-data="productoForm({ esAdmin: {{ es_admin|js }}, nivelMaximo: {{ nivel_maximo|js }}, margenDefault: {{ margen_default|js }}, descuentoMaximo: {{ descuento_maximo|js }} })"
+   permiso el bloque no se muestra. `puede_stock_inicial`: cargar stock
+   inicial es, en los hechos, un ingreso de stock (STOCK crear); sin ese
+   permiso el campo no se muestra. `temporadas`: [(valor, texto)] de pages.py. #}
+{% macro producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas, puede_stock_inicial) -%}
+<div x-data="productoForm({ esAdmin: {{ es_admin|js }}, nivelMaximo: {{ nivel_maximo|js }}, margenDefault: {{ margen_default|js }}, descuentoMaximo: {{ descuento_maximo|js }}, puedeStockInicial: {{ puede_stock_inicial|js }} })"
      @abrir-producto-form.window="abrir($event.detail.producto)">
   {% call modal("Producto", "modal-producto-form", abierto="abierto", titulo_expr="form.id ? 'Editar producto' : 'Nuevo producto'") %}
   <form @submit.prevent="guardar()" class="flex flex-col gap-6" novalidate>
@@ -105,6 +107,18 @@
     <div>
       {{ campo_booleano("pf-stock-infinito", "Stock infinito (no descuenta al vender)", "form.stock_infinito") }}
     </div>
+    {% endif %}
+
+    {% if puede_stock_inicial %}
+    {# Solo en el alta: la edición no toca el stock (eso lo maneja el módulo
+       de Stock). Sin STOCK crear el campo ni se manda al servidor (ver
+       puede_stock_inicial arriba): no se puede cargar. #}
+    <template x-if="!form.id && !form.stock_infinito">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {{ campo("pf-stock-inicial", "Stock inicial", tipo="number", modelo="form.stock_inicial", error="errores.stock_inicial",
+                 atributos='min="0" step="1" inputmode="numeric"') }}
+      </div>
+    </template>
     {% endif %}
 
     {% if puede_editar %}

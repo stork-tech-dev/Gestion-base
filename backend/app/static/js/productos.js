@@ -10,7 +10,7 @@
 
   const API = '/api/v1/productos';
 
-  const filtrosVacios = () => ({ busqueda: '', categoria_id: null, proveedor_id: null, temporada: '', activos: true });
+  const filtrosVacios = () => ({ busqueda: '', categoria_id: null, proveedor_id: null, temporada: '', activos: true, stock_cero: false });
 
   // Resultado de la búsqueda "vacía con el switch en Activos": se sugiere mirar los inactivos.
   function sugerirInactivos(filtros, total, cargando) {
@@ -43,6 +43,10 @@
       cantEtiquetas: 1,
       imprimiendo: false,
 
+      // ---------- "Stock 0" + desactivación masiva ----------
+      seleccionados: new Set(),
+      desactivando: false,
+
       init() {
         this.cargar();
         this._cargarCatalogos();
@@ -70,15 +74,7 @@
 
       // Lista plana del árbol (todos los niveles), con el camino completo como texto.
       get categoriasOpciones() {
-        const opciones = [];
-        const recorrer = (nodos) => {
-          for (const n of nodos || []) {
-            opciones.push({ id: n.id, texto: window.rutaCategoria(this.arbol, n.id) });
-            recorrer(n.hijos);
-          }
-        };
-        recorrer(this.arbol);
-        return opciones;
+        return window.categoriasOpciones(this.arbol);
       },
 
       filtrar() {
@@ -101,6 +97,7 @@
         if (this.filtros.proveedor_id) params.set('proveedor_id', this.filtros.proveedor_id);
         if (this.filtros.temporada) params.set('temporada', this.filtros.temporada);
         params.set('activo', this.filtros.activos ? 'true' : 'false');
+        if (this.filtros.stock_cero) params.set('stock_cero', 'true');
         try {
           const respuesta = await this._ultima(window.pedir(`${API}?${params}`));
           if (respuesta === undefined) return;  // llegó un pedido más nuevo
@@ -134,6 +131,77 @@
 
       temporadaTexto(t) {
         return TEXTO_TEMPORADA[t] || t;
+      },
+
+      // stockHtml: window.stockHtml (app.js) — misma celda que /stock.
+
+      // ---------- "Stock 0" + desactivación masiva ----------
+
+      alternarStockCero() {
+        // Cambiar el filtro invalida la selección: puede referirse a productos
+        // que ya no están en esta vista (otra página, otros filtros).
+        this.seleccionados = new Set();
+        this.cargar(1);
+      },
+
+      checkboxHtml(p) {
+        const marcado = this.seleccionados.has(p.id) ? 'checked' : '';
+        return `<label class="flex min-h-toque items-center justify-center"><input type="checkbox" class="h-5 w-5" data-producto-id="${p.id}" ${marcado} aria-label="Seleccionar ${window.escaparHtml(p.descripcion)}"></label>`;
+      },
+
+      // Delegado: los checkboxes de la tabla se arman como HTML (x-html), así
+      // que no tienen x-model propio; el click burbujea hasta acá.
+      alternarSeleccionClick(evento) {
+        const casilla = evento.target.closest('input[type="checkbox"][data-producto-id]');
+        if (!casilla) return;
+        const id = Number(casilla.dataset.productoId);
+        if (casilla.checked) this.seleccionados.add(id);
+        else this.seleccionados.delete(id);
+        this.seleccionados = new Set(this.seleccionados);  // fuerza la reactividad
+      },
+
+      get todosSeleccionadosDeLaPagina() {
+        return this.filas.length > 0 && this.filas.every((f) => this.seleccionados.has(f.id));
+      },
+
+      alternarTodos(marcar) {
+        const seleccionados = new Set(this.seleccionados);
+        for (const f of this.filas) {
+          if (marcar) seleccionados.add(f.id);
+          else seleccionados.delete(f.id);
+        }
+        this.seleccionados = seleccionados;
+      },
+
+      async desactivarSeleccionados() {
+        const ids = [...this.seleccionados];
+        if (!ids.length) return;
+        const ok = await window.confirmar({
+          titulo: `¿Desactivar ${ids.length} producto${ids.length === 1 ? '' : 's'}?`,
+          mensaje: 'No van a estar disponibles para la venta.',
+          textoConfirmar: 'Desactivar',
+          peligro: true,
+        });
+        if (!ok) return;
+        this.desactivando = true;
+        let exitos = 0;
+        const fallidos = [];
+        // En serie (no Promise.all): cada PATCH es una auditoría propia;
+        // en paralelo se pierde el orden y es más difícil leer qué falló.
+        for (const id of ids) {
+          try {
+            await window.pedir(`${API}/${id}/estado`, { method: 'PATCH', body: { activo: false } });
+            exitos++;
+          } catch (e) {
+            const fila = this.filas.find((f) => f.id === id);
+            fallidos.push(fila ? fila.descripcion : `#${id}`);
+          }
+        }
+        this.desactivando = false;
+        this.seleccionados = new Set();
+        if (exitos) window.toast(`${exitos} producto${exitos === 1 ? '' : 's'} desactivado${exitos === 1 ? '' : 's'}.`);
+        if (fallidos.length) window.toast(`No se pudo desactivar: ${fallidos.join(', ')}.`, 'error');
+        this.cargar(this.pagina);
       },
 
       // ---------- Ficha ----------
@@ -244,39 +312,18 @@
 
       // ---------- Etiquetas ----------
 
-      // El PDF viaja como blob: `pedir` asume JSON, así que se usa fetch directo.
-      // La ventana se abre en el MISMO click, antes del fetch: abierta después
-      // de un await, el navegador la toma como emergente y la bloquea.
+      // window.abrirPdf (app.js): abre la ventana en el MISMO click (antes
+      // del fetch, si no el navegador la bloquea) y ahí muestra el blob.
       async imprimir(tipo) {
         if (!this.ficha) return;
         const cantidad = Math.max(1, Math.trunc(Number(this.cantEtiquetas)) || 1);
-        const ventana = window.open('', '_blank');
-        if (!ventana) {
-          window.toast('El navegador bloqueó la ventana; habilitá las ventanas emergentes.', 'error');
-          return;
-        }
         this.imprimiendo = true;
-        try {
-          const respuesta = await fetch(`${API}/etiquetas`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/pdf' },
-            body: JSON.stringify({ items: [{ producto_id: this.ficha.id, cantidad }], tipo }),
-          });
-          if (!respuesta.ok) {
-            let datos = null;
-            try { datos = await respuesta.json(); } catch (e) { /* no era JSON */ }
-            throw new Error(window.mensajeDeError(datos, respuesta.status));
-          }
-          const url = URL.createObjectURL(await respuesta.blob());
-          ventana.location = url;
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
-        } catch (e) {
-          ventana.close();
-          window.toast(e.message, 'error');
-        } finally {
-          this.imprimiendo = false;
-        }
+        await window.abrirPdf(`${API}/etiquetas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: [{ producto_id: this.ficha.id, cantidad }], tipo }),
+        });
+        this.imprimiendo = false;
       },
     };
   };

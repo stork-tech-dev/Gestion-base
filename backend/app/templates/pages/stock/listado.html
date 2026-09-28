@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/paginacion.html" import paginacion %}
+{% from "components/combobox.html" import combobox %}
+{% from "components/switch_activos.html" import switch_base %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% block titulo %}Stock · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="stockListado({ puedeIngresar: {{ puede_ingresar|js }}, puedeMinimos: {{ puede_minimos|js }}, puedeBaja: {{ puede_baja|js }} })">
+  {% call encabezado("Stock", "/gestion-de-stock", "Gestión de Stock") %}
+    {% if puede_motivos %}
+    <a href="/motivos-baja" class="boton boton-secundario">Motivos de baja</a>
+    {% endif %}
+  {% endcall %}
+
+  {# Números de /stock/resumen: 2 columnas en mobile, 4 desde lg. #}
+  <div class="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div class="tarjeta">
+      <p class="text-sm text-texto-muted">Productos con stock</p>
+      <p class="mt-1 text-2xl font-bold text-texto-header" x-text="resumen.productos_con_stock"></p>
+    </div>
+    <div class="tarjeta">
+      <p class="text-sm text-texto-muted">Unidades</p>
+      <p class="mt-1 text-2xl font-bold text-texto-header" x-text="resumen.unidades"></p>
+    </div>
+    <div class="tarjeta">
+      <p class="text-sm text-texto-muted">Valorizado</p>
+      <p class="mt-1 text-2xl font-bold text-texto-header" x-text="'$ ' + pesos(resumen.valorizado)"></p>
+    </div>
+    <div class="tarjeta">
+      <p class="text-sm text-texto-muted">Bajo mínimo</p>
+      <p class="mt-1 text-2xl font-bold text-danger" x-text="resumen.bajo_minimo"></p>
+    </div>
+  </div>
+
+  {% call barra_filtros(etiqueta="productos encontrados", extras=switch_base("filtros.solo_bajo_minimo", "cargar(1)", "switch-bajo-minimo", "Solo bajo mínimo")) %}
+    <input type="search" class="campo" placeholder="Código, SKU o descripción" aria-label="Buscar por código, SKU o descripción" x-model="filtros.busqueda" @input="filtrar()">
+    {{ combobox("filtro-categoria", "categoriasOpciones", "filtros.categoria_id", texto="texto", vacio="Categoría (todas)", al_cambiar="cargar(1)") }}
+    {{ combobox("filtro-proveedor", "proveedores", "filtros.proveedor_id", texto="nombre", vacio="Proveedor (todos)", al_cambiar="cargar(1)") }}
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Código", "expr": "fila.codigo"},
+    {"titulo": "Foto", "expr": "fotoHtml(fila)", "html": True},
+    {"titulo": "Descripción", "expr": "fila.descripcion"},
+    {"titulo": "Stock", "expr": "stockHtml(fila)", "html": True, "clase": "text-right"},
+    {"titulo": "Mínimo", "expr": "minimoHtml(fila)", "html": True, "clase": "text-right"},
+  ] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay productos con esos filtros.", clave="producto_id") %}
+    {% call acciones() %}
+      {{ accion("ingreso", texto="Ingreso", icono_nombre="mas", atributos='x-show="puedeIngresar && !fila.stock_infinito" @click="abrirIngreso(fila)"') }}
+      {{ accion("minimo", texto="Mínimo", icono_nombre="editar", atributos='x-show="puedeMinimos && !fila.stock_infinito" @click="abrirMinimo(fila)"') }}
+      {{ accion("borrar", texto="Baja", atributos='x-show="puedeBaja && !fila.stock_infinito" @click="abrirBaja(fila)"') }}
+      {{ accion("movimientos", texto="Movimientos", icono_nombre="reportes", atributos='@click="abrirMovimientos(fila)"') }}
+    {% endcall %}
+  {% endcall %}
+  {{ paginacion() }}
+
+  {# ---------- Ingreso ---------- #}
+  {% call modal("Ingreso de stock", "modal-stock-ingreso", abierto="ingresoAbierto", ancho="max-w-md") %}
+  <template x-if="ingreso">
+    <form @submit.prevent="guardarIngreso()" class="flex flex-col gap-4" novalidate>
+      <p class="text-texto" x-text="ingreso.producto.descripcion"></p>
+      {{ campo("stock-ingreso-cantidad", "Cantidad", tipo="number", modelo="ingreso.cantidad", requerido=True, atributos='min="1" step="1" inputmode="numeric"') }}
+      <div class="flex flex-col gap-1">
+        <label for="stock-ingreso-notas" class="text-lg font-medium text-texto">Nota</label>
+        <textarea id="stock-ingreso-notas" rows="2" class="campo" x-model="ingreso.notas"></textarea>
+      </div>
+      <div class="flex justify-end">
+        <button type="submit" class="boton boton-primario" :disabled="guardandoIngreso" x-text="guardandoIngreso ? 'Guardando…' : 'Confirmar ingreso'"></button>
+      </div>
+    </form>
+  </template>
+  {% endcall %}
+
+  {# ---------- Mínimo ---------- #}
+  {% call modal("Mínimo de reposición", "modal-stock-minimo", abierto="minimoAbierto", ancho="max-w-md") %}
+  <template x-if="minimo">
+    <form @submit.prevent="guardarMinimo()" class="flex flex-col gap-4" novalidate>
+      <p class="text-texto" x-text="minimo.producto.descripcion"></p>
+      {{ campo("stock-minimo-valor", "Mínimo de reposición", tipo="number", modelo="minimo.stock_minimo", requerido=True, atributos='min="0" step="1" inputmode="numeric"') }}
+      <div class="flex justify-end">
+        <button type="submit" class="boton boton-primario" :disabled="guardandoMinimo" x-text="guardandoMinimo ? 'Guardando…' : 'Guardar'"></button>
+      </div>
+    </form>
+  </template>
+  {% endcall %}
+
+  {# ---------- Baja ---------- #}
+  {% call modal("Baja de stock", "modal-stock-baja", abierto="bajaAbierta", ancho="max-w-md") %}
+  <template x-if="baja">
+    <form @submit.prevent="guardarBaja()" class="flex flex-col gap-4" novalidate>
+      <p class="text-texto" x-text="baja.producto.descripcion"></p>
+      {{ campo("stock-baja-cantidad", "Cantidad", tipo="number", modelo="baja.cantidad", requerido=True, atributos='min="1" step="1" inputmode="numeric"') }}
+      <div class="flex flex-col gap-1">
+        <label for="stock-baja-motivo" class="text-lg font-medium text-texto">Motivo <span class="text-danger">*</span></label>
+        <select id="stock-baja-motivo" class="campo" x-model="baja.motivo_baja_id" required>
+          <option value="">Elegí un motivo</option>
+          <template x-for="m in motivos" :key="m.id">
+            <option :value="m.id" x-text="m.nombre"></option>
+          </template>
+        </select>
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="stock-baja-notas" class="text-lg font-medium text-texto">Qué pasó</label>
+        <textarea id="stock-baja-notas" rows="2" class="campo" x-model="baja.notas"></textarea>
+      </div>
+      <div class="flex justify-end">
+        <button type="submit" class="boton boton-primario" :disabled="guardandoBaja" x-text="guardandoBaja ? 'Guardando…' : 'Confirmar baja'"></button>
+      </div>
+    </form>
+  </template>
+  {% endcall %}
+
+  {# ---------- Movimientos ---------- #}
+  {% call modal("Movimientos de stock", "modal-stock-movimientos", abierto="movimientosAbierto", ancho="max-w-3xl", titulo_expr="movimientosProducto ? 'Movimientos de ' + movimientosProducto.descripcion : 'Movimientos de stock'") %}
+  <template x-if="movimientosProducto">
+    <div>
+      {% set columnas_movimientos = [
+        {"titulo": "Fecha", "expr": "fechaHora(fila.timestamp)"},
+        {"titulo": "Tipo", "expr": "tipoTexto(fila.tipo)"},
+        {"titulo": "Cantidad", "expr": "cantidadTexto(fila)", "clase": "text-right"},
+        {"titulo": "Stock resultante", "expr": "fila.stock_resultante", "clase": "text-right"},
+        {"titulo": "Usuario", "expr": "fila.usuario_nombre"},
+        {"titulo": "Nota", "expr": "fila.notas || '—'"},
+      ] %}
+      {{ tabla(columnas_movimientos, filas="movimientosFilas", cargando="movimientosCargando", vacio="Sin movimientos.") }}
+      {{ paginacion(pagina="movimientosPagina", total="movimientosTotal", tamano="10", al_cambiar="cargarMovimientos()") }}
+    </div>
+  </template>
+  {% endcall %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/stock.js') }}"></script>{% endblock %}

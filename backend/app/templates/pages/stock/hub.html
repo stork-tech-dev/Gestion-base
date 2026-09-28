@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/hub.html" import hub %}
+{% block titulo %}Gestión de Stock · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{{ encabezado("Gestión de Stock") }}
+{{ hub(secciones) }}
+{% endblock %}

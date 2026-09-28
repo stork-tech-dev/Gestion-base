@@ -69,6 +69,7 @@
       temporada: 'atemporal',
       ubicacion_deposito: '',
       stock_infinito: false,
+      stock_inicial: '0',
     };
   }
 
@@ -99,12 +100,13 @@
 
   // ---------- Componente Alpine ----------
 
-  window.productoForm = function ({ esAdmin, nivelMaximo, margenDefault, descuentoMaximo }) {
+  window.productoForm = function ({ esAdmin, nivelMaximo, margenDefault, descuentoMaximo, puedeStockInicial }) {
     return {
       esAdmin,
       nivelMaximo,
       margenDefault,
       descuentoMaximo,
+      puedeStockInicial,
 
       abierto: false,
       form: formVacio(margenDefault),
@@ -327,7 +329,10 @@
           ubicacion_deposito: (this.form.ubicacion_deposito || '').trim() || null,
           stock_infinito: !!this.form.stock_infinito,
         };
-        if (!this.form.id) cuerpo.proveedor_id = this.form.proveedor_id;
+        if (!this.form.id) {
+          cuerpo.proveedor_id = this.form.proveedor_id;
+          cuerpo.stock_inicial = stockEntero(this.form.stock_inicial);
+        }
         return cuerpo;
       },
 

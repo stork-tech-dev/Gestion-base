@@ -15,6 +15,7 @@ from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
 from app.models import NIVEL_MAXIMO, TemporadaProducto, Usuario
+from app.services import auditoria_inventario as servicio_auditorias
 from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
 from app.services import usuarios as servicio_usuarios
@@ -55,12 +56,32 @@ TEMPORADAS = [
     (TemporadaProducto.PRIMAVERA_VERANO.value, "Primavera-Verano"),
 ]
 
+# Ítem del sidebar del módulo de stock: hub "Gestión de Stock".
+PAGINA_STOCK_HUB = {"nombre": "Gestión de Stock", "url": "/gestion-de-stock", "icono": "stock", "modulo": Modulo.STOCK}
+# Tarjetas del hub de stock (solo piden STOCK ver; qué se puede hacer adentro
+# de cada pantalla lo resuelven los flags puntuales de _contexto_stock).
+SECCION_STOCK = {
+    "nombre": "Stock", "descripcion": "Lo que hay de cada producto, ingresos, mínimos y bajas",
+    "url": "/stock", "modulo": Modulo.STOCK,
+}
+SECCION_AUDITORIAS = {
+    "nombre": "Auditorías de Stock", "descripcion": "Conteos de inventario y sus diferencias",
+    "url": "/auditorias-inventario", "modulo": Modulo.STOCK,
+}
+SECCIONES_STOCK: list[dict] = [SECCION_STOCK, SECCION_AUDITORIAS]
+# Página propia sin tarjeta en el hub: se entra desde el listado de stock.
+PAGINA_MOTIVOS_BAJA = {
+    "nombre": "Motivos de baja", "url": "/motivos-baja",
+    "modulo": Modulo.STOCK, "accion": "editar", "recurso": Recurso.STOCK_MOTIVOS_BAJA,
+}
+
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
 # hub_configuracion / modulo (+ accion, recurso). Cada módulo suma su ítem
 # ANTES de "Configuraciones".
 MENU_SIDEBAR: list[dict] = [
     {"nombre": "Inicio", "url": "/", "icono": "inicio"},
     PAGINA_PRODUCTOS,
+    PAGINA_STOCK_HUB,
     {"nombre": "Configuraciones", "url": "/configuracion", "icono": "configuracion", "hub_configuracion": True},
     # Sin pantalla HTML de auditoría: el ítem existe pero está oculto.
     {"nombre": "Auditoría", "url": "/auditoria", "icono": "auditoria", "oculto": True},
@@ -165,12 +186,31 @@ def requiere_pagina(item: dict, actual: str = "/configuracion"):
     return dependencia
 
 
-def _o_no_encontrado(request: Request, db: Session, usuario: Usuario, funcion, *args):
-    """Llama a un obtener_* del servicio; si levanta NoEncontrado, página 404 HTML."""
+def _contexto_stock(request: Request, db: Session, usuario: Usuario, **extra) -> dict:
+    """Contexto común a las páginas del módulo de stock: mismos permisos
+    puntuales que exige la API (app/api/v1/stock.py), para mostrar/ocultar
+    acciones sin depender de que el backend las rechace. `actual` siempre
+    apunta al hub: todas las pantallas del módulo resaltan "Gestión de Stock"
+    en el sidebar."""
+    return contexto_base(
+        request, db, "/gestion-de-stock", usuario,
+        puede_ingresar=resolver_permiso(db, usuario.id, Modulo.STOCK, "crear"),
+        puede_minimos=resolver_permiso(db, usuario.id, Modulo.STOCK, "editar"),
+        puede_baja=resolver_permiso(db, usuario.id, Modulo.STOCK, "crear", Recurso.STOCK_BAJA),
+        puede_motivos=resolver_permiso(db, usuario.id, Modulo.STOCK, "editar", Recurso.STOCK_MOTIVOS_BAJA),
+        puede_auditar=resolver_permiso(db, usuario.id, Modulo.STOCK, "crear", Recurso.STOCK_AUDITORIA),
+        **extra,
+    )
+
+
+def _o_no_encontrado(request: Request, db: Session, usuario: Usuario, funcion, *args, actual: str = "/configuracion"):
+    """Llama a un obtener_* del servicio; si levanta NoEncontrado, página 404
+    HTML. `actual`: qué ítem del sidebar queda resaltado (por defecto,
+    Configuraciones; las pantallas de otros módulos pasan el suyo)."""
     try:
         return funcion(db, *args)
     except NoEncontrado:
-        raise PaginaNoEncontrada(contexto_base(request, db, "/configuracion", usuario))
+        raise PaginaNoEncontrada(contexto_base(request, db, actual, usuario))
 
 
 def _pagina(request: Request, plantilla: str, contexto: dict):
@@ -248,6 +288,11 @@ def productos(request: Request, db: Session = Depends(get_db),
         request, db, "/productos", usuario,
         puede_crear=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "crear"),
         puede_editar=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "editar"),
+        # Gatea el link "Ver en Stock" de la ficha: sin STOCK ver, /stock da 403.
+        puede_ver_stock=resolver_permiso(db, usuario.id, Modulo.STOCK, "ver"),
+        # Gatea el campo "Stock inicial" del alta: cargarlo es, en los
+        # hechos, un ingreso de stock (mismo permiso que services.stock).
+        puede_stock_inicial=resolver_permiso(db, usuario.id, Modulo.STOCK, "crear"),
         nivel_maximo=NIVEL_MAXIMO, margen_default=str(config.margen_default),
         descuento_maximo=str(config.descuento_maximo), temporadas=TEMPORADAS,
     ))
@@ -263,6 +308,48 @@ def categorias(request: Request, db: Session = Depends(get_db),
         puede_eliminar=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "eliminar"),
         nivel_maximo=NIVEL_MAXIMO,
     ))
+
+
+@router.get("/gestion-de-stock")
+def gestion_de_stock(request: Request, db: Session = Depends(get_db),
+                     usuario: Usuario = Depends(requiere_pagina(PAGINA_STOCK_HUB, actual="/gestion-de-stock"))):
+    secciones = menu_visible(SECCIONES_STOCK, usuario, db)
+    return _pagina(request, "pages/stock/hub.html", _contexto_stock(request, db, usuario, secciones=secciones))
+
+
+@router.get("/stock")
+def stock(request: Request, db: Session = Depends(get_db),
+         usuario: Usuario = Depends(requiere_pagina(SECCION_STOCK, actual="/gestion-de-stock"))):
+    return _pagina(request, "pages/stock/listado.html", _contexto_stock(request, db, usuario))
+
+
+@router.get("/motivos-baja")
+def motivos_baja(request: Request, db: Session = Depends(get_db),
+                 usuario: Usuario = Depends(requiere_pagina(PAGINA_MOTIVOS_BAJA, actual="/gestion-de-stock"))):
+    # PAGINA_MOTIVOS_BAJA solo exige el recurso puntual (STOCK editar sobre
+    # stock.motivos_baja): a diferencia del cambio masivo del dólar, acá
+    # además hace falta poder VER stock (es una pantalla de stock, no una
+    # herramienta aislada), así que se chequea a mano.
+    if not resolver_permiso(db, usuario.id, Modulo.STOCK, "ver"):
+        raise PaginaSinPermiso(contexto_base(request, db, "/gestion-de-stock", usuario))
+    return _pagina(request, "pages/motivos_baja/listado.html", contexto_base(
+        request, db, "/gestion-de-stock", usuario,
+    ))
+
+
+@router.get("/auditorias-inventario")
+def auditorias_inventario(request: Request, db: Session = Depends(get_db),
+                          usuario: Usuario = Depends(requiere_pagina(SECCION_AUDITORIAS, actual="/gestion-de-stock"))):
+    return _pagina(request, "pages/auditorias/listado.html", _contexto_stock(request, db, usuario))
+
+
+@router.get("/auditorias-inventario/{auditoria_id}")
+def auditoria_conteo(auditoria_id: int, request: Request, db: Session = Depends(get_db),
+                     usuario: Usuario = Depends(requiere_pagina(SECCION_AUDITORIAS, actual="/gestion-de-stock"))):
+    _o_no_encontrado(request, db, usuario, servicio_auditorias.obtener_auditoria, auditoria_id,
+                     actual="/gestion-de-stock")
+    return _pagina(request, "pages/auditorias/conteo.html",
+                   _contexto_stock(request, db, usuario, auditoria_id=auditoria_id))
 
 
 @router.get("/usuarios")

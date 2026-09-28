@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 15mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 10pt; color: #111; }
+  h1 { font-size: 16pt; margin-bottom: 6mm; }
+  .datos { margin-bottom: 6mm; }
+  .datos div { margin-bottom: 1mm; }
+  .datos .etiqueta { color: #555; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 0.3mm solid #ccc; padding: 1.5mm 2mm; text-align: left; font-size: 9pt; }
+  th { background: #f0f0f0; }
+  td.numero, th.numero { text-align: right; }
+  tr.con-diferencia td { font-weight: bold; }
+</style>
+</head>
+<body>
+  <h1>Conteo de inventario #{{ auditoria.id }}</h1>
+  <div class="datos">
+    <div><span class="etiqueta">Fecha de inicio:</span> {{ auditoria.fecha_inicio.strftime("%d/%m/%Y %H:%M") }}</div>
+    {% if auditoria.fecha_fin %}
+    <div><span class="etiqueta">Fecha de cierre:</span> {{ auditoria.fecha_fin.strftime("%d/%m/%Y %H:%M") }}</div>
+    {% endif %}
+    <div><span class="etiqueta">Usuario:</span> {{ auditoria.usuario.nombre }}</div>
+    <div><span class="etiqueta">Estado:</span> {{ "Cerrada" if auditoria.estado.value == "cerrada" else "En curso" }}</div>
+    {% if auditoria.notas %}
+    <div><span class="etiqueta">Notas:</span> {{ auditoria.notas }}</div>
+    {% endif %}
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>Código</th>
+        <th>Descripción</th>
+        <th class="numero">Sistema</th>
+        <th class="numero">Contado</th>
+        <th class="numero">Diferencia</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in auditoria.items %}
+      <tr {% if item.diferencia != 0 %}class="con-diferencia"{% endif %}>
+        <td>{{ item.producto.codigo_con_verificador }}</td>
+        <td>{{ item.producto.descripcion }}</td>
+        <td class="numero">{{ item.cantidad_sistema }}</td>
+        <td class="numero">{{ item.cantidad_contada }}</td>
+        <td class="numero">{{ item.diferencia }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>

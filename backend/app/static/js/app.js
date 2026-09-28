@@ -118,9 +118,64 @@
     return nombres.join(separador);
   };
 
+  /** Lista plana de un árbol de categorías [{id, texto}], con el camino
+      completo como texto ("Ropa > Remeras > Lisas"): la usan los filtros y
+      combos de categoría de productos, stock y auditorías de inventario. */
+  window.categoriasOpciones = function (arbol) {
+    const opciones = [];
+    const recorrer = (nodos) => {
+      for (const n of nodos || []) {
+        opciones.push({ id: n.id, texto: window.rutaCategoria(arbol, n.id) });
+        recorrer(n.hijos);
+      }
+    };
+    recorrer(arbol);
+    return opciones;
+  };
+
   // ---------- HTML seguro y estados ----------
   const ENTIDADES_HTML = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   window.escaparHtml = (texto) => String(texto ?? '').replace(/[&<>"']/g, (c) => ENTIDADES_HTML[c]);
+
+  /** Celda de stock de un producto (columna "Stock" de /productos y /stock):
+      ∞ si es infinito, negativo en rojo, "Bajo mínimo" si corresponde. */
+  window.stockHtml = function (p) {
+    if (p.stock_infinito) return '<span class="text-texto-muted">∞</span>';
+    const clase = p.stock < 0 ? 'font-semibold text-danger' : '';
+    const bajo = p.bajo_minimo ? ' <span class="font-semibold text-danger">Bajo mínimo</span>' : '';
+    return `<span class="${clase}">${p.stock}</span>${bajo}`;
+  };
+
+  /** Abre una ventana (sincrónica, ANTES del fetch: si no, el navegador la
+      toma como emergente y la bloquea), pide un PDF como blob y lo muestra
+      ahí. `opciones` son las de fetch (method, headers, body); Accept y
+      credentials se completan solos. La usan etiquetas de productos y los
+      PDF de auditorías de inventario. */
+  window.abrirPdf = async function (url, opciones = {}) {
+    const ventana = window.open('', '_blank');
+    if (!ventana) {
+      window.toast('El navegador bloqueó la ventana; habilitá las ventanas emergentes.', 'error');
+      return;
+    }
+    try {
+      const respuesta = await fetch(url, {
+        credentials: 'same-origin',
+        ...opciones,
+        headers: { Accept: 'application/pdf', ...(opciones.headers || {}) },
+      });
+      if (!respuesta.ok) {
+        let datos = null;
+        try { datos = await respuesta.json(); } catch (e) { /* no era JSON */ }
+        throw new Error(mensajeDeError(datos, respuesta.status));
+      }
+      const blobUrl = URL.createObjectURL(await respuesta.blob());
+      ventana.location = blobUrl;
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch (e) {
+      ventana.close();
+      window.toast(e.message, 'error');
+    }
+  };
 
   // Mismas clases que estado_texto() de components/badge.html (celdas x-html de tablas).
   const CLASES_ESTADO = { exito: 'text-success', peligro: 'text-danger', primario: 'text-primary', neutro: 'text-texto-muted' };
