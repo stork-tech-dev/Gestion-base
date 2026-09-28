@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/switch_estado.html" import switch_estado %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% block titulo %}Motivos de baja · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="motivosBaja()">
+  {% call encabezado("Motivos de baja", "/stock", "Stock") %}
+    <button type="button" class="boton boton-acento" @click="nuevo()">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="motivos encontrados", extras=switch_estado(modelo="filtros.activos", al_cambiar="cargar()")) %}
+    <input type="search" class="campo" placeholder="Nombre" aria-label="Filtrar por nombre" x-model="filtros.nombre" @input="filtrar()">
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Nombre", "expr": "fila.nombre"},
+    {"titulo": "Estado", "expr": "celdaEstado(fila)", "html": True},
+  ] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay motivos de baja con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("editar", atributos='@click="editar(fila)"') }}
+      {{ accion("borrar", texto="Desactivar", atributos='x-show="fila.activo" @click="cambiarEstado(fila)"') }}
+      {{ accion("activar", atributos='x-show="!fila.activo" @click="cambiarEstado(fila)"') }}
+    {% endcall %}
+  {% endcall %}
+
+  {% call modal("Motivo de baja", "modal-motivo-form", abierto="formAbierto", titulo_expr="form.id ? 'Editar motivo de baja' : 'Nuevo motivo de baja'", ancho="max-w-md") %}
+  <form @submit.prevent="guardar()" class="flex flex-col gap-4" novalidate>
+    {{ campo("motivo-nombre", "Nombre", modelo="form.nombre", requerido=True, placeholder="Rotura", error="errores.nombre") }}
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario" :disabled="guardando" x-text="guardando ? 'Guardando…' : (form.id ? 'Guardar' : 'Crear')"></button>
+    </div>
+  </form>
+  {% endcall %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/motivos_baja.js') }}"></script>{% endblock %}
