@@ -1,4 +1,4 @@
-"""Esquemas de stock: ingresos, mínimos y las respuestas de listado/movimientos."""
+"""Esquemas de stock: ingresos, mínimos, motivos y bajas, y las respuestas de listado/movimientos."""
 from datetime import datetime
 from decimal import Decimal
 
@@ -15,6 +15,32 @@ class IngresoCrear(BaseModel):
 
 class MinimoEditar(BaseModel):
     stock_minimo: int = Field(ge=0, le=1_000_000)
+
+
+class MotivoBajaCrear(BaseModel):
+    nombre: str = Field(min_length=1, max_length=100)
+
+
+class MotivoBajaEditar(BaseModel):
+    nombre: str = Field(min_length=1, max_length=100)
+    activo: bool
+
+
+class MotivoBajaResponse(BaseModel):
+    id: int
+    nombre: str
+    activo: bool
+
+    @classmethod
+    def desde(cls, motivo) -> "MotivoBajaResponse":
+        return cls(id=motivo.id, nombre=motivo.nombre, activo=motivo.activo)
+
+
+class BajaCrear(BaseModel):
+    producto_id: int
+    cantidad: int = Field(ge=1, le=1_000_000)
+    motivo_baja_id: int
+    notas: str | None = Field(default=None, max_length=500)
 
 
 class StockResponse(BaseModel):
