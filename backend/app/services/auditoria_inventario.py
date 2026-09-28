@@ -148,6 +148,8 @@ def eliminar_item(db, autor, auditoria: AuditoriaInventario, item_id: int, ip) -
     antes = snapshot(item)
     db.delete(item)
     db.flush()
+    # Igual que registrar_items: quien tenga esta instancia (el router) no ve el ítem borrado.
+    db.refresh(auditoria, attribute_names=["items"])
     registrar_auditoria(db, accion="auditoria_inventario.item_eliminar", entidad="auditoria_item", entidad_id=item_id,
                         usuario_id=autor.id, estado_anterior=antes, ip_origen=ip)
 

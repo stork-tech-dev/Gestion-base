@@ -89,8 +89,8 @@ def test_registrar_items_de_nuevo_sobreescribe_y_recaptura_sistema(db, base):
     item = items[0]
     assert item.cantidad_sistema == 15 and item.cantidad_contada == 12 and item.diferencia == -3
     # Sigue habiendo un solo ítem para ese producto (upsert, no duplicado).
-    total_items = db.scalar(select(servicio.AuditoriaItem).where(servicio.AuditoriaItem.auditoria_id == auditoria.id))
-    assert total_items is not None
+    total_items = db.scalars(select(servicio.AuditoriaItem).where(servicio.AuditoriaItem.auditoria_id == auditoria.id)).all()
+    assert len(total_items) == 1
 
 
 def test_registrar_items_producto_infinito(db, base):
@@ -147,8 +147,10 @@ def test_eliminar_item_solo_en_curso(db, base):
     auditoria = servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
     items = servicio.registrar_items(db, base["admin"], auditoria, [ItemContado(producto_id=p.id, cantidad_contada=3)], None)
     item_id = items[0].id
+    assert [i.id for i in auditoria.items] == [item_id]          # colección ya cargada
     servicio.eliminar_item(db, base["admin"], auditoria, item_id, None)
     assert db.get(servicio.AuditoriaItem, item_id) is None
+    assert auditoria.items == []                                 # la misma instancia ya no lo muestra
 
 
 def test_eliminar_item_de_otra_auditoria_da_404(db, base):
