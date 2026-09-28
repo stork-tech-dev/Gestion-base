@@ -22,10 +22,12 @@ from app.schemas.productos import (
     ProductoEditar,
     ProductoEstado,
     ProductoResponse,
+    ProveedorParaProducto,
     Similar,
 )
 from app.services import producto_fotos
 from app.services import productos as servicio
+from app.services import proveedores as servicio_proveedores
 from app.services.producto_fotos import TAMANO_MAXIMO_FOTO
 from app.services.productos import TAMANO_MAXIMO
 
@@ -35,12 +37,19 @@ puede_ver = requiere_permiso(Modulo.PRODUCTOS, "ver")
 puede_crear = requiere_permiso(Modulo.PRODUCTOS, "crear")
 puede_editar = requiere_permiso(Modulo.PRODUCTOS, "editar")
 
+# Topes de los filtros: `pagina` sin tope desborda el OFFSET (BIGINT) de
+# Postgres y daba 500. Los ids enormes no hacen falta acotarlos: Postgres los
+# compara como numeric y la respuesta es vacía o 404 (probado).
+PRECIO_MAXIMO = 100_000_000   # NUMERIC(10, 2), igual que el costo
+PAGINA_MAXIMA = 100_000
+
 
 @router.get("", response_model=RespuestaPaginada[ProductoResponse])
 def listar(busqueda: str | None = None, categoria_id: int | None = None, proveedor_id: int | None = None,
            temporada: TemporadaProducto | None = None, activo: bool | None = None,
-           precio_desde: Decimal | None = None, precio_hasta: Decimal | None = None,
-           pagina: int = Query(1, ge=1), tamano: int = Query(10, ge=1, le=TAMANO_MAXIMO),
+           precio_desde: Decimal | None = Query(None, ge=0, lt=PRECIO_MAXIMO),
+           precio_hasta: Decimal | None = Query(None, ge=0, lt=PRECIO_MAXIMO),
+           pagina: int = Query(1, ge=1, le=PAGINA_MAXIMA), tamano: int = Query(10, ge=1, le=TAMANO_MAXIMO),
            db: Session = Depends(get_db), _: Usuario = Depends(puede_ver)):
     items, total = servicio.listar_productos(db, busqueda=busqueda, categoria_id=categoria_id,
                                               proveedor_id=proveedor_id, temporada=temporada, activo=activo,
@@ -49,8 +58,16 @@ def listar(busqueda: str | None = None, categoria_id: int | None = None, proveed
     return RespuestaPaginada(total=total, pagina=pagina, tamano=tamano, resultados=servicio.a_respuesta(db, items))
 
 
+@router.get("/proveedores", response_model=list[ProveedorParaProducto])
+def proveedores(solo_activos: bool = False, db: Session = Depends(get_db), _: Usuario = Depends(puede_ver)):
+    """Proveedores para el formulario (`solo_activos=true`) y el filtro del
+    listado (todos). Pide PRODUCTOS ver, no PROVEEDORES ver: el Vendedor no
+    tiene este último y la pantalla de productos igual los necesita."""
+    return servicio_proveedores.listar_para_productos(db, solo_activos)
+
+
 @router.get("/precio-preview", response_model=PrecioPreview)
-def precio_preview(proveedor_id: int, costo: Decimal = Query(gt=0, lt=100_000_000),
+def precio_preview(proveedor_id: int, costo: Decimal = Query(gt=0, lt=PRECIO_MAXIMO),
                    margen: Decimal = Query(ge=0, le=1000), db: Session = Depends(get_db),
                    _: Usuario = Depends(puede_ver)):
     return servicio.precio_preview(db, proveedor_id, costo, margen)

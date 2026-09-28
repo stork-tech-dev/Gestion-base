@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.codigos import digito_verificador
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
@@ -196,3 +196,46 @@ def test_respuesta(db, admin, base):
     assert r.categoria.camino == "Ropa > Remeras" and r.proveedor.nombre == "Prov dólares"
     assert r.foto_url is None
     assert servicio.a_detalle(db, p).fotos == []
+
+
+def test_alta_y_edicion_bloquean_al_proveedor(db, admin, base, monkeypatch):
+    """Carrera dólar ↔ producto: alta y edición leen el proveedor con
+    FOR UPDATE (el mismo lock que toma el cambio de dólar) antes de calcular."""
+    llamadas = []
+    original = servicio.obtener_proveedor
+
+    def espia(db, proveedor_id, bloquear=False):
+        llamadas.append((proveedor_id, bloquear))
+        return original(db, proveedor_id, bloquear=bloquear)
+
+    monkeypatch.setattr(servicio, "obtener_proveedor", espia)
+    p = _alta(db, admin, base, proveedor_id=base["dolares"].id, costo="10", margen="0")
+    _editar(db, admin, p, costo="20")
+    assert llamadas == [(base["dolares"].id, True), (base["dolares"].id, True)]
+
+
+def test_edicion_usa_el_dolar_vigente(db, admin, base):
+    """Si el dólar cambió (por otra vía) desde que se cargó el proveedor en la
+    sesión, la edición calcula con el valor releído de la base."""
+    p = _alta(db, admin, base, proveedor_id=base["dolares"].id, costo="10", margen="0")
+    db.execute(text("UPDATE proveedores SET dolar_actual = 2000 WHERE id = :id"), {"id": base["dolares"].id})
+    assert base["dolares"].dolar_actual == Decimal("1000")                # en memoria, viejo
+    assert _editar(db, admin, p, costo="11").precio_venta == Decimal("22000")
+
+
+def test_editar_proveedor_bloquea_antes_de_contar_productos(db, admin, monkeypatch):
+    from app.schemas.proveedores import ProveedorEditar
+
+    orden = []
+    original_obtener = servicio_proveedores.obtener_proveedor
+    original_contar = servicio_proveedores.contar_productos
+    monkeypatch.setattr(servicio_proveedores, "obtener_proveedor",
+                        lambda db, pid, bloquear=False: (orden.append(("obtener", bloquear)),
+                                                         original_obtener(db, pid, bloquear))[1])
+    monkeypatch.setattr(servicio_proveedores, "contar_productos",
+                        lambda db, pid, solo_activos=False: (orden.append(("contar", None)),
+                                                             original_contar(db, pid, solo_activos))[1])
+    prov = servicio_proveedores.crear_proveedor(db, admin, ProveedorCrear(nombre="Prov moneda", moneda="ars"), None)
+    servicio_proveedores.editar_proveedor(db, admin, prov, ProveedorEditar(nombre="Prov moneda", moneda="usd",
+                                                                           dolar_actual="1000"), None)
+    assert orden == [("obtener", True), ("contar", None)]

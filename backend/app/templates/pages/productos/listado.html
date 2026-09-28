@@ -9,7 +9,7 @@
 {% from "components/producto_form.html" import producto_form_modal %}
 {% block titulo %}Productos · {{ APP_NAME }}{% endblock %}
 {% block contenido %}
-<div x-data="productosListado({ puedeEditar: {{ puede_editar|js }} })">
+<div x-data="productosListado({ puedeEditar: {{ puede_editar|js }}, temporadas: {{ temporadas|js }} })">
   {% call encabezado("Productos") %}
     <a href="/categorias" class="boton boton-secundario">Categorías</a>
     {% if puede_crear %}
@@ -34,6 +34,8 @@
     {"titulo": "Margen %", "expr": "fila.margen + ' %'"},
     {"titulo": "Precio de venta", "expr": "pesos(fila.precio_venta)"},
   ] %}
+  {# Con el switch en "Activos" y una búsqueda sin resultados: el producto puede estar inactivo. #}
+  <p class="mb-3 text-sm text-texto-muted" x-show="sugerirInactivos" x-cloak>¿Buscás un producto inactivo? Cambiá el switch a Inactivos.</p>
   {% call tabla(columnas, cargando="cargando", vacio="No hay productos con esos filtros.") %}
     {% call acciones() %}
       {{ accion("ver", atributos='@click="abrirFicha(fila)"') }}
@@ -45,7 +47,7 @@
   {{ paginacion() }}
 
   {% include "pages/productos/_modal_ficha.html" %}
-  {{ producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo) }}
+  {{ producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas) }}
 </div>
 {% endblock %}
 {% block scripts %}

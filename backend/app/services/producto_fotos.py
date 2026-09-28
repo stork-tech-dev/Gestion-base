@@ -53,6 +53,16 @@ def _bloquear_producto(db, producto_id: int) -> None:
     db.execute(select(Producto.id).where(Producto.id == producto_id).with_for_update())
 
 
+def _bloquear_y_releer(db, foto: ProductoFoto) -> ProductoFoto:
+    """Lock del producto y relectura de la foto DESPUÉS del lock: mientras se
+    esperaba, otra transacción pudo borrarla o cambiar la principal."""
+    _bloquear_producto(db, foto.producto_id)
+    releida = db.get(ProductoFoto, foto.id, populate_existing=True)
+    if releida is None:
+        raise NoEncontrado("Foto no encontrada")
+    return releida
+
+
 def subir_foto(db, autor, producto, contenido: bytes, ip) -> ProductoFoto:
     if len(contenido) > TAMANO_MAXIMO_FOTO:
         raise ReglaDeNegocio("La foto supera los 5 MB.")
@@ -83,11 +93,14 @@ def subir_foto(db, autor, producto, contenido: bytes, ip) -> ProductoFoto:
 
 
 def marcar_principal(db, autor, foto: ProductoFoto, ip) -> ProductoFoto:
+    foto = _bloquear_y_releer(db, foto)
     if foto.es_principal:
         return foto
-    _bloquear_producto(db, foto.producto_id)
+    # populate_existing: si la fila ya estaba en la sesión, sus atributos se
+    # releen (con valores viejos en memoria, el UPDATE podría no emitirse).
     anterior = db.scalar(select(ProductoFoto).where(ProductoFoto.producto_id == foto.producto_id,
-                                                    ProductoFoto.es_principal.is_(True)))
+                                                    ProductoFoto.es_principal.is_(True))
+                         .execution_options(populate_existing=True))
     anterior_id = anterior.id if anterior is not None else None
     if anterior is not None:
         anterior.es_principal = False
@@ -101,15 +114,16 @@ def marcar_principal(db, autor, foto: ProductoFoto, ip) -> ProductoFoto:
 
 
 def eliminar_foto(db, autor, foto: ProductoFoto, ip) -> None:
+    foto = _bloquear_y_releer(db, foto)
     era_principal, producto_id = foto.es_principal, foto.producto_id
-    _bloquear_producto(db, producto_id)
     archivo = _carpeta() / foto.url.rsplit("/", 1)[1]
     antes = snapshot(foto)                    # tomado ANTES del delete: después ya no se puede leer
     db.delete(foto)
     db.flush()
     if era_principal:
         siguiente = db.scalar(select(ProductoFoto).where(ProductoFoto.producto_id == producto_id)
-                              .order_by(ProductoFoto.created_at, ProductoFoto.id).limit(1))
+                              .order_by(ProductoFoto.created_at, ProductoFoto.id).limit(1)
+                              .execution_options(populate_existing=True))   # ver marcar_principal
         if siguiente is not None:
             siguiente.es_principal = True
             db.flush()

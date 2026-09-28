@@ -10,13 +10,27 @@ from app.models import NIVEL_MAXIMO, Categoria, Producto
 MENSAJE_NIVELES = f"Se permiten hasta {NIVEL_MAXIMO} niveles de categorías."
 MENSAJE_CICLO = "El árbol de categorías tiene un ciclo; revisá los movimientos recientes."
 
-# Advisory lock de TRANSACCIÓN para serializar mover_categoria. Un lock de fila
-# (SELECT ... FOR UPDATE sobre `categoria`) no alcanza: el ciclo se forma entre
-# dos filas distintas (mover A bajo B y, a la vez, B bajo A) que read committed
-# deja pasar porque cada movimiento solo toca su propia fila y las de su rama,
-# nunca la del otro. Un único lock global por clave fija hace que el segundo
-# movimiento espere a que el primero termine su transacción (se libera solo).
-CLAVE_LOCK_MOVER = 913_204_711
+MENSAJE_PADRE_CON_PRODUCTOS = ("La categoría tiene productos: movelos a otra categoría antes de "
+                               "crearle subcategorías.")
+MENSAJE_DESTINO_CON_PRODUCTOS = ("La categoría de destino tiene productos: movelos a otra categoría antes "
+                                 "de moverle subcategorías.")
+
+# Advisory lock de TRANSACCIÓN sobre todo el árbol: lo toman (exclusivo) crear,
+# editar y mover categorías, y (compartido) el alta/cambio de categoría de un
+# producto. Un lock de fila (SELECT ... FOR UPDATE sobre `categoria`) no
+# alcanza: el ciclo se forma entre dos filas distintas (mover A bajo B y, a la
+# vez, B bajo A) que read committed deja pasar porque cada movimiento solo toca
+# su propia fila y las de su rama, nunca la del otro. Con un único lock global
+# por clave fija, la segunda escritura espera a que la primera termine su
+# transacción (se libera solo): tampoco se calculan niveles con un padre que
+# se está moviendo, ni pasan dos nombres iguales (mayúsculas/tildes) a la vez,
+# ni se cuela un producto en la categoría que está recibiendo subcategorías.
+CLAVE_LOCK_ARBOL = 913_204_711
+
+
+def bloquear_arbol(db, compartido: bool = False) -> None:
+    funcion = "pg_advisory_xact_lock_shared" if compartido else "pg_advisory_xact_lock"
+    db.execute(text(f"SELECT {funcion}(:clave)"), {"clave": CLAVE_LOCK_ARBOL})
 
 
 def obtener_categoria(db, categoria_id: int) -> Categoria:
@@ -98,6 +112,11 @@ def es_hoja(db, categoria_id: int) -> bool:
     return db.scalar(select(Categoria.id).where(Categoria.parent_id == categoria_id).limit(1)) is None
 
 
+def tiene_productos(db, categoria_id: int) -> bool:
+    """¿Hay productos (incluidos los inactivos) directamente en la categoría?"""
+    return db.scalar(select(Producto.id).where(Producto.categoria_id == categoria_id).limit(1)) is not None
+
+
 def _nombre_libre(db, nombre: str, parent_id: int | None, excepto_id: int | None = None) -> str:
     limpio = normalizar_texto(nombre)
     if not limpio:
@@ -122,12 +141,17 @@ def _profundidad_de_rama(db, categoria: Categoria, rama: list[int]) -> int:
 
 
 def crear_categoria(db, autor, datos, ip) -> Categoria:
+    bloquear_arbol(db)
     nivel = 1
     if datos.parent_id is not None:
         padre = obtener_categoria(db, datos.parent_id)
+        db.refresh(padre)                     # su nivel pudo cambiar mientras se esperaba el lock
         nivel = padre.nivel + 1
         if nivel > NIVEL_MAXIMO:
             raise ReglaDeNegocio(MENSAJE_NIVELES)
+        # Los productos van solo en hojas: el padre dejaría de serlo.
+        if tiene_productos(db, padre.id):
+            raise ReglaDeNegocio(MENSAJE_PADRE_CON_PRODUCTOS)
     categoria = Categoria(nombre=_nombre_libre(db, datos.nombre, datos.parent_id), nivel=nivel,
                           parent_id=datos.parent_id, orden=datos.orden)
     db.add(categoria)
@@ -139,6 +163,8 @@ def crear_categoria(db, autor, datos, ip) -> Categoria:
 
 
 def editar_categoria(db, autor, categoria: Categoria, datos, ip) -> Categoria:
+    bloquear_arbol(db)
+    db.refresh(categoria)                     # su padre pudo cambiar mientras se esperaba el lock
     antes = snapshot(categoria)
     nombre = _nombre_libre(db, datos.nombre, categoria.parent_id, excepto_id=categoria.id)
     categoria.nombre = nombre
@@ -151,18 +177,22 @@ def editar_categoria(db, autor, categoria: Categoria, datos, ip) -> Categoria:
 
 
 def mover_categoria(db, autor, categoria: Categoria, nuevo_parent_id: int | None, ip) -> Categoria:
-    # Serializa los movimientos: mientras dure la transacción, ningún otro
-    # mover_categoria puede leer el árbol hasta que esta termine (ver
-    # CLAVE_LOCK_MOVER). Releer la categoría después del lock por si quedó
-    # bloqueada esperando y otra transacción ya la movió mientras tanto.
-    db.execute(text("SELECT pg_advisory_xact_lock(:clave)"), {"clave": CLAVE_LOCK_MOVER})
+    # Serializa las escrituras del árbol: mientras dure la transacción, ninguna
+    # otra puede leerlo hasta que esta termine (ver CLAVE_LOCK_ARBOL). Releer la
+    # categoría después del lock por si quedó bloqueada esperando y otra
+    # transacción ya la movió mientras tanto.
+    bloquear_arbol(db)
     db.refresh(categoria)
     rama = rama_de_ids(db, categoria.id)
     nuevo_nivel = 1
     if nuevo_parent_id is not None:
         if nuevo_parent_id in rama:
             raise ReglaDeNegocio("Una categoría no puede moverse dentro de sí misma ni de su rama.")
-        nuevo_nivel = obtener_categoria(db, nuevo_parent_id).nivel + 1
+        destino = obtener_categoria(db, nuevo_parent_id)
+        db.refresh(destino)
+        nuevo_nivel = destino.nivel + 1
+        if tiene_productos(db, destino.id):
+            raise ReglaDeNegocio(MENSAJE_DESTINO_CON_PRODUCTOS)
     if nuevo_nivel + _profundidad_de_rama(db, categoria, rama) - 1 > NIVEL_MAXIMO:
         raise ReglaDeNegocio(MENSAJE_NIVELES)
     _nombre_libre(db, categoria.nombre, nuevo_parent_id, excepto_id=categoria.id)
@@ -181,7 +211,7 @@ def mover_categoria(db, autor, categoria: Categoria, nuevo_parent_id: int | None
 def eliminar_categoria(db, autor, categoria: Categoria, ip) -> None:
     if not es_hoja(db, categoria.id):
         raise ReglaDeNegocio("No se puede eliminar una categoría con subcategorías.")
-    if db.scalar(select(Producto.id).where(Producto.categoria_id == categoria.id).limit(1)) is not None:
+    if tiene_productos(db, categoria.id):
         raise ReglaDeNegocio("No se puede eliminar una categoría con productos (incluidos los inactivos).")
     antes = snapshot(categoria)
     categoria_id = categoria.id

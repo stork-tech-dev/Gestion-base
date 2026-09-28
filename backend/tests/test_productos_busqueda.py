@@ -99,3 +99,25 @@ def test_barcode_svg(db, datos):
     assert 'width="16mm"' in etiqueta and 'height="4.5mm"' in etiqueta and 'preserveAspectRatio="none"' in etiqueta
     with pytest.raises(NoEncontrado):
         servicio.barcode_svg(db, 999999)
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("", None), ("   ", None), (None, None),
+    ("ab123", "AB123"),                       # SKU solo: tal cual, en mayúsculas
+    (" ab12 ", "AB12"),                       # parcial: tal cual
+])
+def test_sku_de_codigo(texto, esperado):
+    assert servicio._sku_de_codigo(texto) == esperado
+
+
+def test_sku_de_codigo_con_etiqueta(db, datos):
+    p = datos["roja"]
+    assert servicio._sku_de_codigo(p.codigo_con_verificador.lower()) == p.sku
+    malo = p.sku + ("0" if p.verificador != "0" else "1")
+    assert servicio._sku_de_codigo(malo) == malo                          # verificador incorrecto: el texto
+
+
+def test_similares_incluye_inactivos(db, datos):
+    servicio.cambiar_estado_producto(db, datos["admin"], datos["azul"], False, None)
+    similares = servicio.buscar_similares(db, "remera lisa azul", proveedor_id=datos["prov"].id)
+    assert [(s["id"], s["activo"]) for s in similares] == [(datos["azul"].id, False)]

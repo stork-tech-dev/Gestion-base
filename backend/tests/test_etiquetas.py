@@ -72,3 +72,14 @@ def test_cantidades_invalidas(db, productos, items):
     items = [(productos[0].id, cantidad) for _, cantidad in items]
     with pytest.raises(DatoInvalido):
         etiquetas_pdf.generar_etiquetas(db, items, "rectangular")
+
+
+def test_etiqueta_usa_las_medidas_unicas_del_codigo_de_barras(db, productos):
+    import base64
+
+    ancho, alto = servicio_productos.ETIQUETA_BARCODE_MM
+    html = etiquetas_pdf.html_etiquetas(db, [(productos[0].id, 1)], "colita")
+    dato = html.split("data:image/svg+xml;base64,", 1)[1].split('"', 1)[0]
+    svg = base64.b64decode(dato).decode()
+    assert f'width="{ancho}mm"' in svg and f'height="{alto}mm"' in svg
+    assert svg == servicio_productos.barcode_svg_para_etiqueta(db, productos[0].id)

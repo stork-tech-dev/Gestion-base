@@ -112,7 +112,7 @@ def crear(datos: ProveedorCrear, request: Request, db: Session = Depends(get_db)
 @router.put("/{proveedor_id}", response_model=ProveedorResponse)
 def editar(proveedor_id: int, datos: ProveedorEditar, request: Request, db: Session = Depends(get_db),
            autor: Usuario = Depends(puede_editar)):
-    proveedor = servicio.editar_proveedor(db, autor, servicio.obtener_proveedor(db, proveedor_id), datos, ip_de_request(request))
+    proveedor = servicio.editar_proveedor(db, autor, servicio.obtener_proveedor(db, proveedor_id, bloquear=True), datos, ip_de_request(request))
     db.commit()
     return proveedor
 

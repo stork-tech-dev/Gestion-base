@@ -42,19 +42,19 @@
         <p class="col-span-full text-sm text-texto-muted" x-show="!ficha.fotos.length">Sin fotos cargadas.</p>
       </div>
 
-      <div class="mt-4 flex flex-wrap items-center gap-3" x-show="puedeEditar && ficha.fotos.length < 5" x-data="webcamCapture()">
+      <div class="mt-4 flex flex-wrap items-center gap-3" x-show="puedeEditar && ficha.fotos.length < 5"
+           x-data="webcamCapture({ vigilar: 'fichaAbierta && ficha ? ficha.id : null' })">
         <label class="boton boton-secundario">
           <span>Subir foto</span>
           <input type="file" class="sr-only" accept="image/jpeg,image/png,image/webp" @change="subirFoto($event.target.files[0]); $event.target.value = ''">
         </label>
         <button type="button" class="boton boton-secundario" x-show="!activa" @click="iniciar()">Tomar foto</button>
-        <template x-if="activa">
-          <div class="flex flex-wrap items-center gap-2">
-            <video x-ref="video" x-show="activa" x-cloak autoplay playsinline class="h-24 rounded-input border border-borde"></video>
-            <button type="button" class="boton boton-secundario" @click="capturarFoto($data)">Capturar</button>
-            <button type="button" class="boton boton-secundario" @click="detener()">Cancelar</button>
-          </div>
-        </template>
+        {# x-show y no x-if: iniciar() necesita $refs.video en el DOM ANTES de activarse. #}
+        <div class="flex flex-wrap items-center gap-2" x-show="activa" x-cloak>
+          <video x-ref="video" autoplay playsinline class="h-24 max-w-full rounded-input border border-borde"></video>
+          <button type="button" class="boton boton-secundario" @click="capturarFoto($data)">Capturar</button>
+          <button type="button" class="boton boton-secundario" @click="detener()">Cancelar</button>
+        </div>
         <p class="text-sm text-danger" x-show="error" x-text="error" x-cloak></p>
       </div>
     </div>

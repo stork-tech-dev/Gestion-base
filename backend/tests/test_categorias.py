@@ -176,3 +176,50 @@ def test_mover_sigue_funcionando_con_el_lock(db, admin):
     assert (remeras.parent_id, remeras.nivel) == (calzado.id, 2)
     servicio.mover_categoria(db, admin, remeras, None, None)
     assert (remeras.parent_id, remeras.nivel) == (None, 1)
+
+
+def _producto_en(db, categoria, activo=True):
+    proveedor = Proveedor(nombre=f"Prov de {categoria.nombre}", moneda=Moneda.ARS)
+    db.add(proveedor)
+    db.flush()
+    db.add(Producto(sku=f"ZH{categoria.id % 1000:03d}", verificador="0", descripcion="Remera",
+                    categoria_id=categoria.id, proveedor_id=proveedor.id, costo=Decimal("1"),
+                    margen=Decimal("0"), precio_venta=Decimal("1"), activo=activo))
+    db.flush()
+
+
+def test_no_se_crean_subcategorias_en_una_categoria_con_productos(db, admin):
+    """Decisión del usuario: los productos van solo en hojas; si la categoría
+    tiene productos (aunque estén inactivos) no se le cuelgan subcategorías."""
+    remeras = _crear(db, admin, "Remeras con productos")
+    _producto_en(db, remeras, activo=False)
+    with pytest.raises(ReglaDeNegocio) as error:
+        _crear(db, admin, "Lisas", remeras)
+    assert "movelos a otra categoría antes de crearle subcategorías" in error.value.mensaje
+    assert servicio.es_hoja(db, remeras.id)
+
+
+def test_no_se_mueve_una_categoria_bajo_otra_con_productos(db, admin):
+    remeras = _crear(db, admin, "Remeras destino")
+    _producto_en(db, remeras)
+    suelta = _crear(db, admin, "Suelta")
+    with pytest.raises(ReglaDeNegocio) as error:
+        servicio.mover_categoria(db, admin, suelta, remeras.id, None)
+    assert "movelos a otra categoría" in error.value.mensaje
+    assert (suelta.parent_id, suelta.nivel) == (None, 1)                   # validó antes de modificar
+    assert not db.scalar(select(Auditoria).where(Auditoria.accion == "categoria.mover",
+                                                 Auditoria.entidad_id == suelta.id))
+
+
+def test_crear_y_editar_toman_el_lock_del_arbol(db, admin, monkeypatch):
+    """crear/editar/mover serializan con el mismo advisory lock (exclusivo)."""
+    llamadas = []
+    original = servicio.bloquear_arbol
+    monkeypatch.setattr(servicio, "bloquear_arbol", lambda db, compartido=False: (llamadas.append(compartido),
+                                                                                    original(db, compartido)))
+    ropa = _crear(db, admin, "Ropa lock")
+    servicio.editar_categoria(db, admin, ropa, CategoriaEditar(nombre="Ropa lock 2", orden=0), None)
+    servicio.mover_categoria(db, admin, _crear(db, admin, "Hija lock"), ropa.id, None)
+    assert llamadas == [False, False, False, False]
+    assert db.execute(text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = :clave"),
+                      {"clave": servicio.CLAVE_LOCK_ARBOL}).scalar_one() >= 1

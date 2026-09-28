@@ -76,6 +76,14 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
   Docker si `/uploads` no se puede escribir).
 - Import no usado `timezone` en `tests/test_utils.py`.
 
+## Módulo 04: pendientes
+- Decidir si el Vendedor (quien no edita productos) debe ver costo y margen:
+  hoy los ve en la API (`GET /productos`, ficha), en el listado y en la ficha.
+- `categoria.camino` llega como texto `"A > B"`; evaluar `list[str]` antes de
+  que lo consuman los módulos 05 y 06.
+- `archivo.unlink` de una foto borrada corre antes del commit del router: si
+  el commit falla, queda la fila sin archivo.
+
 ## Módulo 04: pendientes para el 05
 - El módulo 05 agrega `stock`/`stock_minimo` y completa lo que el 04 dejó
   afuera a propósito: `stock_inicial` en el alta (ingreso de proveedor vía

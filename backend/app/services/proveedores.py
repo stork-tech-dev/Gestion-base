@@ -62,6 +62,17 @@ def listar_proveedores(db, *, nombre=None, email=None, telefono=None, provincia=
     return list(db.scalars(select(Proveedor).where(*condiciones).order_by(func.lower(Proveedor.nombre), Proveedor.id)).all())
 
 
+def listar_para_productos(db, solo_activos: bool = False) -> list[Proveedor]:
+    """Proveedores para los selectores de productos (formulario y filtro del
+    listado), alfabético. La ruta que la expone (`GET /productos/proveedores`)
+    pide solo PRODUCTOS ver y devuelve id/nombre/moneda/activo: el Vendedor no
+    tiene "ver" proveedores ni debe recibir sus datos de contacto."""
+    consulta = select(Proveedor)
+    if solo_activos:
+        consulta = consulta.where(Proveedor.estado == EstadoProveedor.ACTIVO)
+    return list(db.scalars(consulta.order_by(func.lower(Proveedor.nombre), Proveedor.id)).all())
+
+
 def _activos_en_dolares():
     """Único `select` de "proveedores activos que trabajan en dólares" (Principio 2):
     lo reusan `hay_proveedores_en_dolares`, `_proveedores_para_masivo` y
@@ -165,6 +176,11 @@ def editar_proveedor(db, autor, proveedor: Proveedor, datos, ip) -> Proveedor:
     Si alguna validación falla, el objeto de la sesión queda intacto (si no,
     una falla a mitad de camino dejaría la moneda cambiada sin que la
     operación se haya confirmado)."""
+    # Lock de la fila (y relectura) ANTES de contar productos: un alta de
+    # producto bloquea el mismo proveedor (crear_producto), así que no puede
+    # colarse un producto entre el conteo y el cambio de moneda. El router ya
+    # lo pide bloqueado; repetirlo acá es gratis y cubre a otros llamadores.
+    obtener_proveedor(db, proveedor.id, bloquear=True)
     antes = snapshot(proveedor)
     nombre_nuevo = _nombre_libre(db, datos.nombre, excepto_id=proveedor.id)
     cambia_moneda = datos.moneda is not proveedor.moneda

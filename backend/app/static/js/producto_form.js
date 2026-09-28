@@ -122,7 +122,8 @@
       _apertura: 0,
       _ultimaPreview: window.ultimaRespuesta(),
       _ultimaSimilares: window.ultimaRespuesta(),
-      _ultimaApertura: window.ultimaRespuesta(),
+      _ultimaArbol: window.ultimaRespuesta(),
+      _ultimaProveedores: window.ultimaRespuesta(),
 
       async abrir(producto) {
         const apertura = ++this._apertura;
@@ -139,29 +140,55 @@
 
         if (producto) {
           this.form = formDesdeProducto(producto);
-          try {
-            const arbol = await this._ultimaApertura(window.pedir('/api/v1/categorias/arbol'));
-            if (arbol === undefined || apertura !== this._apertura) return;  // se abrió otro mientras cargaba
-            this.arbol = arbol;
-            this.elegidos = nivelesDeCategoria(arbol, producto.categoria.id);
-          } catch (e) {
-            window.toast(e.message, 'error');
-          }
+          // En la edición se ve el precio actual (y el dólar si corresponde) sin tocar nada.
+          this.precioPreview = producto.precio_venta;
+          const pedidos = [this._cargarArbol(apertura, producto.categoria.id)];
+          if (producto.proveedor.moneda === 'usd') pedidos.push(this._cargarDolar(apertura));
+          await Promise.all(pedidos);
         } else {
           this.form = formVacio(this.margenDefault);
           this.proveedores = [];
-          try {
-            const resultado = await this._ultimaApertura(Promise.all([
-              window.pedir('/api/v1/categorias/arbol'),
-              window.pedir('/api/v1/proveedores?estado=activo'),
-            ]));
-            if (resultado === undefined || apertura !== this._apertura) return;
-            const [arbol, proveedores] = resultado;
-            this.arbol = arbol;
-            this.proveedores = proveedores;
-          } catch (e) {
-            window.toast(e.message, 'error');
-          }
+          // Por separado: si falla uno, el otro igual queda cargado.
+          await Promise.all([this._cargarArbol(apertura, null), this._cargarProveedores(apertura)]);
+        }
+      },
+
+      // undefined (llegó un pedido más nuevo) o apertura distinta (se abrió
+      // otro producto mientras cargaba): la respuesta ya no corresponde.
+      async _cargarArbol(apertura, categoriaId) {
+        try {
+          const arbol = await this._ultimaArbol(window.pedir('/api/v1/categorias/arbol'));
+          if (arbol === undefined || apertura !== this._apertura) return;
+          this.arbol = arbol;
+          if (categoriaId !== null) this.elegidos = nivelesDeCategoria(arbol, categoriaId);
+        } catch (e) {
+          window.toast(e.message, 'error');
+        }
+      },
+
+      // Solo activos; ruta con PRODUCTOS ver (el Vendedor no ve /proveedores).
+      async _cargarProveedores(apertura) {
+        try {
+          const proveedores = await this._ultimaProveedores(window.pedir(`${API}/proveedores?solo_activos=true`));
+          if (proveedores === undefined || apertura !== this._apertura) return;
+          this.proveedores = proveedores;
+        } catch (e) {
+          window.toast(e.message, 'error');
+        }
+      },
+
+      // Edición de un producto en dólares: el dólar vigente del proveedor. Del
+      // preview se toma SOLO el dólar; el precio que se muestra es el guardado.
+      // Va por el mismo secuenciador que pedirPreview: si el usuario ya cambió
+      // costo o margen, gana esa respuesta.
+      async _cargarDolar(apertura) {
+        const params = new URLSearchParams({ proveedor_id: this.form.proveedor_id, costo: this.form.costo, margen: this.form.margen });
+        try {
+          const datos = await this._ultimaPreview(window.pedir(`${API}/precio-preview?${params}`));
+          if (datos === undefined || apertura !== this._apertura) return;
+          this.dolarProveedor = datos.dolar_proveedor;
+        } catch (e) {
+          // Sin el dólar se sigue mostrando el precio guardado.
         }
       },
 
@@ -281,7 +308,8 @@
       get duplicadoExacto() {
         const normalizada = window.normalizarTexto(this.form.descripcion);
         if (!normalizada) return null;
-        return this.similares.find((s) => window.normalizarTexto(s.descripcion) === normalizada) || null;
+        // En la edición, el propio producto no cuenta como duplicado.
+        return this.similares.find((s) => s.id !== this.form.id && window.normalizarTexto(s.descripcion) === normalizada) || null;
       },
 
       cuerpo() {

@@ -10,16 +10,19 @@
 
   const API = '/api/v1/productos';
 
-  const TEMPORADAS = [
-    { id: 'atemporal', texto: 'Atemporal' },
-    { id: 'otoño_invierno', texto: 'Otoño-Invierno' },
-    { id: 'primavera_verano', texto: 'Primavera-Verano' },
-  ];
-  const TEXTO_TEMPORADA = Object.fromEntries(TEMPORADAS.map((t) => [t.id, t.texto]));
-
   const filtrosVacios = () => ({ busqueda: '', categoria_id: null, proveedor_id: null, temporada: '', activos: true });
 
-  window.productosListado = function ({ puedeEditar }) {
+  // Resultado de la búsqueda "vacía con el switch en Activos": se sugiere mirar los inactivos.
+  function sugerirInactivos(filtros, total, cargando) {
+    return !cargando && total === 0 && filtros.activos && !!(filtros.busqueda || '').trim();
+  }
+
+  // `temporadas`: [[valor, texto]] (TEMPORADAS de pages.py, única definición).
+  window.productosUtil = { sugerirInactivos };
+
+  window.productosListado = function ({ puedeEditar, temporadas = [] }) {
+    const TEMPORADAS = temporadas.map(([id, texto]) => ({ id, texto }));
+    const TEXTO_TEMPORADA = Object.fromEntries(temporadas);
     return {
       puedeEditar,
       filtros: filtrosVacios(),
@@ -50,17 +53,19 @@
         });
       },
 
-      async _cargarCatalogos() {
-        try {
-          const [arbol, proveedores] = await Promise.all([
-            window.pedir('/api/v1/categorias/arbol'),
-            window.pedir('/api/v1/proveedores'),
-          ]);
-          this.arbol = arbol;
-          this.proveedores = proveedores;
-        } catch (e) {
-          window.toast(e.message, 'error');
-        }
+      // Por separado: si falla uno, el otro filtro igual queda cargado.
+      _cargarCatalogos() {
+        window.pedir('/api/v1/categorias/arbol')
+          .then((arbol) => { this.arbol = arbol; })
+          .catch((e) => window.toast(e.message, 'error'));
+        // Todos (también los inactivos) para el filtro; ruta con PRODUCTOS ver.
+        window.pedir(`${API}/proveedores`)
+          .then((proveedores) => { this.proveedores = proveedores; })
+          .catch((e) => window.toast(e.message, 'error'));
+      },
+
+      get sugerirInactivos() {
+        return sugerirInactivos(this.filtros, this.total, this.cargando);
       },
 
       // Lista plana del árbol (todos los niveles), con el camino completo como texto.
@@ -134,6 +139,8 @@
       // ---------- Ficha ----------
 
       async abrirFicha(p) {
+        // Sin la ficha anterior mientras carga (ni si falla la carga).
+        this.ficha = null;
         this.fichaAbierta = true;
         this.cantEtiquetas = 1;
         const id = p.id;
@@ -238,9 +245,16 @@
       // ---------- Etiquetas ----------
 
       // El PDF viaja como blob: `pedir` asume JSON, así que se usa fetch directo.
+      // La ventana se abre en el MISMO click, antes del fetch: abierta después
+      // de un await, el navegador la toma como emergente y la bloquea.
       async imprimir(tipo) {
         if (!this.ficha) return;
         const cantidad = Math.max(1, Math.trunc(Number(this.cantEtiquetas)) || 1);
+        const ventana = window.open('', '_blank');
+        if (!ventana) {
+          window.toast('El navegador bloqueó la ventana; habilitá las ventanas emergentes.', 'error');
+          return;
+        }
         this.imprimiendo = true;
         try {
           const respuesta = await fetch(`${API}/etiquetas`, {
@@ -254,9 +268,11 @@
             try { datos = await respuesta.json(); } catch (e) { /* no era JSON */ }
             throw new Error(window.mensajeDeError(datos, respuesta.status));
           }
-          const blob = await respuesta.blob();
-          window.open(URL.createObjectURL(blob));
+          const url = URL.createObjectURL(await respuesta.blob());
+          ventana.location = url;
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
         } catch (e) {
+          ventana.close();
           window.toast(e.message, 'error');
         } finally {
           this.imprimiendo = false;

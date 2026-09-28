@@ -4,7 +4,7 @@ import base64
 
 from app.core.errores import DatoInvalido, ReglaDeNegocio
 from app.reports import pdf
-from app.services.productos import obtener_producto, svg_code128
+from app.services.productos import barcode_svg_de_producto_para_etiqueta, obtener_producto
 
 TIPOS = ("rectangular", "colita")
 MAXIMO_ETIQUETAS = 1000
@@ -22,7 +22,7 @@ def _contexto(db, items, tipo) -> dict:
     etiquetas = []
     for producto_id, cantidad in items:
         producto = obtener_producto(db, producto_id)
-        svg = svg_code128(producto.codigo_con_verificador, ancho_mm=16, alto_mm=4.5)
+        svg = barcode_svg_de_producto_para_etiqueta(producto)
         dato = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
         etiquetas += [{"codigo": producto.codigo_con_verificador, "barcode": dato}] * cantidad
     paginas = ([etiquetas[i:i + POR_RENGLON] for i in range(0, len(etiquetas), POR_RENGLON)]

@@ -7,8 +7,10 @@
    guardar emite `producto-guardado` (detail: producto).
    `margen_default` y `descuento_maximo` van como string: son valores de
    configuración del servidor (no datos de usuario), por eso es seguro
-   interpolarlos directo en atributos HTML como `max`. #}
-{% macro producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo) -%}
+   interpolarlos directo en atributos HTML como `max`.
+   `puede_editar`: la foto inicial se sube con PRODUCTOS editar; sin ese
+   permiso el bloque no se muestra. `temporadas`: [(valor, texto)] de pages.py. #}
+{% macro producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas) -%}
 <div x-data="productoForm({ esAdmin: {{ es_admin|js }}, nivelMaximo: {{ nivel_maximo|js }}, margenDefault: {{ margen_default|js }}, descuentoMaximo: {{ descuento_maximo|js }} })"
      @abrir-producto-form.window="abrir($event.detail.producto)">
   {% call modal("Producto", "modal-producto-form", abierto="abierto", titulo_expr="form.id ? 'Editar producto' : 'Nuevo producto'") %}
@@ -95,7 +97,7 @@
                atributos='min="0.01" step="0.01" inputmode="decimal"') }}
       {{ campo("pf-descuento", "Descuento %", tipo="number", modelo="form.descuento_producto", error="errores.descuento_producto",
                atributos='min="0" step="0.01" max="' + descuento_maximo + '" inputmode="decimal"') }}
-      {{ campo_select("pf-temporada", "Temporada", [("atemporal", "Atemporal"), ("otoño_invierno", "Otoño-Invierno"), ("primavera_verano", "Primavera-Verano")], modelo="form.temporada", requerido=True, vacio=None) }}
+      {{ campo_select("pf-temporada", "Temporada", temporadas, modelo="form.temporada", requerido=True, vacio=None) }}
       {{ campo("pf-ubicacion", "Ubicación en depósito", modelo="form.ubicacion_deposito", error="errores.ubicacion_deposito") }}
     </div>
 
@@ -105,8 +107,9 @@
     </div>
     {% endif %}
 
+    {% if puede_editar %}
     <template x-if="!form.id">
-      <div class="flex flex-col gap-2" x-data="webcamCapture()">
+      <div class="flex flex-col gap-2" x-data="webcamCapture({ vigilar: 'abierto ? _apertura : null' })">
         <span class="text-lg font-medium text-texto">Foto inicial</span>
         <input type="file" accept="image/jpeg,image/png,image/webp" class="campo" aria-label="Elegir foto" @change="elegirArchivo($event)">
         <p class="text-sm text-danger" x-show="error" x-text="error" x-cloak></p>
@@ -119,6 +122,7 @@
         <p class="text-sm text-texto-muted" x-show="!activa && fotoInicial">Foto lista para subir.</p>
       </div>
     </template>
+    {% endif %}
 
     <div class="flex justify-end">
       <button type="submit" class="boton boton-primario" :disabled="guardando"

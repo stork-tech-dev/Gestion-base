@@ -209,3 +209,60 @@ test('similares: menos de 10 caracteres no pide nada y vacía la lista', async (
   assert.equal(pendientes.length, 0);
   assert.equal(c.similares.length, 0);
 });
+
+test('alta: árbol y proveedores activos por separado; si fallan los proveedores, el árbol igual carga', async () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  window.toast = () => {};
+  const c = crearComponente(window);
+  const abriendo = c.abrir(null);
+  const arbol = pendientes.find((p) => p.url === '/api/v1/categorias/arbol');
+  const proveedores = pendientes.find((p) => p.url === '/api/v1/productos/proveedores?solo_activos=true');
+  assert.ok(arbol && proveedores);
+  proveedores.rechazar(new Error('sin permiso'));
+  arbol.resolver(ARBOL);
+  await abriendo;
+  assert.equal(c.arbol.length, 2);
+  assert.equal(c.proveedores.length, 0);
+});
+
+test('edición: muestra el precio guardado y, en dólares, el dólar vigente (sin pisar el precio)', async () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crearComponente(window);
+  const abriendo = c.abrir(producto({ id: 1, categoriaId: 3, moneda: 'usd' }));
+  assert.equal(c.precioPreview, '140');
+  const preview = pendientes.find((p) => /precio-preview\?/.test(p.url));
+  assert.ok(preview && /proveedor_id=9/.test(preview.url));
+  pendientes.find((p) => p.url === '/api/v1/categorias/arbol').resolver(ARBOL);
+  preview.resolver({ moneda: 'usd', dolar_proveedor: '1000', precio_venta: '999999' });
+  await abriendo;
+  assert.equal(c.dolarProveedor, '1000');
+  assert.equal(c.precioPreview, '140');
+  assert.deepEqual([...c.elegidos], [1, 2, 3]);
+});
+
+test('edición en pesos: sin pedido de dólar', async () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crearComponente(window);
+  const abriendo = c.abrir(producto({ id: 1, categoriaId: 3 }));
+  assert.equal(pendientes.length, 1);
+  pendientes[0].resolver(ARBOL);
+  await abriendo;
+  assert.equal(c.dolarProveedor, null);
+});
+
+test('duplicadoExacto: en la edición el propio producto no cuenta', () => {
+  const window = cargarComponente();
+  const c = crearComponente(window);
+  c.form.id = 1;
+  c.form.descripcion = 'Remera lisa';
+  c.similares = [{ id: 1, sku: 'SKU1', descripcion: 'Remera lisa', activo: true }];
+  assert.equal(c.duplicadoExacto, null);
+  c.similares.push({ id: 2, sku: 'SKU2', descripcion: 'remera lisa', activo: false });
+  assert.equal(c.duplicadoExacto.id, 2);
+});

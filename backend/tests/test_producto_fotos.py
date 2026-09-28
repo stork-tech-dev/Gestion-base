@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from config import settings
 from app.core.errores import DatoInvalido, ReglaDeNegocio
@@ -109,3 +109,34 @@ def test_eliminar_foto_expira_la_coleccion_del_producto(db, producto):
     assert len(p.fotos) == 2  # fuerza la carga de la colección ANTES de borrar
     servicio.eliminar_foto(db, admin, a, None)
     assert [foto.id for foto in p.fotos] == [b.id]
+
+
+def test_marcar_principal_de_una_foto_borrada_por_otro_da_404(db, producto):
+    """La foto se relee después del lock del producto: si otra transacción la
+    borró mientras se esperaba, NoEncontrado (no un error de la base)."""
+    from app.core.errores import NoEncontrado
+    from app.models import ProductoFoto
+
+    admin, p = producto
+    servicio.subir_foto(db, admin, p, JPG, None)
+    b = servicio.subir_foto(db, admin, p, JPG, None)
+    db.execute(text("DELETE FROM producto_fotos WHERE id = :id"), {"id": b.id})   # "la otra transacción"
+    with pytest.raises(NoEncontrado):
+        servicio.marcar_principal(db, admin, b, None)
+    with pytest.raises(NoEncontrado):
+        servicio.eliminar_foto(db, admin, b, None)
+    assert db.get(ProductoFoto, b.id, populate_existing=True) is None
+
+
+def test_eliminar_usa_es_principal_releido(db, producto):
+    """Si mientras se esperaba el lock la foto pasó a ser la principal, al
+    borrarla se promueve otra (se usa el valor releído, no el de memoria)."""
+    admin, p = producto
+    a = servicio.subir_foto(db, admin, p, JPG, None)
+    b = servicio.subir_foto(db, admin, p, JPG, None)
+    db.execute(text("UPDATE producto_fotos SET es_principal = false WHERE id = :id"), {"id": a.id})
+    db.execute(text("UPDATE producto_fotos SET es_principal = true WHERE id = :id"), {"id": b.id})
+    assert not b.es_principal                                              # en memoria, viejo
+    servicio.eliminar_foto(db, admin, b, None)
+    db.refresh(a)
+    assert a.es_principal

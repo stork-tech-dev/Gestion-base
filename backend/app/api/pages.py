@@ -14,7 +14,7 @@ from app.core.errores import NoEncontrado, SinPermiso
 from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
-from app.models import NIVEL_MAXIMO, Usuario
+from app.models import NIVEL_MAXIMO, TemporadaProducto, Usuario
 from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
 from app.services import usuarios as servicio_usuarios
@@ -47,6 +47,13 @@ PAGINA_DOLAR_MASIVO = {
 
 # Ítem del sidebar del módulo de productos.
 PAGINA_PRODUCTOS = {"nombre": "Productos", "url": "/productos", "icono": "productos", "modulo": Modulo.PRODUCTOS}
+# Textos de las temporadas: ÚNICA definición (la usan el select del formulario
+# y, vía productosListado, el filtro y la ficha del listado).
+TEMPORADAS = [
+    (TemporadaProducto.ATEMPORAL.value, "Atemporal"),
+    (TemporadaProducto.OTONO_INVIERNO.value, "Otoño-Invierno"),
+    (TemporadaProducto.PRIMAVERA_VERANO.value, "Primavera-Verano"),
+]
 
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
 # hub_configuracion / modulo (+ accion, recurso). Cada módulo suma su ítem
@@ -242,7 +249,7 @@ def productos(request: Request, db: Session = Depends(get_db),
         puede_crear=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "crear"),
         puede_editar=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "editar"),
         nivel_maximo=NIVEL_MAXIMO, margen_default=str(config.margen_default),
-        descuento_maximo=str(config.descuento_maximo),
+        descuento_maximo=str(config.descuento_maximo), temporadas=TEMPORADAS,
     ))
 
 

@@ -50,6 +50,17 @@ class ProveedorResumen(BaseModel):
     moneda: Moneda
 
 
+class ProveedorParaProducto(BaseModel):
+    """Proveedor para los selectores de productos (GET /productos/proveedores):
+    solo lo necesario, sin datos de contacto (lo usa quien no ve proveedores)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    moneda: Moneda
+    activo: bool
+
+
 class FotoResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -86,6 +86,10 @@ def recalcular_precios_de_proveedor(db, proveedor_id: int) -> int:
 
 
 def _categoria_de_producto(db, categoria_id: int):
+    # Lock compartido del árbol: las altas de productos no se esperan entre sí,
+    # pero sí esperan a que termine una subcategoría nueva (o un movimiento)
+    # sobre esta categoría, así nunca queda un producto en una que no es hoja.
+    servicio_categorias.bloquear_arbol(db, compartido=True)
     categoria = servicio_categorias.obtener_categoria(db, categoria_id)
     if not servicio_categorias.es_hoja(db, categoria_id):
         raise ReglaDeNegocio("Elegí hasta el último nivel: la categoría del producto es la del final de la rama.")
@@ -138,7 +142,11 @@ def _asignar_opcionales(producto: Producto, datos) -> None:
 
 def crear_producto(db, autor, datos, ip) -> Producto:
     categoria = _categoria_de_producto(db, datos.categoria_id)
-    proveedor = obtener_proveedor(db, datos.proveedor_id)
+    # Bloqueado (FOR UPDATE + relectura): un cambio de dólar simultáneo espera
+    # a que este alta termine, o este alta lee el dólar ya cambiado. Sin el
+    # lock, el recálculo del dólar no ve este producto (todavía sin commit) y
+    # el alta queda con el precio del dólar viejo.
+    proveedor = obtener_proveedor(db, datos.proveedor_id, bloquear=True)
     if not proveedor.activo:
         raise ReglaDeNegocio("El proveedor no está activo: no se le pueden cargar productos.")
     descripcion = _descripcion_libre(db, datos.descripcion, categoria.id, proveedor.id)
@@ -161,6 +169,11 @@ def crear_producto(db, autor, datos, ip) -> Producto:
 
 
 def editar_producto(db, autor, producto: Producto, datos, ip) -> Producto:
+    # Mismo lock que en el alta (ver crear_producto), tomado ANTES de leer
+    # nada: después se relee el producto por si un cambio de dólar que
+    # terminó mientras se esperaba el lock le recalculó el precio.
+    proveedor = obtener_proveedor(db, producto.proveedor_id, bloquear=True)
+    db.refresh(producto)
     # Primero se valida todo; recién después se modifica el producto.
     categoria_id = producto.categoria_id
     if datos.categoria_id != producto.categoria_id:
@@ -172,7 +185,7 @@ def editar_producto(db, autor, producto: Producto, datos, ip) -> Producto:
     costo, margen = redondear(datos.costo), redondear(datos.margen)
     precio = producto.precio_venta
     if costo != producto.costo or margen != producto.margen:
-        precio = calcular_precio_venta(db, costo, margen, producto.proveedor)
+        precio = calcular_precio_venta(db, costo, margen, proveedor)
 
     antes = snapshot(producto)
     producto.categoria_id = categoria_id
@@ -214,22 +227,32 @@ _OPCIONES_BARCODE = {"module_width": 0.2, "module_height": 4.0, "write_text": Fa
 _MEDIDA = re.compile(r'(\d+(?:\.\d+)?)mm')
 
 
+def _sku_de_codigo(texto: str | None) -> str | None:
+    """ÚNICA lectura de lo que se tipea o escanea como código: si es una
+    etiqueta (SKU + verificador válido, 6 caracteres), el SKU (los primeros 5);
+    si no, el texto tal cual (limpio y en mayúsculas). None si viene vacío."""
+    limpio = (texto or "").strip().upper()
+    if not limpio:
+        return None
+    return limpio[:5] if len(limpio) == 6 and codigo_es_valido(limpio) else limpio
+
+
 def condiciones_codigo(texto: str):
     """ÚNICA definición de "buscar por código" (la reusan stock y ventas): ILIKE
     parcial sobre el SKU y, si el texto es SKU + verificador válido, también el
     match EXACTO del SKU sin el verificador."""
     limpio = (texto or "").strip().upper()
     condicion = Producto.sku.ilike(patron_ilike(limpio), escape="\\")
-    if len(limpio) == 6 and codigo_es_valido(limpio):
-        condicion = or_(condicion, Producto.sku == limpio[:5])
+    sku = _sku_de_codigo(limpio)
+    if sku is not None and sku != limpio:
+        condicion = or_(condicion, Producto.sku == sku)
     return condicion
 
 
 def buscar_por_codigo(db, codigo: str) -> Producto:
     """Etiqueta con verificador válido o el SKU solo; un verificador incorrecto no resuelve."""
-    limpio = (codigo or "").strip().upper()
-    sku = limpio[:5] if len(limpio) == 6 and codigo_es_valido(limpio) else limpio
-    producto = db.scalar(select(Producto).where(Producto.sku == sku)) if len(sku) == 5 else None
+    sku = _sku_de_codigo(codigo)
+    producto = db.scalar(select(Producto).where(Producto.sku == sku)) if sku and len(sku) == 5 else None
     if producto is None:
         raise NoEncontrado("No hay ningún producto con ese código")
     return producto
@@ -309,5 +332,14 @@ def barcode_svg(db, producto_id: int) -> str:
     return svg_code128(obtener_producto(db, producto_id).codigo_con_verificador)
 
 
+# Medidas del código de barras impreso en la etiqueta (única definición).
+ETIQUETA_BARCODE_MM = (16, 4.5)
+
+
+def barcode_svg_de_producto_para_etiqueta(producto: Producto) -> str:
+    ancho, alto = ETIQUETA_BARCODE_MM
+    return svg_code128(producto.codigo_con_verificador, ancho_mm=ancho, alto_mm=alto)
+
+
 def barcode_svg_para_etiqueta(db, producto_id: int) -> str:
-    return svg_code128(obtener_producto(db, producto_id).codigo_con_verificador, ancho_mm=16, alto_mm=4.5)
+    return barcode_svg_de_producto_para_etiqueta(obtener_producto(db, producto_id))
