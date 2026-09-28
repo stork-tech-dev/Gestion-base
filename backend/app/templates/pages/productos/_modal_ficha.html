@@ -1,0 +1,75 @@
+{% from "components/modal.html" import modal %}
+{% from "components/miniatura.html" import miniatura %}
+{# Ficha de solo lectura de un producto: código de barras, datos, fotos
+   (alta/baja/principal con puedeEditar) e impresión de etiquetas. #}
+{% call modal("Producto", "modal-producto-ficha", abierto="fichaAbierta", titulo_expr="ficha ? ficha.descripcion : ''", ancho="max-w-3xl") %}
+<template x-if="ficha">
+  <div class="flex flex-col gap-6">
+    <div class="flex flex-wrap items-center gap-4">
+      <p class="text-2xl font-bold text-texto" x-text="ficha.codigo_con_verificador"></p>
+      <img :src="'/api/v1/productos/' + ficha.id + '/barcode'" alt="Código de barras" class="h-16">
+    </div>
+
+    <dl class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div><dt class="text-sm text-texto-muted">Categoría</dt><dd class="text-texto" x-text="ficha.categoria.camino"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Proveedor</dt><dd class="text-texto" x-text="ficha.proveedor.nombre + (ficha.proveedor.moneda === 'usd' ? ' (US$)' : ' ($)')"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Costo</dt><dd class="text-texto" x-text="costoTexto(ficha)"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Margen</dt><dd class="text-texto" x-text="ficha.margen + ' %'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Precio de venta</dt><dd class="text-texto" x-text="pesos(ficha.precio_venta)"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Descuento</dt><dd class="text-texto" x-text="ficha.descuento_producto + ' %'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Peso</dt><dd class="text-texto" x-text="ficha.peso_gramos ? ficha.peso_gramos + ' g' : '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Temporada</dt><dd class="text-texto" x-text="temporadaTexto(ficha.temporada)"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Ubicación en depósito</dt><dd class="text-texto" x-text="ficha.ubicacion_deposito || '—'"></dd></div>
+      {% if es_admin %}
+      <div><dt class="text-sm text-texto-muted">Stock infinito</dt><dd class="text-texto" x-text="ficha.stock_infinito ? 'Sí' : 'No'"></dd></div>
+      {% endif %}
+      <div><dt class="text-sm text-texto-muted">Estado</dt><dd class="font-semibold" :class="ficha.activo ? 'text-success' : 'text-danger'" x-text="ficha.activo ? 'Activo' : 'Inactivo'"></dd></div>
+    </dl>
+
+    <div>
+      <h3 class="mb-2 text-lg font-medium text-texto">Fotos</h3>
+      <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+        <template x-for="f in ficha.fotos" :key="f.id">
+          <div class="flex flex-col items-center gap-2">
+            {{ miniatura("f.url", "lg") }}
+            <span class="text-xs text-texto-muted" x-show="f.es_principal">Principal</span>
+            <div class="flex flex-wrap justify-center gap-3" x-show="puedeEditar">
+              <button type="button" class="min-h-toque inline-flex items-center text-xs text-primary hover:underline" x-show="!f.es_principal" @click="marcarPrincipal(f)">Marcar principal</button>
+              <button type="button" class="min-h-toque inline-flex items-center text-xs text-danger hover:underline" @click="borrarFoto(f)">Borrar</button>
+            </div>
+          </div>
+        </template>
+        <p class="col-span-full text-sm text-texto-muted" x-show="!ficha.fotos.length">Sin fotos cargadas.</p>
+      </div>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3" x-show="puedeEditar && ficha.fotos.length < 5" x-data="webcamCapture()">
+        <label class="boton boton-secundario">
+          <span>Subir foto</span>
+          <input type="file" class="sr-only" accept="image/jpeg,image/png,image/webp" @change="subirFoto($event.target.files[0]); $event.target.value = ''">
+        </label>
+        <button type="button" class="boton boton-secundario" x-show="!activa" @click="iniciar()">Tomar foto</button>
+        <template x-if="activa">
+          <div class="flex flex-wrap items-center gap-2">
+            <video x-ref="video" x-show="activa" x-cloak autoplay playsinline class="h-24 rounded-input border border-borde"></video>
+            <button type="button" class="boton boton-secundario" @click="capturarFoto($data)">Capturar</button>
+            <button type="button" class="boton boton-secundario" @click="detener()">Cancelar</button>
+          </div>
+        </template>
+        <p class="text-sm text-danger" x-show="error" x-text="error" x-cloak></p>
+      </div>
+    </div>
+
+    <div>
+      <h3 class="mb-2 text-lg font-medium text-texto">Imprimir etiquetas</h3>
+      <div class="flex flex-wrap items-end gap-3">
+        <div class="flex flex-col gap-1">
+          <label for="ficha-cant-etiquetas" class="text-sm text-texto-muted">Cant:</label>
+          <input id="ficha-cant-etiquetas" type="number" min="1" step="1" inputmode="numeric" class="campo w-24" x-model="cantEtiquetas">
+        </div>
+        <button type="button" class="boton boton-secundario" :disabled="imprimiendo" @click="imprimir('rectangular')">Rectangular</button>
+        <button type="button" class="boton boton-secundario" :disabled="imprimiendo" @click="imprimir('colita')">Con colita</button>
+      </div>
+    </div>
+  </div>
+</template>
+{% endcall %}

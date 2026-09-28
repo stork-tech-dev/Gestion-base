@@ -19,6 +19,7 @@ from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
 from app.services import usuarios as servicio_usuarios
 from app.services.auth import TokenInvalido
+from app.services.configuracion import obtener_configuracion
 from config import settings
 
 router = APIRouter(include_in_schema=False)
@@ -44,8 +45,7 @@ PAGINA_DOLAR_MASIVO = {
     "modulo": Modulo.PROVEEDORES, "accion": "editar", "recurso": Recurso.DOLAR_CAMBIO_MASIVO,
 }
 
-# Ítem del sidebar del módulo de productos (la pantalla /productos la agrega
-# la Task 11; por ahora solo existe /categorias).
+# Ítem del sidebar del módulo de productos.
 PAGINA_PRODUCTOS = {"nombre": "Productos", "url": "/productos", "icono": "productos", "modulo": Modulo.PRODUCTOS}
 
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
@@ -230,6 +230,19 @@ def dolar_masivo(request: Request, db: Session = Depends(get_db),
         request, db, "/configuracion", usuario, usa_dolar=servicio_proveedores.hay_proveedores_en_dolares(db),
         # Con solo el permiso puntual del masivo, /proveedores da 403: el "volver" va al hub.
         puede_ver=_visible(SECCION_PROVEEDORES, usuario, db),
+    ))
+
+
+@router.get("/productos")
+def productos(request: Request, db: Session = Depends(get_db),
+              usuario: Usuario = Depends(requiere_pagina(PAGINA_PRODUCTOS, actual="/productos"))):
+    config = obtener_configuracion(db)
+    return _pagina(request, "pages/productos/listado.html", contexto_base(
+        request, db, "/productos", usuario,
+        puede_crear=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "crear"),
+        puede_editar=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "editar"),
+        nivel_maximo=NIVEL_MAXIMO, margen_default=str(config.margen_default),
+        descuento_maximo=str(config.descuento_maximo),
     ))
 
 
