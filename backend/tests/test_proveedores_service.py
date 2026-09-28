@@ -5,7 +5,11 @@ from sqlalchemy import select, text
 
 from app.core.errores import DatoInvalido, ReglaDeNegocio, SinPermiso
 from app.models import Auditoria, EstadoProveedor, Moneda
+from app.schemas.categorias import CategoriaCrear
+from app.schemas.productos import ProductoCrear
 from app.schemas.proveedores import ProveedorCrear, ProveedorEditar
+from app.services import categorias as servicio_categorias
+from app.services import productos as servicio_productos
 from app.services import proveedores as servicio
 
 
@@ -13,6 +17,16 @@ def _crear(db, autor, **datos):
     base = {"nombre": "Proveedor de prueba", "moneda": "ars"}
     base.update(datos)
     return servicio.crear_proveedor(db, autor, ProveedorCrear(**base), None)
+
+
+def _categoria_hoja(db, autor, nombre="Categoría de prueba"):
+    return servicio_categorias.crear_categoria(db, autor, CategoriaCrear(nombre=nombre), None)
+
+
+def _producto(db, autor, categoria, proveedor, descripcion, **extra):
+    datos = {"categoria_id": categoria.id, "proveedor_id": proveedor.id, "costo": "1000", "descripcion": descripcion}
+    datos.update(extra)
+    return servicio_productos.crear_producto(db, autor, ProductoCrear(**datos), None)
 
 
 def _editar(db, autor, proveedor, **cambios):
@@ -120,6 +134,42 @@ def test_contar_productos_sin_tabla_da_cero(db, crear_usuario):
         assert servicio.contar_productos(db, p.id) == 0
     else:
         pytest.skip("la tabla productos ya existe")
+
+
+def test_contar_productos_camino_real(db, crear_usuario):
+    """Ahora que existe el módulo de productos: contar_productos con productos
+    de verdad (uno activo y uno inactivo), no con la tabla vacía ni un monkeypatch."""
+    admin = crear_usuario("admin")
+    p = _crear(db, admin, nombre="Con productos reales")
+    categoria = _categoria_hoja(db, admin)
+    activo = _producto(db, admin, categoria, p, "Producto activo")
+    inactivo = _producto(db, admin, categoria, p, "Producto inactivo")
+    servicio_productos.cambiar_estado_producto(db, admin, inactivo, False, None)
+    assert servicio.contar_productos(db, p.id) == 2
+    assert servicio.contar_productos(db, p.id, solo_activos=True) == 1
+    assert activo.activo and not inactivo.activo
+
+
+def test_editar_proveedor_con_productos_reales_no_permite_cambiar_moneda(db, crear_usuario):
+    admin = crear_usuario("admin")
+    p = _crear(db, admin, nombre="Moneda con productos reales")
+    categoria = _categoria_hoja(db, admin)
+    _producto(db, admin, categoria, p, "Producto de moneda")
+    with pytest.raises(ReglaDeNegocio) as error:
+        _editar(db, admin, p, moneda="usd", dolar_actual="900")
+    assert error.value.mensaje == "No se puede cambiar la moneda de un proveedor con productos cargados."
+
+
+def test_cambiar_estado_con_productos_activos_reales_exige_confirmacion(db, crear_usuario):
+    admin = crear_usuario("admin")
+    p = _crear(db, admin, nombre="Baja con productos activos reales")
+    categoria = _categoria_hoja(db, admin)
+    _producto(db, admin, categoria, p, "Producto activo real")
+    with pytest.raises(ReglaDeNegocio) as error:
+        servicio.cambiar_estado(db, admin, p, EstadoProveedor.DESACTIVADO, False, None)
+    assert "1 producto(s) activo(s)" in error.value.mensaje
+    servicio.cambiar_estado(db, admin, p, EstadoProveedor.DESACTIVADO, True, None)
+    assert p.estado is EstadoProveedor.DESACTIVADO
 
 
 def test_estados(db, crear_usuario, monkeypatch):

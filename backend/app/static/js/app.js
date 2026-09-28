@@ -228,15 +228,32 @@
   };
 
   // ---------- Cámara (fotos de productos) ----------
-  window.webcamCapture = function () {
+  // `vigilar` (opcional): expresión Alpine del componente padre; cada vez que
+  // cambia su valor (se cerró el modal, se abrió otro producto) se apaga la
+  // cámara. Además se apaga sola si el componente sale del DOM (destroy).
+  window.webcamCapture = function ({ vigilar } = {}) {
     return {
       stream: null,
       activa: false,
       error: '',
+      init() {
+        if (vigilar) this.$watch(vigilar, () => this.detener());
+      },
+      destroy() {
+        this.detener();
+      },
+      _intento: 0,
       async iniciar() {
         this.error = '';
+        const intento = ++this._intento;
         try {
-          this.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+          // Se detuvo (cerró el modal) mientras el navegador pedía permiso: no queda abierta.
+          if (intento !== this._intento) {
+            stream.getTracks().forEach((t) => t.stop());
+            return;
+          }
+          this.stream = stream;
           this.$refs.video.srcObject = this.stream;
           this.activa = true;
         } catch (e) {
@@ -252,6 +269,7 @@
         return new Promise((resolver) => lienzo.toBlob(resolver, tipo, calidad));
       },
       detener() {
+        this._intento++;
         if (this.stream) this.stream.getTracks().forEach((t) => t.stop());
         this.stream = null;
         this.activa = false;

@@ -1,0 +1,134 @@
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo, campo_select, campo_booleano %}
+{% from "components/combobox.html" import combobox %}
+{# Formulario de producto (alta y edición), componente Alpine en
+   static/js/producto_form.js. Se abre con el evento de ventana
+   `abrir-producto-form` (detail: {producto: null|ProductoDetalle}) y al
+   guardar emite `producto-guardado` (detail: producto).
+   `margen_default` y `descuento_maximo` van como string: son valores de
+   configuración del servidor (no datos de usuario), por eso es seguro
+   interpolarlos directo en atributos HTML como `max`.
+   `puede_editar`: la foto inicial se sube con PRODUCTOS editar; sin ese
+   permiso el bloque no se muestra. `temporadas`: [(valor, texto)] de pages.py. #}
+{% macro producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas) -%}
+<div x-data="productoForm({ esAdmin: {{ es_admin|js }}, nivelMaximo: {{ nivel_maximo|js }}, margenDefault: {{ margen_default|js }}, descuentoMaximo: {{ descuento_maximo|js }} })"
+     @abrir-producto-form.window="abrir($event.detail.producto)">
+  {% call modal("Producto", "modal-producto-form", abierto="abierto", titulo_expr="form.id ? 'Editar producto' : 'Nuevo producto'") %}
+  <form @submit.prevent="guardar()" class="flex flex-col gap-6" novalidate>
+
+    <fieldset class="flex flex-col gap-4">
+      <template x-for="nivel in nivelesVisibles" :key="nivel">
+        <div class="flex flex-col gap-1">
+          <label :for="'pf-categoria-' + nivel" class="text-lg font-medium text-texto" x-text="nivel === 0 ? 'Categoría' : 'Subcategoría'"></label>
+          <select :id="'pf-categoria-' + nivel" class="campo" :value="elegidos[nivel] ?? ''"
+                  :class="{ 'campo-error': errores.categoria_id }"
+                  @change="elegirNivel(nivel, $event.target.value)">
+            <option value="">Elegí una opción</option>
+            <template x-for="opcion in opcionesDeNivel(nivel)" :key="opcion.id">
+              <option :value="opcion.id" x-text="opcion.nombre"></option>
+            </template>
+          </select>
+        </div>
+      </template>
+      <p class="text-sm text-danger" x-show="errores.categoria_id" x-text="errores.categoria_id" x-cloak></p>
+      <p class="text-sm text-texto-muted">Elegí hasta el último nivel: la categoría del producto es la del final de la rama.</p>
+    </fieldset>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <template x-if="!form.id">
+        <div>
+          {{ combobox("pf-proveedor", "proveedoresOpciones", "form.proveedor_id", texto="texto", etiqueta="Proveedor *", vacio="Elegí un proveedor", al_cambiar="alCambiarProveedor()") }}
+        </div>
+      </template>
+      <template x-if="form.id">
+        <div class="flex flex-col gap-1">
+          <span class="text-lg font-medium text-texto">Proveedor</span>
+          <p class="campo flex items-center bg-surface-alt text-texto-muted" x-text="form.proveedorNombre + (form.proveedorMoneda === 'usd' ? ' (US$)' : ' ($)')"></p>
+        </div>
+      </template>
+
+      {{ campo("pf-sku-proveedor", "SKU del proveedor", modelo="form.sku_proveedor", error="errores.sku_proveedor") }}
+    </div>
+
+    <div class="flex flex-col gap-1 relative">
+      {{ campo("pf-descripcion", "Descripción", modelo="form.descripcion", requerido=True, error="errores.descripcion",
+               ayuda="Si el artículo viene en varios colores o talles, cargá un producto por cada uno.",
+               atributos='autocomplete="off" @input.debounce.300ms="buscarSimilares()" @keydown.arrow-down.prevent="moverSimilar(1)" @keydown.arrow-up.prevent="moverSimilar(-1)" @keydown.enter.prevent="similares.length && elegirSimilar(similares[similarActivo])" @keydown.escape="similares = []"') }}
+      <p class="text-sm text-danger" x-show="duplicadoExacto" x-cloak>
+        Ya existe un producto con esa descripción: <span x-text="duplicadoExacto ? (duplicadoExacto.descripcion + ' · ' + duplicadoExacto.sku) : ''"></span>
+      </p>
+      <ul x-show="similares.length" x-cloak role="listbox" aria-label="Productos parecidos"
+          class="flex flex-col gap-1 rounded-input border border-borde bg-surface p-2">
+        <template x-for="(s, indice) in similares" :key="s.id">
+          <li role="option" :aria-selected="indice === similarActivo">
+            <button type="button" class="combobox-opcion flex w-full items-center justify-between gap-2"
+                    @mouseenter="similarActivo = indice" @click="elegirSimilar(s)">
+              <span x-text="s.descripcion + ' · ' + s.sku"></span>
+              <span x-show="!s.activo" class="text-sm text-texto-muted">(inactivo)</span>
+            </button>
+          </li>
+        </template>
+      </ul>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div class="flex flex-col gap-1">
+        <label for="pf-costo" class="text-lg font-medium text-texto" x-text="moneda === 'usd' ? 'Costo en dólares (US$)' : 'Costo en pesos ($)'">Costo</label>
+        <input id="pf-costo" name="pf-costo" type="number" class="campo" x-model="form.costo" required
+               :disabled="!form.proveedor_id" :class="{ 'campo-error': errores.costo }"
+               min="0.01" step="0.01" inputmode="decimal" @input.debounce.300ms="pedirPreview()">
+        <p class="text-sm text-danger" x-show="errores.costo" x-text="errores.costo" x-cloak></p>
+      </div>
+
+      {{ campo("pf-margen", "Margen %", tipo="number", modelo="form.margen", requerido=True, error="errores.margen",
+               atributos=':disabled="!form.proveedor_id" min="0" step="0.01" inputmode="decimal" @input.debounce.300ms="pedirPreview()"') }}
+
+      <div class="flex flex-col gap-1 sm:col-span-2">
+        <span class="text-lg font-medium text-texto">Precio de venta</span>
+        <p class="text-texto">
+          <span x-text="precioPreview !== null ? pesos(precioPreview) : '—'"></span>
+          <template x-if="dolarProveedor"><span class="text-texto-muted" x-text="'· dólar $ ' + pesos(dolarProveedor)"></span></template>
+        </p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {{ campo("pf-peso", "Peso (g)", tipo="number", modelo="form.peso_gramos", error="errores.peso_gramos",
+               atributos='min="0.01" step="0.01" inputmode="decimal"') }}
+      {{ campo("pf-descuento", "Descuento %", tipo="number", modelo="form.descuento_producto", error="errores.descuento_producto",
+               atributos='min="0" step="0.01" max="' + descuento_maximo + '" inputmode="decimal"') }}
+      {{ campo_select("pf-temporada", "Temporada", temporadas, modelo="form.temporada", requerido=True, vacio=None) }}
+      {{ campo("pf-ubicacion", "Ubicación en depósito", modelo="form.ubicacion_deposito", error="errores.ubicacion_deposito") }}
+    </div>
+
+    {% if es_admin %}
+    <div>
+      {{ campo_booleano("pf-stock-infinito", "Stock infinito (no descuenta al vender)", "form.stock_infinito") }}
+    </div>
+    {% endif %}
+
+    {% if puede_editar %}
+    <template x-if="!form.id">
+      <div class="flex flex-col gap-2" x-data="webcamCapture({ vigilar: 'abierto ? _apertura : null' })">
+        <span class="text-lg font-medium text-texto">Foto inicial</span>
+        <input type="file" accept="image/jpeg,image/png,image/webp" class="campo" aria-label="Elegir foto" @change="elegirArchivo($event)">
+        <p class="text-sm text-danger" x-show="error" x-text="error" x-cloak></p>
+        <video x-ref="video" x-show="activa" x-cloak autoplay playsinline class="max-w-full rounded-input border border-borde"></video>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" class="boton boton-secundario" x-show="!activa" @click="iniciar()">Tomar foto</button>
+          <button type="button" class="boton boton-secundario" x-show="activa" @click="capturarFoto($data)">Capturar</button>
+          <button type="button" class="boton boton-secundario" x-show="activa" @click="detener()">Cancelar</button>
+        </div>
+        <p class="text-sm text-texto-muted" x-show="!activa && fotoInicial">Foto lista para subir.</p>
+      </div>
+    </template>
+    {% endif %}
+
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario" :disabled="guardando"
+              x-text="guardando ? 'Guardando…' : (form.id ? 'Finalizar' : 'Crear')"></button>
+    </div>
+  </form>
+  {% endcall %}
+</div>
+{%- endmacro %}

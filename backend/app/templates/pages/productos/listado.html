@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/paginacion.html" import paginacion %}
+{% from "components/combobox.html" import combobox %}
+{% from "components/switch_estado.html" import switch_estado %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% from "components/producto_form.html" import producto_form_modal %}
+{% block titulo %}Productos · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="productosListado({ puedeEditar: {{ puede_editar|js }}, temporadas: {{ temporadas|js }} })">
+  {% call encabezado("Productos") %}
+    <a href="/categorias" class="boton boton-secundario">Categorías</a>
+    {% if puede_crear %}
+    <button type="button" class="boton boton-acento" @click="$dispatch('abrir-producto-form', { producto: null })">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="productos encontrados", extras=switch_estado(modelo="filtros.activos", al_cambiar="cargar(1)")) %}
+    <input type="search" class="campo" placeholder="Código, SKU o descripción" aria-label="Buscar por código, SKU o descripción" x-model="filtros.busqueda" @input="filtrar()">
+    {{ combobox("filtro-categoria", "categoriasOpciones", "filtros.categoria_id", texto="texto", vacio="Categoría (todas)", al_cambiar="cargar(1)") }}
+    {{ combobox("filtro-proveedor", "proveedores", "filtros.proveedor_id", texto="nombre", vacio="Proveedor (todos)", al_cambiar="cargar(1)") }}
+    {{ combobox("filtro-temporada", "temporadas", "filtros.temporada", texto="texto", vacio="Temporada (todas)", al_cambiar="cargar(1)") }}
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Código", "expr": "codigoHtml(fila)", "html": True},
+    {"titulo": "Foto", "expr": "fotoHtml(fila)", "html": True},
+    {"titulo": "Descripción", "expr": "fila.descripcion"},
+    {"titulo": "Categoría", "expr": "fila.categoria.camino"},
+    {"titulo": "Proveedor", "expr": "fila.proveedor.nombre"},
+    {"titulo": "Costo", "expr": "costoTexto(fila)"},
+    {"titulo": "Margen %", "expr": "fila.margen + ' %'"},
+    {"titulo": "Precio de venta", "expr": "pesos(fila.precio_venta)"},
+  ] %}
+  {# Con el switch en "Activos" y una búsqueda sin resultados: el producto puede estar inactivo. #}
+  <p class="mb-3 text-sm text-texto-muted" x-show="sugerirInactivos" x-cloak>¿Buscás un producto inactivo? Cambiá el switch a Inactivos.</p>
+  {% call tabla(columnas, cargando="cargando", vacio="No hay productos con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("ver", atributos='@click="abrirFicha(fila)"') }}
+      {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(fila)"') }}
+      {{ accion("borrar", texto="Desactivar", atributos='x-show="puedeEditar && fila.activo" @click="cambiarEstado(fila)"') }}
+      {{ accion("activar", atributos='x-show="puedeEditar && !fila.activo" @click="cambiarEstado(fila)"') }}
+    {% endcall %}
+  {% endcall %}
+  {{ paginacion() }}
+
+  {% include "pages/productos/_modal_ficha.html" %}
+  {{ producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas) }}
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ estatico('/js/producto_form.js') }}"></script>
+<script src="{{ estatico('/js/productos.js') }}"></script>
+{% endblock %}
