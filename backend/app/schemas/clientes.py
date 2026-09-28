@@ -2,11 +2,13 @@
 EmailStr si `email-validator` está instalado (está en requirements.txt); si
 por algún motivo no lo está, se usa un patrón simple para no romper el alta."""
 import re
+from datetime import date
+from decimal import Decimal
 from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-from app.models import CondicionIva
+from app.models import CondicionIva, TipoPromocion
 
 try:
     from pydantic import EmailStr as _Email
@@ -61,3 +63,34 @@ class ClienteResponse(BaseModel):
     telefono: str | None
     email: str | None
     activo: bool
+
+
+class ClientePromocionAsignar(BaseModel):
+    promocion_id: int
+
+
+class PromocionDeCliente(BaseModel):
+    id: int
+    nombre: str
+    tipo: TipoPromocion
+    vigente: bool
+
+
+class ClienteFicha(BaseModel):
+    """`services.clientes.ficha` + vigencia de cada promoción exclusiva
+    (calculada acá para no depender de que el llamador la calcule bien)."""
+
+    cliente: ClienteResponse
+    promociones: list[PromocionDeCliente]
+    compras_cantidad: int
+    compras_total: Decimal
+
+    @classmethod
+    def desde(cls, datos: dict, hoy: date) -> "ClienteFicha":
+        return cls(
+            cliente=ClienteResponse.model_validate(datos["cliente"]),
+            promociones=[PromocionDeCliente(id=p.id, nombre=p.nombre, tipo=p.tipo, vigente=p.vigente_el(hoy))
+                        for p in datos["promociones"]],
+            compras_cantidad=datos["compras_cantidad"],
+            compras_total=datos["compras_total"],
+        )
