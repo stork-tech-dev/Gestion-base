@@ -18,7 +18,7 @@
 - Carpeta en iCloud: si git o lecturas se cuelgan, `find . -flags +dataless -type f -print0 | xargs -0 -n 20 -P 8 cat > /dev/null` y reintentar.
 - Tests en el contenedor (`docker compose exec -T backend pytest -p no:warnings`, suite completa antes de cada commit). JS: `node --check` y `node --test backend/tests_js/`.
 - Services: nunca `commit`; errores `DatoInvalido` 400 / `SinPermiso` 403 / `NoEncontrado` 404 / `ReglaDeNegocio` 409; auditoría con `registrar_auditoria` y `estado_anterior` tomado ANTES del cambio; **validar todo antes de modificar**; locks (`with_for_update()` + `populate_existing`) donde dos operaciones simultáneas puedan pisarse. Routers hacen `db.commit()`.
-- Dinero: siempre `Decimal`, nunca `float`. Redondeos solo con `core/utils.py` (`redondear`, `redondear_hacia_abajo`). El redondeo del negocio sale de `obtener_configuracion(db).redondeo` (seed 1000) y el tope de `obtener_configuracion(db).tope_descuento_venta` (seed 50): nunca literales.
+- Dinero: siempre `Decimal`, nunca `float`. Redondeos solo con `core/utils.py` (`redondear`, `redondear_hacia_abajo`). El redondeo de los precios de lista sale de `obtener_configuracion(db).redondeo` (seed 1000); el de los precios con descuento es `descuentos.REDONDEO_DESCUENTO` ($10, decisión 13); y el tope de `obtener_configuracion(db).tope_descuento_venta` (seed 50): nunca literales.
 - Límites contra las columnas: montos en schemas `ge=0, le=99_999_999.99` (NUMERIC(10,2)); porcentajes `NUMERIC(5,2)`; nunca un 500 por datos del usuario.
 - Filtros de texto con `filtro_texto`; búsqueda por código SIEMPRE con `productos.condiciones_codigo` / `productos.buscar_por_codigo` (definición única).
 - Pantallas: `requiere_pagina(ITEM)`; valores a Alpine solo con `|js` en atributos; sin `x-html` con datos de la API sin escapar; escrituras con `pedir()`; cargas que se pueden pisar con su propio `ultimaRespuesta()`; `erroresDeCampos()` para 422; `confirmar()` antes de acciones destructivas; reusar macros de `templates/components/`; modales solo se cierran con la X; mobile-first, `min-h-toque`, tablas en `overflow-x-auto`.
@@ -29,7 +29,7 @@
 Decisiones de producto tomadas con el usuario al inicio del módulo:
 
 1. **Promociones por medio de pago:** una promo con alcance `medio_de_pago` rige solo si TODOS los pagos cargados son de medios alcanzados. Sin pagos cargados no bloquea. Los pagos se mandan al backend apenas se eligen (no solo al confirmar), así el total mostrado siempre lo calcula la API.
-2. **Promo de tipo `porcentaje`:** se encadena sobre el precio con el descuento del producto: `aplicar_descuentos(precio_lista, descuento_producto, porcentaje_promo, redondeo)` (redondeo hacia abajo). No cuenta para el tope de descuento.
+2. **Promo de tipo `porcentaje`:** se encadena sobre el precio con el descuento del producto: `aplicar_descuentos(precio_lista, descuento_producto, porcentaje_promo)` (redondeo hacia abajo a `REDONDEO_DESCUENTO`, ver decisión 13). No cuenta para el tope de descuento.
 3. **Precio vivo:** cada `_recalcular` relee `precio_venta`, `descuento_producto` y `costo_en_pesos` del producto; se congelan al confirmar. Para que el cliente no pague algo distinto de lo que vio, `confirmar` recibe `total_esperado`: si tras recalcular el total cambió → 409 "Los precios cambiaron mientras cargabas la venta: revisá el total y volvé a confirmar." y la pantalla llama a `POST /ventas/{id}/recalcular`.
 4. **Ventas abandonadas:** no se hace nada; quedan `en_curso` hasta que su dueño las retome o descarte.
 
@@ -43,6 +43,7 @@ Desvíos técnicos:
 10. **Ítems en promoción de grupo:** todas las unidades de un grupo completo quedan `en_promocion=True` (las pagas y las gratis); el sobrante no. Así ninguna unidad del grupo acepta descuento manual.
 11. `GET /api/v1/ventas/vendedores` [VENTAS ver] → `[{id, nombre}]` de usuarios activos, para el combobox "Vendedor" del resumen (el Vendedor no tiene USUARIOS ver).
 12. `POST /api/v1/ventas/{id}/recalcular` [VENTAS crear] (ver decisión 3).
+13. **Redondeo de los precios con descuento (decisión del usuario en la revisión final):** el precio con descuento (del producto, manual o de promoción de porcentaje) se redondea HACIA ABAJO al múltiplo de **$10** (`services/descuentos.py::REDONDEO_DESCUENTO`), no al `redondeo` configurado. `aplicar_descuentos(precio_lista, desc_producto, desc_venta)` ya no recibe `redondeo`, y tampoco `promociones.simular`, `promociones.mejor_promocion` ni `ProductoVenta.desde`. Se mantiene "nunca 0". Motivo: con la regla del spec (múltiplo de 1000) un 5% sobre $2000 cobraba $1000; ahora cobra $1900. Los precios de lista (`precio_venta`) siguen redondeando HACIA ARRIBA al `redondeo` configurado. Esta decisión manda sobre el spec (línea 238) y sobre las firmas y ejemplos de las tareas de abajo.
 
 ---
 

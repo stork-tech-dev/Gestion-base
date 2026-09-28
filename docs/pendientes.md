@@ -110,13 +110,38 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
   apareciendo en la tabla pero ya no se puede filtrar por él.
 - Verificar a mano en el navegador la pantalla de venta (columna fija, selects
   de pagos, flujo de dos medios, F2/F10/ESC con lector de código).
+- **Precio con descuento:** se redondea hacia abajo a múltiplos de $10
+  (`services/descuentos.py::REDONDEO_DESCUENTO`), no al `redondeo` configurado,
+  que sigue valiendo solo para los precios de lista. Decisión 13 del plan.
+- `medios_pago.editar_plan` / `cambiar_estado_plan` no validan `medio.soporta_cuotas` (sin efecto en dinero: `planes_disponibles` devuelve [] y `registrar_pagos` rechaza).
+- `schemas/clientes.py`: el fallback de `EmailStr` con try/except es código muerto; borrarlo cuando se toque el archivo.
+- Faltan tests de `editar_plan` y del estado de un plan, de las auditorías de medios de pago, del email del cliente, de los filtros de `listar_clientes` y de los límites de `/clientes/buscar`.
+- `test_clientes.py`: el filtro por localidad tiene una aserción débil (`total >= 1`); pasarla a `== 1` y verificar el nombre.
+- `test_productos_alcanzados_solo_medio_de_pago_es_none` tiene mal el nombre (el alcance también tiene "todos los productos").
+- Rendimiento de promociones: la ganadora se simula dos veces en `_recalcular` y `rama_de_ids` carga todas las categorías (con pocas promociones no se nota).
+- `schemas/promociones.py`: la lista de alcances no tiene `max_length` (poner `max_length=200`).
+- Quitar un descuento que no existía audita un no-op, y el porcentaje se ignora en silencio si `motivo_id` es None.
+- `promociones_para_venta` puede mostrar un ahorro viejo (solo afecta lo que se muestra: `total_esperado` protege el cobro).
+- `ventas.a_productos_venta` usa `rutas[p.categoria_id]`, con un KeyError teórico: pasar a `.get(…, "")`.
+- `_campo` (schemas de ventas) acepta dicts y float solo para los tests.
+- `compras_total` del cliente sale "0" en vez de "0.00" (cosmético: el JS formatea).
+- Faltan tests de API de `/ventas/producto`, `/ventas/productos`, `/ventas/vendedores`, `/ventas/{id}/recalcular`, DELETE de ítem y de venta, etc.
+- `GET /configuracion/promociones/catalogos` no tiene `response_model` (Principio 1, documentación de OpenAPI).
+- DRY: `PAGINA_MAXIMA` repetida en 5 routers (llevarla a `schemas/comunes.py`); `_validar_fechas` idéntica en `services/descuentos.py` y `services/promociones.py` (llevarla a `core/utils.py::validar_rango_fechas`); `textoONull` en 4 JS (pasar a `window.textoONull` en `app.js`); `celdaEstado` en 5 JS y `celdaNombre` en 2 (helpers globales `estadoActivoHtml` / `nombreConNotaHtml`); `CLASES_BADGE` de `app.js` duplica `FONDOS_BADGE` de `components/badge.html`.
+- Ids de path mayores que BIGINT dan 500 (afecta a todo el proyecto, ya venía de antes).
+- Comentarios imprecisos sobre el orden de rutas en `api/v1/ventas.py` y `api/v1/clientes.py:31`.
+- Asignar una promoción general a un cliente (ficha del cliente) la vuelve exclusiva para todos sin avisar: pedir `confirmar()` antes y mostrar "Exclusiva" en el listado de promociones.
+- `services/ventas.py::agregar_item` y `ProductoVenta.stock` leen `producto.stock` directo (igual que los módulos 04 y 05): sumar `services.stock.stock_de(producto)` como único accesor para multi-local.
+- `elegir_promocion` acepta una promoción aplicable que no ahorra nada (la venta dice "elegida a mano" y no cambia nada).
+- En la pantalla de venta, un monto con coma decimal ("5000,50") da un 422 genérico (hoy `type="number"` lo evita en la mayoría de los navegadores).
 
 ### Para la sesión 07 (turnos de caja)
 - Reemplazar `services/ventas.py::_turno_para_operar` por
   `services.turnos.turno_para_operar()`: hoy devuelve siempre `None` y no
-  bloquea nada (desvío técnico 7 de `.superpowers/sdd/.../constraints.md`).
-- Sumar las columnas `turno_id` y `turno_anulacion_id` a `ventas` (hoy quedan
-  `NULL` en toda venta confirmada o anulada).
+  bloquea nada (plan del módulo 06, "Decisiones y desvíos", punto 7).
+- Sumar las **FK a `turnos`** de las columnas `ventas.turno_id` y
+  `ventas.turno_anulacion_id` (las columnas ya existen y hoy quedan `NULL` en
+  toda venta confirmada o anulada).
 - El aviso de turno de `/ventas/nueva` (`hay_turno`, fijo en `True` en
   `app/api/pages.py::venta_nueva`) tiene que leer el turno real del usuario.
 - Agregar el test "confirmar sin turno de caja abierto de hoy → 409".

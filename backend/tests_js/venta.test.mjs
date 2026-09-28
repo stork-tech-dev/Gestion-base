@@ -1,7 +1,7 @@
 // Tests de la pantalla de venta (backend/app/static/js/venta.js): cada
 // función pura de window.ventaLogica y los flujos delicados del componente
-// (un solo POST /ventas aunque se escaneen dos productos seguidos, 409 de
-// precios cambiados → recalcular). Mismos stubs mínimos que productos.test.mjs.
+// (un solo POST /ventas aunque se escaneen dos productos seguidos, cualquier
+// 409 de confirmar → recalcular). Mismos stubs mínimos que productos.test.mjs.
 // Correr con: node --test backend/tests_js/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -110,6 +110,15 @@ test('puedeConfirmar: venta con ítems, pagos y turno', () => {
   assert.equal(L.puedeConfirmar(null, true), false);
 });
 
+test('recalcularTrasConfirmar: cualquier 409, y nada más', () => {
+  const error = (status, mensaje) => Object.assign(new Error(mensaje), { status });
+  assert.equal(L.recalcularTrasConfirmar(error(409, 'Los precios cambiaron mientras cargabas la venta')), true);
+  assert.equal(L.recalcularTrasConfirmar(error(409, 'Cargá los medios de pago para cubrir el total')), true);
+  assert.equal(L.recalcularTrasConfirmar(error(400, 'Dato inválido')), false);
+  assert.equal(L.recalcularTrasConfirmar(error(undefined, 'sin red')), false);
+  assert.equal(L.recalcularTrasConfirmar(null), false);
+});
+
 test('montoEditable: solo el primero de dos pagos', () => {
   const dos = [{}, {}];
   assert.equal(L.montoEditable(0, dos), true);
@@ -202,6 +211,33 @@ test('confirmar: 409 de precios cambiados → toast y recalcular', async () => {
   await pantalla.confirmarVenta();
   assert.ok(pedidos.includes('POST /api/v1/ventas/9/recalcular'));
   assert.equal(pantalla.venta.total, '1200.00');
+  assert.equal(toasts[0].tipo, 'error');
+  assert.equal(pantalla.confirmadaAbierta, false);
+});
+
+test('confirmar: 409 que no es de precios (pagos borrados) → toast con el mensaje y recalcular', async () => {
+  const { window, toasts } = cargar();
+  const pedidos = [];
+  const venta = { ...ventaVacia(), items: [{ id: 1, motivo: null }], pagos: [pago(1, '1000.00', 5)], cobrable: '1000.00', total: '1100.00' };
+  // El recálculo persistió el borrado de los pagos (el plan dejó de valer).
+  const recalculada = { ...venta, total: '1000.00', pagos: [] };
+  window.pedir = async (url, op = {}) => {
+    pedidos.push(`${op.method || 'GET'} ${url}`);
+    if (url.endsWith('/confirmar')) {
+      const error = new Error('Cargá los medios de pago para cubrir el total');
+      error.status = 409;
+      throw error;
+    }
+    if (url.endsWith('/recalcular')) return recalculada;
+    return [];
+  };
+  const pantalla = crearPantalla(window);
+  pantalla.mostrar(venta);
+  await pantalla.confirmarVenta();
+  assert.ok(pedidos.includes('POST /api/v1/ventas/9/recalcular'));
+  assert.deepEqual(plano(pantalla.venta.pagos), []);
+  assert.deepEqual(plano(pantalla.pagos), [{ medio_de_pago_id: '', monto: '', plan_cuotas_id: '' }]);
+  assert.equal(toasts[0].mensaje, 'Cargá los medios de pago para cubrir el total');
   assert.equal(toasts[0].tipo, 'error');
   assert.equal(pantalla.confirmadaAbierta, false);
 });

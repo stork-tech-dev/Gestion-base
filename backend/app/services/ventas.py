@@ -21,7 +21,6 @@ from app.schemas.ventas import MONTO_MAXIMO, ProductoVenta, VentaResponse
 from app.services import categorias as servicio_categorias
 from app.services import clientes as servicio_clientes
 from app.services import medios_pago as servicio_medios
-from app.services.configuracion import obtener_configuracion
 from app.services.descuentos import aplicar_descuentos, resolver_porcentaje, validar_tope
 from app.services.productos import buscar_por_codigo, obtener_producto
 from app.services.promociones import mejor_promocion, promociones_aplicables, simular
@@ -136,7 +135,6 @@ def _normalizar_pagos(db, venta: Venta, cobrable: Decimal, *, estricto: bool) ->
 
 def _recalcular(db, venta: Venta, *, estricto: bool = False) -> None:
     """ÚNICO lugar donde se calculan los importes de una venta en curso."""
-    redondeo = obtener_configuracion(db).redondeo
     # 1. Precio vivo: relee cada producto (decisión 3) y recalcula sin
     #    promociones. precio_unitario queda como base "sin promo" que usa
     #    promociones.simular: por eso se resetea ANTES de elegir la promoción.
@@ -145,10 +143,10 @@ def _recalcular(db, venta: Venta, *, estricto: bool = False) -> None:
         item.precio_lista = producto.precio_venta
         item.costo_unitario = producto.costo_en_pesos
         item.precio_unitario = aplicar_descuentos(producto.precio_venta, producto.descuento_producto,
-                                                  Decimal("0"), redondeo)
+                                                  Decimal("0"))
         item.en_promocion = False
         item.precio_final = (aplicar_descuentos(producto.precio_venta, producto.descuento_producto,
-                                                item.descuento_item, redondeo)
+                                                item.descuento_item)
                              if item.descuento_item else item.precio_unitario)
     # 2. Promoción: la manual si sigue aplicando; si no, la de mayor ahorro.
     elegibles = _elegibles(venta)
@@ -157,11 +155,11 @@ def _recalcular(db, venta: Venta, *, estricto: bool = False) -> None:
         promo = next((p for p in aplicables if p.id == venta.promocion_id), None)
     else:
         venta.promocion_a_mano = False
-        promo = mejor_promocion(db, aplicables, elegibles, redondeo)
+        promo = mejor_promocion(db, aplicables, elegibles)
     venta.promocion_id = promo.id if promo else None
     venta.promocion = promo
     if promo:
-        _, finales, en_promo = simular(db, promo, elegibles, redondeo)
+        _, finales, en_promo = simular(db, promo, elegibles)
         for item in elegibles:
             if item.id in en_promo:
                 item.precio_final, item.en_promocion = finales[item.id], True
@@ -437,9 +435,8 @@ def medios_para_venta(db, venta: Venta, monto: Decimal | None) -> list[dict]:
 def promociones_para_venta(db, venta: Venta) -> list[dict]:
     """[{promocion, ahorro}] de las promociones aplicables. No toca la venta:
     simula sobre los elegibles (su precio_unitario ya es la base sin promo)."""
-    redondeo = obtener_configuracion(db).redondeo
     elegibles = _elegibles(venta)
-    return [{"promocion": p, "ahorro": simular(db, p, elegibles, redondeo)[0]}
+    return [{"promocion": p, "ahorro": simular(db, p, elegibles)[0]}
             for p in promociones_aplicables(db, venta.cliente_id, ahora_db().date(), _medio_ids(venta))]
 
 
@@ -489,5 +486,4 @@ def a_respuesta(db, venta: Venta) -> VentaResponse:
 
 def a_productos_venta(db, productos) -> list[ProductoVenta]:
     rutas = servicio_categorias.caminos(db)
-    redondeo = obtener_configuracion(db).redondeo
-    return [ProductoVenta.desde(p, rutas[p.categoria_id], redondeo) for p in productos]
+    return [ProductoVenta.desde(p, rutas[p.categoria_id]) for p in productos]

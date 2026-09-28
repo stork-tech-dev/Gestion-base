@@ -127,10 +127,11 @@ def test_simular_porcentaje_encadena_con_descuento_de_producto(db, crear_usuario
     promo = _crear(db, admin, nombre="20 porciento", tipo=TipoPromocion.PORCENTAJE, porcentaje_descuento=20)
     item = SimpleNamespace(id=1, producto_id=producto.id, precio_lista=Decimal("10000"),
                           precio_unitario=Decimal("10000"), orden=1, producto=producto)
-    ahorro, finales, en_promo = servicio.simular(db, promo, [item], Decimal("1000"))
-    assert finales[1] == Decimal("7000")
+    ahorro, finales, en_promo = servicio.simular(db, promo, [item])
+    # 10000 × 0.9 × 0.8 = 7200 (múltiplo de $10 hacia abajo, REDONDEO_DESCUENTO)
+    assert finales[1] == Decimal("7200")
     assert en_promo == {1}
-    assert ahorro == Decimal("3000")
+    assert ahorro == Decimal("2800")
 
 
 def test_simular_ignora_items_fuera_de_alcance(db, crear_usuario):
@@ -145,10 +146,34 @@ def test_simular_ignora_items_fuera_de_alcance(db, crear_usuario):
                                   precio_unitario=Decimal("1000"), orden=1, producto=dentro)
     item_fuera = SimpleNamespace(id=2, producto_id=fuera.id, precio_lista=Decimal("1000"),
                                  precio_unitario=Decimal("1000"), orden=2, producto=fuera)
-    ahorro, finales, en_promo = servicio.simular(db, promo, [item_dentro, item_fuera], Decimal("1"))
+    ahorro, finales, en_promo = servicio.simular(db, promo, [item_dentro, item_fuera])
     assert en_promo == {1}
     assert 2 not in finales
     assert ahorro > 0
+
+
+def test_simular_grupo_ignora_items_fuera_de_alcance(db, crear_usuario):
+    """2x1 con un producto dentro del alcance y dos caros fuera: no se forma
+    ningún grupo (un producto caro fuera de alcance nunca sale gratis)."""
+    admin = crear_usuario("admin")
+    cat = catalogo(db, admin)
+    dentro = cat["alta"]("Producto dentro 2x1")
+    fuera = cat["alta"]("Producto caro fuera 2x1")
+    promo = _crear(db, admin, nombre="2x1 solo dentro", tipo=TipoPromocion.DOS_X_UNO,
+                   alcances=[PromocionAlcanceDatos(tipo_alcance=TipoAlcancePromocion.PRODUCTO,
+                                                   referencia_id=dentro.id)])
+    items = [
+        SimpleNamespace(id=1, producto_id=dentro.id, precio_lista=Decimal("1000"),
+                        precio_unitario=Decimal("1000"), orden=1, producto=dentro),
+        SimpleNamespace(id=2, producto_id=fuera.id, precio_lista=Decimal("50000"),
+                        precio_unitario=Decimal("50000"), orden=2, producto=fuera),
+        SimpleNamespace(id=3, producto_id=fuera.id, precio_lista=Decimal("50000"),
+                        precio_unitario=Decimal("50000"), orden=3, producto=fuera),
+    ]
+    ahorro, finales, en_promo = servicio.simular(db, promo, items)
+    assert en_promo == set()
+    assert finales == {}
+    assert ahorro == Decimal("0")
 
 
 # --- aplica_con_medios ---------------------------------------------------------
@@ -195,7 +220,7 @@ def test_mejor_promocion_elige_mayor_ahorro(db, crear_usuario):
     promo_30 = _crear(db, admin, nombre="Promo 30", tipo=TipoPromocion.PORCENTAJE, porcentaje_descuento=30)
     item = SimpleNamespace(id=1, producto_id=producto.id, precio_lista=Decimal("10000"),
                           precio_unitario=Decimal("10000"), orden=1, producto=producto)
-    elegida = servicio.mejor_promocion(db, [promo_10, promo_30], [item], Decimal("1000"))
+    elegida = servicio.mejor_promocion(db, [promo_10, promo_30], [item])
     assert elegida.id == promo_30.id
 
 
@@ -207,7 +232,7 @@ def test_mejor_promocion_empate_elige_menor_id(db, crear_usuario):
     promo_b = _crear(db, admin, nombre="Empate B", tipo=TipoPromocion.PORCENTAJE, porcentaje_descuento=15)
     item = SimpleNamespace(id=1, producto_id=producto.id, precio_lista=Decimal("10000"),
                           precio_unitario=Decimal("10000"), orden=1, producto=producto)
-    elegida = servicio.mejor_promocion(db, [promo_b, promo_a], [item], Decimal("1000"))
+    elegida = servicio.mejor_promocion(db, [promo_b, promo_a], [item])
     assert elegida.id == min(promo_a.id, promo_b.id)
 
 
@@ -221,7 +246,7 @@ def test_mejor_promocion_ninguna_ahorra_none(db, crear_usuario):
                                                    referencia_id=otro.id)])
     item = SimpleNamespace(id=1, producto_id=producto.id, precio_lista=Decimal("10000"),
                           precio_unitario=Decimal("10000"), orden=1, producto=producto)
-    assert servicio.mejor_promocion(db, [promo], [item], Decimal("1000")) is None
+    assert servicio.mejor_promocion(db, [promo], [item]) is None
 
 
 # --- promociones_aplicables: exclusividad y vigencia ---------------------------

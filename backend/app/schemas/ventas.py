@@ -216,11 +216,11 @@ class ProductoVenta(BaseModel):
     foto_url: str | None
 
     @classmethod
-    def desde(cls, producto, camino: str, redondeo: Decimal) -> "ProductoVenta":
+    def desde(cls, producto, camino: str) -> "ProductoVenta":
         return cls(
             id=producto.id, codigo=producto.codigo_con_verificador, descripcion=producto.descripcion,
             categoria=camino,
-            precio=aplicar_descuentos(producto.precio_venta, producto.descuento_producto, Decimal("0"), redondeo),
+            precio=aplicar_descuentos(producto.precio_venta, producto.descuento_producto, Decimal("0")),
             precio_lista=producto.precio_venta, stock=producto.stock, stock_infinito=producto.stock_infinito,
             foto_url=producto.foto_principal_url,
         )

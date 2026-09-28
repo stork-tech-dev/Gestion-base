@@ -12,8 +12,6 @@
   const ESPERA_BUSQUEDA_MS = 300;
   const LIMITE_PRODUCTOS = 8;
   const MAX_PAGOS = 2;
-  // Inicio del 409 de confirmar cuando el total cambió (services/ventas.py).
-  const PRECIOS_CAMBIARON = 'Los precios cambiaron';
 
   const filaPagoVacia = () => ({ medio_de_pago_id: '', monto: '', plan_cuotas_id: '' });
 
@@ -34,6 +32,11 @@
       .map((f) => ({ medio_de_pago_id: Number(f.medio_de_pago_id), monto: String(f.monto || '0.01'),
                      plan_cuotas_id: f.plan_cuotas_id ? Number(f.plan_cuotas_id) : null })),
     puedeConfirmar: (venta, hayTurno) => !!venta && venta.items.length > 0 && venta.pagos.length > 0 && hayTurno,
+    // CUALQUIER 409 de confirmar (no solo "Los precios cambiaron") pide
+    // POST /recalcular: confirmar recalcula sin commitear y puede haber borrado
+    // los pagos (plan que dejó de valer, medio desactivado, resto ≤ 0). El
+    // recálculo lo persiste y la pantalla vuelve a mostrar lo que hay en la base.
+    recalcularTrasConfirmar: (error) => !!error && error.status === 409,
     // Solo el monto del primero de dos pagos lo tipea el usuario; el del único
     // pago y el del segundo los fija la API (lo cobrable / el resto).
     montoEditable: (indice, filas) => indice === 0 && filas.length === MAX_PAGOS,
@@ -470,7 +473,7 @@
           this.confirmadaAbierta = true;
         } catch (e) {
           window.toast(e.message, 'error');
-          if (e.status === 409 && e.message.startsWith(PRECIOS_CAMBIARON)) {
+          if (L.recalcularTrasConfirmar(e)) {
             await this.accion(window.pedir(`${API}/${this.venta.id}/recalcular`, { method: 'POST' }));
           }
         } finally {

@@ -15,12 +15,24 @@ from app.services.configuracion import obtener_configuracion
 
 
 def test_aplicar_descuentos_encadenado_y_hacia_abajo():
-    # 10000 × 0.9 × 0.85 = 7650 → múltiplo de 1000 hacia abajo = 7000
-    assert servicio.aplicar_descuentos(Decimal("10000"), Decimal("10"), Decimal("15"), Decimal("1000")) == Decimal("7000")
+    # 10000 × 0.9 × 0.85 = 7650 → ya es múltiplo de $10: queda 7650.00
+    assert servicio.aplicar_descuentos(Decimal("10000"), Decimal("10"), Decimal("15")) == Decimal("7650.00")
+    # 1999 × 0.9 = 1799.10 → múltiplo de $10 hacia abajo = 1790
+    assert servicio.aplicar_descuentos(Decimal("1999"), Decimal("0"), Decimal("10")) == Decimal("1790")
+
+
+def test_aplicar_descuentos_redondea_a_10_y_no_al_redondeo_configurado(db):
+    """Decisión del usuario: 5% sobre $2000 cobra $1900 (con la regla vieja,
+    múltiplo de 1000 hacia abajo, cobraba $1000)."""
+    assert obtener_configuracion(db).redondeo == Decimal("1000.00")
+    assert servicio.REDONDEO_DESCUENTO == Decimal("10")
+    assert servicio.aplicar_descuentos(Decimal("2000"), Decimal("0"), Decimal("5")) == Decimal("1900")
 
 
 def test_aplicar_descuentos_nunca_cero():
-    assert servicio.aplicar_descuentos(Decimal("1000"), Decimal("0"), Decimal("50"), Decimal("1000")) == Decimal("500.00")
+    # 5 × 0.5 = 2.50 → hacia abajo a $10 daría 0: queda el bruto a centavos.
+    assert servicio.aplicar_descuentos(Decimal("5"), Decimal("0"), Decimal("50")) == Decimal("2.50")
+    assert servicio.aplicar_descuentos(Decimal("1000"), Decimal("0"), Decimal("50")) == Decimal("500.00")
 
 
 def test_tope_leido_de_configuracion(db):

@@ -13,6 +13,14 @@ from app.services.configuracion import obtener_configuracion
 
 PASO_PORCENTAJE = 5
 
+# Múltiplo al que se redondea HACIA ABAJO un precio con descuento. Decisión del
+# usuario (revisión final del módulo 06): NO se usa el `redondeo` configurado
+# (sembrado en 1000), que es para los precios de lista. Con esa regla un 5% de
+# descuento sobre $2000 cobraba $1000 (un 50% real). Con $10, un 5% sobre $2000
+# cobra $1900. Los precios de lista siguen redondeando HACIA ARRIBA al
+# `redondeo` configurado (services.productos.calcular_precio_venta).
+REDONDEO_DESCUENTO = Decimal("10")
+
 
 def tope(db) -> Decimal:
     """Tope de descuento por producto (producto + venta, suma directa). ÚNICA lectura."""
@@ -43,13 +51,12 @@ def calcular_descuento_total(desc_producto: Decimal, desc_venta: Decimal) -> Dec
     return redondear((1 - factor) * 100)
 
 
-def aplicar_descuentos(precio_lista: Decimal, desc_producto: Decimal, desc_venta: Decimal,
-                       redondeo: Decimal) -> Decimal:
+def aplicar_descuentos(precio_lista: Decimal, desc_producto: Decimal, desc_venta: Decimal) -> Decimal:
     """ÚNICA fórmula de precio con descuentos: encadenados y redondeados HACIA
-    ABAJO al múltiplo de redondeo. Nunca 0: si el redondeo lo haría 0, queda
-    el bruto a centavos (y como mínimo $0,01)."""
+    ABAJO al múltiplo de REDONDEO_DESCUENTO. Nunca 0: si el redondeo lo haría
+    0, queda el bruto a centavos (y como mínimo $0,01)."""
     bruto = precio_lista * (1 - desc_producto / 100) * (1 - desc_venta / 100)
-    final = redondear_hacia_abajo(bruto, redondeo)
+    final = redondear_hacia_abajo(bruto, REDONDEO_DESCUENTO)
     if final <= 0:
         final = max(redondear(bruto), Decimal("0.01"))
     return final

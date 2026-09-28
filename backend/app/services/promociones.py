@@ -118,7 +118,7 @@ def promociones_aplicables(db, cliente_id: int | None, dia: date, medio_ids: set
 
 # --- Simulación (cuánto ahorra cada promo sobre un carrito) ------------------
 
-def simular(db, promo, items, redondeo) -> tuple[Decimal, dict[int, Decimal], set[int]]:
+def simular(db, promo, items) -> tuple[Decimal, dict[int, Decimal], set[int]]:
     """(ahorro, precio_final_por_item_id, ids_en_promocion) sobre `items`
     (elegibles: sin descuento manual). No toca la base ni los items."""
     alcanzados = productos_alcanzados(db, promo)
@@ -128,7 +128,7 @@ def simular(db, promo, items, redondeo) -> tuple[Decimal, dict[int, Decimal], se
     if promo.tipo is TipoPromocion.PORCENTAJE:
         for i in candidatos:
             finales[i.id] = aplicar_descuentos(i.precio_lista, i.producto.descuento_producto,
-                                               Decimal(promo.porcentaje_descuento), redondeo)
+                                               Decimal(promo.porcentaje_descuento))
             en_promo.add(i.id)
     else:
         en_grupo, gratis = elegir_unidades_gratis(candidatos, promo)
@@ -140,11 +140,11 @@ def simular(db, promo, items, redondeo) -> tuple[Decimal, dict[int, Decimal], se
     return ahorro, finales, en_promo
 
 
-def mejor_promocion(db, candidatas, items, redondeo) -> Promocion | None:
+def mejor_promocion(db, candidatas, items) -> Promocion | None:
     """La de mayor ahorro; empate → menor id; `None` si ninguna ahorra > 0."""
     mejor, mejor_ahorro = None, Decimal("0")
     for promo in candidatas:
-        ahorro, _, _ = simular(db, promo, items, redondeo)
+        ahorro, _, _ = simular(db, promo, items)
         if ahorro <= 0:
             continue
         if mejor is None or ahorro > mejor_ahorro or (ahorro == mejor_ahorro and promo.id < mejor.id):

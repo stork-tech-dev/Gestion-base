@@ -33,10 +33,10 @@ def _motivo_descuento(client, h_admin) -> int:
 
 
 def _rol_sin_descuento(client, h_admin) -> str:
-    """Rol personalizado con VENTAS ver pero SIN venta.descuento (ni el
-    "crear" general del módulo, que por sí solo ya habilitaría cualquier
-    recurso de ventas: resolver_permiso trata el permiso general del módulo
-    como válido también para sus recursos puntuales)."""
+    """Rol personalizado con solo VENTAS ver (sin "ventas crear"). Sirve para
+    probar `puede_vender`: sin "crear" no opera el carrito. No aísla
+    venta.descuento, que se hereda de "ventas crear" (resolver_permiso trata
+    el permiso general del módulo como válido para sus recursos)."""
     nombre = "Cajero sin descuento"
     r = client.post(URL_ROLES, json={"nombre": nombre}, headers=h_admin)
     assert r.status_code == 201
@@ -168,9 +168,10 @@ def test_permisos_del_carrito_descuento_y_anulacion(client, crear_usuario, heade
     assert r.status_code == 200
     assert r.json()["estado"] == "anulada"
 
-    # Un rol sin venta.descuento (ni el "crear" general, que ya lo habilitaría:
-    # ver resolver_permiso) no puede descontar. No hace falta armar un carrito
-    # propio: Depends(puede_descontar) corta con 403 antes de tocar la venta.
+    # Esto cubre `puede_vender`, no `puede_descontar`: un rol con solo VENTAS
+    # ver no puede operar el carrito (403 de Depends(puede_vender), que corta
+    # antes de evaluar el descuento). `venta.descuento` no se puede aislar: se
+    # hereda de "ventas crear" (decisión del usuario, docs/pendientes.md).
     rol_sin_descuento = _rol_sin_descuento(client, h_admin)
     otro = crear_usuario(rol=rol_sin_descuento)
     h_otro = headers_de(otro)

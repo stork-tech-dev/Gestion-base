@@ -82,7 +82,8 @@
       },
 
       porcentajeTexto(m) {
-        return m.porcentaje_sugerido === null ? 'Lo elige quien vende' : `${m.porcentaje_sugerido}%`;
+        // La API manda "10.00" (NUMERIC(5,2)): se muestra "10%".
+        return m.porcentaje_sugerido === null ? 'Lo elige quien vende' : `${Number(m.porcentaje_sugerido)}%`;
       },
 
       celdaEstado(m) {
@@ -109,7 +110,8 @@
         this.form = {
           id: m.id, nombre: m.nombre, nota: m.nota || '',
           sinSugerido: m.porcentaje_sugerido === null,
-          porcentaje_sugerido: m.porcentaje_sugerido === null ? '' : m.porcentaje_sugerido,
+          // "10.00" → "10", para que coincida con la opción del select.
+          porcentaje_sugerido: m.porcentaje_sugerido === null ? '' : String(Number(m.porcentaje_sugerido)),
           habilita_cuotas_sin_interes: m.habilita_cuotas_sin_interes,
           fecha_inicio: m.fecha_inicio || '', fecha_fin: m.fecha_fin || '',
           medio_de_pago_ids: [...m.medio_de_pago_ids],

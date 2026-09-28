@@ -217,10 +217,10 @@ def test_descuento_encadenado_hacia_abajo(db, e):
     assert item.precio_unitario == D("9000")
     venta = servicio.aplicar_descuento_item(db, e.vendedor, venta.id, item.id, motivo.id, 15, None)
     item = venta.items[0]
-    # 10000 × 0.9 × 0.85 = 7650 → hacia abajo al múltiplo de 1000 = 7000
-    assert item.precio_final == D("7000")
+    # 10000 × 0.9 × 0.85 = 7650 → hacia abajo al múltiplo de $10 = 7650
+    assert item.precio_final == D("7650")
     assert item.descuento_item == D("15") and item.motivo_descuento_id == motivo.id
-    assert venta.total == D("7000") and venta.descuento_total == D("3000")
+    assert venta.total == D("7650") and venta.descuento_total == D("2350")
     audit = _auditorias(db, "venta.descuento", venta.id)
     assert len(audit) == 1
     assert audit[0].estado_anterior == {"item_id": item.id, "descuento_item": "0.00", "motivo_descuento_id": None}
@@ -295,11 +295,11 @@ def test_elegir_promocion_a_mano_y_perderla_al_cambiar_el_carrito(db, e):
     venta = _venta(db, e.vendedor, e.p10, e.p8, e.p6)
     assert venta.promocion_id == dos_x_uno.id
     ofrecidas = {o["promocion"].id: o["ahorro"] for o in servicio.promociones_para_venta(db, venta)}
-    assert ofrecidas == {dos_x_uno.id: D("8000"), porcentaje.id: D("3000")}
+    assert ofrecidas == {dos_x_uno.id: D("8000"), porcentaje.id: D("2400")}
 
     venta = servicio.elegir_promocion(db, e.vendedor, venta.id, porcentaje.id)
     assert venta.promocion_id == porcentaje.id and venta.promocion_a_mano is True
-    assert venta.total == D("21000")          # 9000 + 7000 + 5000
+    assert venta.total == D("21600")          # 9000 + 7200 + 5400
     venta = servicio.recalcular(db, e.vendedor, venta.id)
     assert venta.promocion_id == porcentaje.id   # recalcular no la pierde
 
@@ -483,7 +483,7 @@ def test_pagos_borrados_recalcula_la_promocion_sin_ellos(db, e):
     assert venta.promocion_id is None and venta.total == D("16000")
     venta = servicio.quitar_item(db, e.vendedor, venta.id, venta.items[0].id)   # 6000 < 12000: se borran
     assert venta.pagos == []
-    assert venta.promocion_id == promo.id and venta.total == D("5000")   # 6000 × 0.9 = 5400 → 5000
+    assert venta.promocion_id == promo.id and venta.total == D("5400")   # 6000 × 0.9 = 5400 (múltiplo de $10)
 
 # --- Precio vivo ------------------------------------------------------------------------
 
