@@ -90,22 +90,35 @@ def _textos_como_texto(hoja) -> None:
                 celda.data_type = "s"
 
 
-def generar_plantilla(hoja: str, columnas: list[str], instrucciones: list[list], filas=None) -> bytes:
-    """Libro con la hoja de datos (encabezados en negrita, filas precargadas
-    opcionales) y una hoja "Instrucciones" (la primera fila en negrita)."""
+def generar_tabla(hoja: str, columnas: list[str], filas) -> bytes:
+    """Libro de una sola hoja (encabezados en negrita, anchos ajustados a los
+    datos, panel congelado bajo el encabezado y protegida contra fórmulas con
+    `_textos_como_texto`). Única definición: la reusan `generar_plantilla` y
+    cualquier reporte que exporte una tabla simple a Excel (ej. auditorías de
+    inventario)."""
     libro = Workbook()
     datos = libro.active
     datos.title = hoja
     datos.append(list(columnas))
-    for fila in filas or []:
+    for fila in filas:
         datos.append(list(fila))
     for celda in datos[1]:
         celda.font = Font(bold=True)
     for indice, columna in enumerate(columnas, start=1):
-        largo = max([len(str(columna))] + [len(str(f[indice - 1] or "")) for f in (filas or []) if len(f) >= indice])
+        largo = max([len(str(columna))] + [len(str(f[indice - 1] or "")) for f in filas if len(f) >= indice])
         datos.column_dimensions[get_column_letter(indice)].width = min(max(12, largo + 4), 60)
     datos.freeze_panes = "A2"
     _textos_como_texto(datos)
+
+    buffer = BytesIO()
+    libro.save(buffer)
+    return buffer.getvalue()
+
+
+def generar_plantilla(hoja: str, columnas: list[str], instrucciones: list[list], filas=None) -> bytes:
+    """Libro con la hoja de datos (`generar_tabla`, con filas precargadas
+    opcionales) y una hoja "Instrucciones" (la primera fila en negrita)."""
+    libro = load_workbook(BytesIO(generar_tabla(hoja, columnas, filas or [])))
 
     ayuda = libro.create_sheet("Instrucciones")
     for fila in instrucciones:

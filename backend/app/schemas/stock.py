@@ -1,10 +1,11 @@
-"""Esquemas de stock: ingresos, mínimos, motivos y bajas, y las respuestas de listado/movimientos."""
+"""Esquemas de stock: ingresos, mínimos, motivos y bajas, auditorías de
+inventario (conteos), y las respuestas de listado/movimientos."""
 from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
-from app.models import TipoMovimientoStock
+from app.models import EstadoAuditoriaInventario, TipoMovimientoStock
 
 
 class IngresoCrear(BaseModel):
@@ -97,3 +98,69 @@ class MovimientoResponse(BaseModel):
             referencia_venta_id=m.referencia_venta_id, usuario_id=m.usuario_id, usuario_nombre=m.usuario.nombre,
             timestamp=m.timestamp, notas=m.notas,
         )
+
+
+class AuditoriaIniciar(BaseModel):
+    filtro_categoria_id: int | None = None
+    notas: str | None = Field(default=None, max_length=500)
+
+
+class ItemContado(BaseModel):
+    producto_id: int
+    cantidad_contada: int = Field(ge=0, le=1_000_000)
+
+
+class ItemsRegistrar(BaseModel):
+    items: list[ItemContado] = Field(min_length=1, max_length=500)
+
+
+class ItemEditar(BaseModel):
+    cantidad_contada: int = Field(ge=0, le=1_000_000)
+
+
+class AuditoriaItemResponse(BaseModel):
+    id: int
+    producto_id: int
+    codigo: str
+    descripcion: str
+    cantidad_sistema: int
+    cantidad_contada: int
+    diferencia: int
+
+    @classmethod
+    def desde(cls, item) -> "AuditoriaItemResponse":
+        return cls(
+            id=item.id, producto_id=item.producto_id, codigo=item.producto.codigo_con_verificador,
+            descripcion=item.producto.descripcion, cantidad_sistema=item.cantidad_sistema,
+            cantidad_contada=item.cantidad_contada, diferencia=item.diferencia,
+        )
+
+
+class AuditoriaResponse(BaseModel):
+    id: int
+    estado: EstadoAuditoriaInventario
+    usuario_id: int
+    usuario_nombre: str
+    filtro_categoria_id: int | None
+    fecha_inicio: datetime
+    fecha_fin: datetime | None
+    notas: str | None
+    cantidad_items: int
+
+    @classmethod
+    def desde(cls, auditoria) -> "AuditoriaResponse":
+        return cls(
+            id=auditoria.id, estado=auditoria.estado, usuario_id=auditoria.usuario_id,
+            usuario_nombre=auditoria.usuario.nombre, filtro_categoria_id=auditoria.filtro_categoria_id,
+            fecha_inicio=auditoria.fecha_inicio, fecha_fin=auditoria.fecha_fin, notas=auditoria.notas,
+            cantidad_items=len(auditoria.items),
+        )
+
+
+class AuditoriaDetalle(AuditoriaResponse):
+    items: list[AuditoriaItemResponse]
+
+    @classmethod
+    def desde(cls, auditoria) -> "AuditoriaDetalle":
+        base = AuditoriaResponse.desde(auditoria)
+        return cls(**base.model_dump(), items=[AuditoriaItemResponse.desde(i) for i in auditoria.items])
