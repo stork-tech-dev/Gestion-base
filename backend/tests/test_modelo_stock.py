@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models import (
     AuditoriaInventario, AuditoriaItem, Categoria, EstadoAuditoriaInventario, Moneda, MotivoBaja,
-    MovimientoStock, Producto, Proveedor, TipoMovimientoStock, Usuario,
+    MovimientoStock, Producto, Proveedor, TipoMovimientoStock, Usuario, Venta,
 )
 
 
@@ -67,8 +67,12 @@ def test_checks_de_movimientos(db, base, extra):
 
 
 def test_baja_con_motivo_y_venta_con_referencia(db, base):
+    # referencia_venta_id es FK (sesión 06): no acepta un id inventado.
+    venta = Venta(numero="V-100002", usuario_id=base["usuario"].id)
+    db.add(venta)
+    db.flush()
     db.add_all([_mov(base, tipo=TipoMovimientoStock.BAJA, cantidad=-1, motivo_baja_id=base["motivo"].id),
-                _mov(base, tipo=TipoMovimientoStock.VENTA, cantidad=-1, referencia_venta_id=123)])
+                _mov(base, tipo=TipoMovimientoStock.VENTA, cantidad=-1, referencia_venta_id=venta.id)])
     db.flush()
 
 

@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.errores import SinPermiso
-from app.models import Auditoria, MovimientoStock, Producto, TipoMovimientoStock, UsuarioPermiso
+from app.models import Auditoria, MovimientoStock, Producto, TipoMovimientoStock, UsuarioPermiso, Venta
 from app.schemas.categorias import CategoriaCrear
 from app.schemas.productos import ProductoCrear
 from app.schemas.proveedores import ProveedorCrear
@@ -127,8 +127,12 @@ def test_listar_productos_stock_cero_incluye_cero_y_negativo_excluye_resto(db, a
     con_stock = _alta(db, admin, base, descripcion="Remera con stock", stock_inicial=5)
     sin_stock = _alta(db, admin, base, descripcion="Remera sin stock")
     negativa = _alta(db, admin, base, descripcion="Remera con faltante")
+    # referencia_venta_id es FK (sesión 06): no acepta un id inventado.
+    venta = Venta(numero="V-100003", usuario_id=admin.id)
+    db.add(venta)
+    db.flush()
     servicio_stock.aplicar_movimiento(db, admin, tipo=TipoMovimientoStock.VENTA, producto_id=negativa.id,
-                                      cantidad=-3, referencia_venta_id=1, permitir_faltante=True)
+                                      cantidad=-3, referencia_venta_id=venta.id, permitir_faltante=True)
     infinita = _alta(db, admin, base, descripcion="Remera infinita sin stock", stock_infinito=True)
 
     productos, total = servicio.listar_productos(db, stock_cero=True, tamano=50)

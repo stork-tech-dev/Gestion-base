@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
-from app.models import Auditoria, MotivoBaja, MovimientoStock, TipoMovimientoStock
+from app.models import Auditoria, MotivoBaja, MovimientoStock, TipoMovimientoStock, Venta
 from app.schemas.categorias import CategoriaCrear
 from app.schemas.productos import ProductoCrear, ProductoEditar
 from app.schemas.proveedores import ProveedorCrear
@@ -28,8 +28,13 @@ def base(db, crear_usuario):
         datos.update(extra)
         return servicio_productos.crear_producto(db, admin, ProductoCrear(**datos), None)
 
+    # Venta real: referencia_venta_id ahora es FK (sesión 06), no acepta un id inventado.
+    venta = Venta(numero="V-100001", usuario_id=admin.id)
+    db.add(venta)
+    db.flush()
+
     return {"admin": admin, "ropa": ropa, "hoja": hoja, "prov": prov, "alta": alta,
-            "motivo": db.scalar(select(MotivoBaja).limit(1))}
+            "motivo": db.scalar(select(MotivoBaja).limit(1)), "venta_id": venta.id}
 
 
 def test_ingreso_actualiza_stock_y_audita(db, base):
@@ -55,7 +60,7 @@ def test_salida_sin_stock_suficiente(db, base):
 def test_venta_con_faltante_deja_negativo(db, base):
     p = base["alta"]("Remera venta")
     m = servicio.aplicar_movimiento(db, base["admin"], tipo=TipoMovimientoStock.VENTA, producto_id=p.id, cantidad=-2,
-                                    referencia_venta_id=1, permitir_faltante=True)
+                                    referencia_venta_id=base["venta_id"], permitir_faltante=True)
     assert m.stock_resultante == -2 and p.stock == -2
 
 
@@ -74,13 +79,13 @@ def test_signo_incoherente(db, base, tipo, cantidad):
     p = base["alta"]("Remera signo")
     with pytest.raises(DatoInvalido):
         servicio.aplicar_movimiento(db, base["admin"], tipo=tipo, producto_id=p.id, cantidad=cantidad,
-                                    motivo_baja_id=base["motivo"].id, referencia_venta_id=1)
+                                    motivo_baja_id=base["motivo"].id, referencia_venta_id=base["venta_id"])
 
 
 def test_stock_infinito_no_se_toca(db, base):
     p = base["alta"]("Remera infinita", stock_infinito=True)
     m = servicio.aplicar_movimiento(db, base["admin"], tipo=TipoMovimientoStock.VENTA, producto_id=p.id, cantidad=-5,
-                                    referencia_venta_id=1)
+                                    referencia_venta_id=base["venta_id"])
     assert p.stock == 0 and m.stock_resultante == 0
     m = servicio.aplicar_movimiento(db, base["admin"], tipo=TipoMovimientoStock.BAJA, producto_id=p.id, cantidad=-5,
                                     motivo_baja_id=base["motivo"].id)
