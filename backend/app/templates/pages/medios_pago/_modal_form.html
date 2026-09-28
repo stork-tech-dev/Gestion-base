@@ -1,0 +1,16 @@
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo, campo_booleano %}
+{% call modal("Medio de pago", "modal-medio-form", abierto="formAbierto", titulo_expr="form.id ? 'Editar medio de pago' : 'Nuevo medio de pago'", ancho="max-w-md") %}
+<form @submit.prevent="guardar()" class="flex flex-col gap-4" novalidate>
+  {{ campo("medio-nombre", "Nombre", modelo="form.nombre", requerido=True, placeholder="Débito", error="errores.nombre") }}
+  <div class="flex flex-col gap-2">
+    {{ campo_booleano("medio-cuotas", "Se cobra en cuotas", "form.soporta_cuotas", atributos='@change="alAlternarCuotas()"') }}
+    {{ campo_booleano("medio-efectivo", "Es el efectivo de la caja", "form.es_efectivo", atributos='@change="alAlternarEfectivo()"') }}
+  </div>
+  <p class="text-sm text-texto-muted">El efectivo de la caja no admite cuotas.</p>
+  <div class="flex justify-end">
+    <button type="submit" class="boton boton-primario" :disabled="guardando"
+            x-text="guardando ? 'Guardando…' : (form.id ? 'Guardar' : 'Crear')"></button>
+  </div>
+</form>
+{% endcall %}

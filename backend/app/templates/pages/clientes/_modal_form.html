@@ -1,0 +1,11 @@
+{% from "components/modal.html" import modal %}
+{% from "components/cliente_form.html" import cliente_form %}
+{% call modal("Cliente", "modal-cliente-form", abierto="formAbierto", titulo_expr="form.id ? 'Editar cliente' : 'Nuevo cliente'") %}
+<form @submit.prevent="guardar()" class="flex flex-col gap-6" novalidate>
+  {{ cliente_form(modelo="form", errores="errores", prefijo="cliente", condiciones_iva=condiciones_iva) }}
+  <div class="flex justify-end">
+    <button type="submit" class="boton boton-primario" :disabled="guardando"
+            x-text="guardando ? 'Guardando…' : (form.id ? 'Guardar' : 'Crear')"></button>
+  </div>
+</form>
+{% endcall %}

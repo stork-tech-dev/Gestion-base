@@ -1,0 +1,20 @@
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% call modal("Plan de cuotas", "modal-plan-form", abierto="planFormAbierto", titulo_expr="planForm && planForm.id ? 'Editar plan' : 'Nuevo plan'", ancho="max-w-md") %}
+<template x-if="planForm">
+  <form @submit.prevent="guardarPlan()" class="flex flex-col gap-4" novalidate>
+    {{ campo("plan-cuotas", "Cuotas", tipo="number", modelo="planForm.cuotas", requerido=True, error="erroresPlan.cuotas",
+             atributos='min="1" max="60" step="1" inputmode="numeric"') }}
+    {{ campo("plan-recargo", "Recargo al cliente %", tipo="number", modelo="planForm.recargo_cliente", error="erroresPlan.recargo_cliente",
+             ayuda="0 = sin interés.", atributos='min="0" max="100" step="0.01" inputmode="decimal"') }}
+    {{ campo("plan-costo", "Costo del medio %", tipo="number", modelo="planForm.costo_medio", error="erroresPlan.costo_medio",
+             ayuda="Solo para reportes: nunca afecta lo que paga el cliente.", atributos='min="0" max="100" step="0.01" inputmode="decimal"') }}
+    {{ campo("plan-minimo", "Monto mínimo", tipo="number", modelo="planForm.monto_minimo", error="erroresPlan.monto_minimo",
+             atributos='min="0" step="0.01" inputmode="decimal"') }}
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario" :disabled="guardandoPlan"
+              x-text="guardandoPlan ? 'Guardando…' : (planForm.id ? 'Guardar' : 'Crear')"></button>
+    </div>
+  </form>
+</template>
+{% endcall %}

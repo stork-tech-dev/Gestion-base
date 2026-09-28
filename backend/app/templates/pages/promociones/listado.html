@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/switch_activos.html" import switch_activos %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Promociones · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="promocionesListado({ puedeEditar: {{ puede_editar|js }} })">
+  {% call encabezado("Promociones", "/configuracion", "Configuraciones") %}
+    {% if puede_crear %}
+    <button type="button" class="boton boton-acento" @click="nuevo()">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="promociones encontradas", extras=switch_activos("soloActivos", "cargar()")) %}
+    <input type="search" class="campo" placeholder="Nombre" aria-label="Filtrar por nombre" x-model="filtros.nombre" @input="filtrar()">
+    <select class="campo" aria-label="Tipo" x-model="filtros.tipo" @change="cargar()">
+      <option value="">Tipo (todos)</option>
+      <option value="dos_x_uno">2x1</option>
+      <option value="tres_x_dos">3x2</option>
+      <option value="porcentaje">% Porcentaje</option>
+    </select>
+    <select class="campo" aria-label="Vigencia" x-model="filtros.vigencia" @change="cargar()">
+      <option value="">Vigencia (todas)</option>
+      <option value="true">Rige hoy</option>
+      <option value="false">No rige hoy</option>
+    </select>
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Nombre", "expr": "celdaNombre(fila)", "html": True},
+    {"titulo": "Tipo", "expr": "tipoTexto(fila)"},
+    {"titulo": "Alcance", "expr": "alcanceResumen(fila)"},
+    {"titulo": "Vigencia", "expr": "vigenciaTexto(fila)"},
+    {"titulo": "Estado", "expr": "celdaEstado(fila)", "html": True},
+  ] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay promociones con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(fila)"') }}
+      {{ accion("borrar", texto="Desactivar", atributos='x-show="puedeEditar && fila.activo" @click="cambiarEstado(fila, false)"') }}
+      {{ accion("activar", atributos='x-show="puedeEditar && !fila.activo" @click="cambiarEstado(fila, true)"') }}
+    {% endcall %}
+  {% endcall %}
+
+  {% include "pages/promociones/_modal_form.html" %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/promociones.js') }}"></script>{% endblock %}

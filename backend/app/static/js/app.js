@@ -182,6 +182,14 @@
   window.estadoHtml = (texto, variante = 'neutro') =>
     `<span class="text-sm font-semibold ${CLASES_ESTADO[variante] || CLASES_ESTADO.neutro}">${window.escaparHtml(texto)}</span>`;
 
+  // Mismas clases que badge() de components/badge.html (marcas con fondo en celdas x-html de tablas).
+  const CLASES_BADGE = {
+    exito: 'bg-success/15 text-success', peligro: 'bg-danger/15 text-danger',
+    primario: 'bg-primary/15 text-primary', neutro: 'bg-surface-alt text-texto-muted',
+  };
+  window.badgeHtml = (texto, variante = 'neutro') =>
+    `<span class="inline-flex items-center rounded-pill px-2.5 py-0.5 text-xs font-semibold ${CLASES_BADGE[variante] || CLASES_BADGE.neutro}">${window.escaparHtml(texto)}</span>`;
+
   // ---------- Fechas (la API manda hora del negocio sin zona: no convertir) ----------
   function partesFecha(iso) {
     const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/.exec(String(iso ?? ''));

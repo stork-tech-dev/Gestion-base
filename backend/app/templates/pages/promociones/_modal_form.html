@@ -1,0 +1,86 @@
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% from "components/combobox.html" import combobox %}
+{% from "components/icons.html" import icono %}
+{% call modal("Promoción", "modal-promocion-form", abierto="formAbierto", titulo_expr="form.id ? 'Editar promoción' : 'Nueva promoción'", ancho="max-w-3xl") %}
+<form @submit.prevent="guardar()" class="flex flex-col gap-6" novalidate>
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+    {{ campo("promo-nombre", "Nombre", modelo="form.nombre", requerido=True, placeholder="2x1 Plata", error="errores.nombre") }}
+    <div class="flex flex-col gap-1">
+      <label for="promo-tipo" class="text-lg font-medium text-texto">Tipo <span class="text-danger">*</span></label>
+      <select id="promo-tipo" class="campo" x-model="form.tipo" required>
+        <option value="dos_x_uno">2x1 — por cada 2, la más barata es $0</option>
+        <option value="tres_x_dos">3x2 — por cada 3, la más barata es $0</option>
+        <option value="porcentaje">% Porcentaje — descuento fijo sobre precio</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-1">
+    <label for="promo-nota" class="text-lg font-medium text-texto">Nota</label>
+    <textarea id="promo-nota" rows="2" class="campo" x-model="form.nota"></textarea>
+  </div>
+
+  <div x-show="form.tipo === 'porcentaje'" x-cloak class="sm:w-1/2">
+    {{ campo("promo-porcentaje", "% de descuento", tipo="number", modelo="form.porcentaje_descuento", error="errores.porcentaje_descuento",
+             atributos='x-bind:required="form.tipo === \'porcentaje\'" min="1" max="75" step="1" inputmode="numeric"') }}
+  </div>
+
+  <fieldset class="flex flex-col gap-1">
+    <legend class="text-lg font-medium text-texto">Vigencia</legend>
+    <div class="grid grid-cols-2 gap-2">
+      <input type="date" class="campo" aria-label="Vigencia desde" x-model="form.fecha_inicio">
+      <input type="date" class="campo" aria-label="Vigencia hasta" x-model="form.fecha_fin">
+    </div>
+    <p class="text-sm text-texto-muted">Vacío = sin límite.</p>
+  </fieldset>
+
+  <fieldset class="flex flex-col gap-3 rounded-input border border-borde p-4">
+    <legend class="text-lg font-medium text-texto">Alcance</legend>
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-[9rem,1fr,auto] sm:items-end">
+      <div class="flex flex-col gap-1">
+        <label for="promo-alcance-tipo" class="text-sm text-texto-muted">Tipo</label>
+        <select id="promo-alcance-tipo" class="campo" x-model="nuevoAlcanceTipo">
+          <option value="producto">Producto</option>
+          <option value="categoria">Categoría</option>
+          <option value="todos_productos">Todos los productos</option>
+          <option value="todos_categorias">Todas las categorías</option>
+        </select>
+      </div>
+      <div x-show="nuevoAlcanceTipo === 'producto'" x-cloak>
+        {{ combobox("promo-alcance-producto", "catalogo.productos", "nuevoProductoId", texto="descripcion", etiqueta="Producto", vacio="Elegí un producto") }}
+      </div>
+      <div x-show="nuevoAlcanceTipo === 'categoria'" x-cloak>
+        {{ combobox("promo-alcance-categoria", "catalogo.categorias", "nuevoCategoriaId", texto="camino", etiqueta="Categoría", vacio="Elegí una categoría") }}
+      </div>
+      <button type="button" class="boton boton-secundario" @click="agregarAlcance()">Agregar</button>
+    </div>
+    <ul class="flex flex-col gap-2">
+      <template x-for="(a, indice) in form.alcances" :key="a.tipo_alcance + '_' + a.referencia_id">
+        <li class="flex items-center justify-between gap-2 rounded-input border border-borde px-3 py-2">
+          <span class="text-texto" x-text="textoAlcance(a)"></span>
+          <button type="button" class="btn-accion hover:text-danger" @click="quitarAlcance(indice)" title="Quitar" aria-label="Quitar">{{ icono("borrar") }}</button>
+        </li>
+      </template>
+      <li x-show="!form.alcances.length" class="text-sm text-texto-muted">Elegí a qué productos alcanza.</li>
+    </ul>
+  </fieldset>
+
+  <fieldset class="flex flex-col gap-2">
+    <legend class="text-lg font-medium text-texto">Medios de pago</legend>
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <template x-for="medio in catalogo.medios" :key="medio.id">
+        <label class="inline-flex min-h-toque cursor-pointer items-center gap-2 text-texto">
+          <input type="checkbox" class="acceso-check" :checked="form.medio_de_pago_ids.includes(medio.id)" @change="alternarMedio(medio.id)">
+          <span x-text="medio.nombre"></span>
+        </label>
+      </template>
+    </div>
+    <p class="text-sm text-texto-muted">Ninguno marcado = todos los medios de pago.</p>
+  </fieldset>
+
+  <div class="flex justify-end">
+    <button type="submit" class="boton boton-primario" :disabled="guardando" x-text="guardando ? 'Guardando…' : (form.id ? 'Guardar' : 'Crear')"></button>
+  </div>
+</form>
+{% endcall %}

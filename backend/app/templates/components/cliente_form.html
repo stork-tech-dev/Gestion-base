@@ -1,0 +1,27 @@
+{% from "components/form_field.html" import campo, campo_select %}
+{# Campos del formulario de cliente (alta y edición): datos fiscales que hoy
+   no entran en ningún cálculo, quedan cargados para una futura facturación
+   electrónica. Reusado por `/clientes` y, en la sesión de Ventas, por el alta
+   rápida de la pantalla de venta — por eso es una macro de solo-campos (sin
+   <form> ni modal propios): cada página la envuelve en su propio formulario.
+   `modelo`: expresión Alpine del objeto con los datos (ej. "form").
+   `errores`: expresión Alpine de los errores 422 (ej. "errores").
+   `prefijo`: para que los id/for de los inputs no choquen si la página tiene
+   más de una instancia del formulario. #}
+{% macro cliente_form(modelo="form", errores="errores", prefijo="cliente", condiciones_iva=[]) -%}
+{%- set cuit_obligatorio = modelo ~ ".condicion_iva !== 'consumidor_final'" -%}
+<div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+  {{ campo(prefijo ~ "-nombre", "Nombre o razón social", modelo=modelo ~ ".nombre", requerido=True,
+           placeholder="Leandra Carballo", error=errores ~ ".nombre") }}
+  {{ campo(prefijo ~ "-dni", "DNI", modelo=modelo ~ ".dni", placeholder="39059158", error=errores ~ ".dni") }}
+  {{ campo_select(prefijo ~ "-condicion-iva", "Condición IVA", condiciones_iva, modelo=modelo ~ ".condicion_iva",
+                  requerido=True, vacio=None, error=errores ~ ".condicion_iva") }}
+  {{ campo(prefijo ~ "-cuit", "CUIT", modelo=modelo ~ ".cuit", placeholder="20390591587", error=errores ~ ".cuit",
+           requerido_si=cuit_obligatorio, atributos='x-bind:required="' ~ cuit_obligatorio ~ '"') }}
+  {{ campo(prefijo ~ "-domicilio", "Domicilio", modelo=modelo ~ ".domicilio", error=errores ~ ".domicilio") }}
+  {{ campo(prefijo ~ "-cp", "Código postal", modelo=modelo ~ ".codigo_postal", error=errores ~ ".codigo_postal") }}
+  {{ campo(prefijo ~ "-localidad", "Localidad", modelo=modelo ~ ".localidad", error=errores ~ ".localidad") }}
+  {{ campo(prefijo ~ "-telefono", "Teléfono", tipo="tel", modelo=modelo ~ ".telefono", error=errores ~ ".telefono") }}
+  {{ campo(prefijo ~ "-email", "Email", tipo="email", modelo=modelo ~ ".email", error=errores ~ ".email") }}
+</div>
+{%- endmacro %}

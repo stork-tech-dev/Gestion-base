@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/paginacion.html" import paginacion %}
+{% from "components/switch_activos.html" import switch_activos %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Clientes · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="clientesListado({ puedeCrear: {{ puede_crear|js }}, puedeEditar: {{ puede_editar|js }}, puedeVerPromociones: {{ puede_ver_promociones|js }}, condicionesIva: {{ condiciones_iva|js }} })">
+  {% call encabezado("Clientes") %}
+    {% if puede_crear %}
+    <button type="button" class="boton boton-acento" @click="nuevo()">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="clientes encontrados", extras=switch_activos("soloActivos", "pagina = 1; cargar()")) %}
+    <input type="search" class="campo" placeholder="Nombre, DNI o CUIT" aria-label="Buscar por nombre, DNI o CUIT" x-model="filtros.busqueda" @input="filtrar()">
+    <input type="search" class="campo" placeholder="Localidad" aria-label="Filtrar por localidad" x-model="filtros.localidad" @input="filtrar()">
+    <select class="campo" aria-label="Condición IVA" x-model="filtros.condicion_iva" @change="pagina = 1; cargar()">
+      <option value="">Condición IVA (todas)</option>
+      {% for valor, texto in condiciones_iva %}<option value="{{ valor }}">{{ texto }}</option>{% endfor %}
+    </select>
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Nombre", "expr": "fila.nombre"},
+    {"titulo": "DNI", "expr": "fila.dni || '—'"},
+    {"titulo": "CUIT", "expr": "fila.cuit || '—'"},
+    {"titulo": "Condición IVA", "expr": "condicionIvaTexto(fila)"},
+    {"titulo": "Localidad", "expr": "fila.localidad || '—'"},
+    {"titulo": "Teléfono", "expr": "fila.telefono || '—'"},
+    {"titulo": "Estado", "expr": "celdaEstado(fila)", "html": True},
+  ] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay clientes con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("ver", atributos='@click="ver(fila)"') }}
+      {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(fila)"') }}
+      {{ accion("borrar", texto="Desactivar", atributos='x-show="puedeEditar && fila.activo" @click="cambiarEstado(fila, false)"') }}
+      {{ accion("activar", atributos='x-show="puedeEditar && !fila.activo" @click="cambiarEstado(fila, true)"') }}
+    {% endcall %}
+  {% endcall %}
+  {{ paginacion() }}
+
+  {% include "pages/clientes/_modal_ficha.html" %}
+  {% include "pages/clientes/_modal_form.html" %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/clientes.js') }}"></script>{% endblock %}

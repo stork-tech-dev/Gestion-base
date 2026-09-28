@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/switch_activos.html" import switch_activos %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Medios de pago · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="mediosPagoListado({ puedeEditar: {{ puede_editar|js }} })">
+  {% call encabezado("Medios de pago", "/configuracion", "Configuraciones") %}
+    {% if puede_crear %}
+    <button type="button" class="boton boton-acento" @click="nuevo()">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="medios de pago encontrados", extras=switch_activos("soloActivos", "cargar()")) %}
+    <input type="search" class="campo" placeholder="Nombre" aria-label="Filtrar por nombre" x-model="filtros.nombre" @input="filtrar()">
+    <select class="campo" aria-label="Cuotas" x-model="filtros.cuotas" @change="cargar()">
+      <option value="">Cuotas (todos)</option>
+      <option value="true">Con cuotas</option>
+      <option value="false">Sin cuotas</option>
+    </select>
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Nombre", "expr": "fila.nombre"},
+    {"titulo": "Marcas", "expr": "celdaMarcas(fila)", "html": True},
+    {"titulo": "Estado", "expr": "celdaEstado(fila)", "html": True},
+  ] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay medios de pago con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("ver", atributos='@click="ver(fila)"') }}
+      {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(fila)"') }}
+      {{ accion("borrar", texto="Desactivar", atributos='x-show="puedeEditar && fila.activo" @click="cambiarEstado(fila, false)"') }}
+      {{ accion("activar", atributos='x-show="puedeEditar && !fila.activo" @click="cambiarEstado(fila, true)"') }}
+    {% endcall %}
+  {% endcall %}
+
+  {% include "pages/medios_pago/_modal_ficha.html" %}
+  {% include "pages/medios_pago/_modal_form.html" %}
+  {% include "pages/medios_pago/_modal_plan_form.html" %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/medios_pago.js') }}"></script>{% endblock %}
