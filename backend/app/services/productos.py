@@ -165,6 +165,14 @@ def crear_producto(db, autor, datos, ip) -> Producto:
     db.refresh(producto)
     registrar_auditoria(db, accion="producto.crear", entidad="producto", entidad_id=producto.id,
                         usuario_id=autor.id, estado_nuevo=producto, ip_origen=ip)
+    if datos.stock_inicial and not producto.stock_infinito:
+        # Import local: stock importa de productos (condiciones_codigo), así que
+        # a nivel de módulo quedaría un ciclo. El producto ya está flusheado
+        # (con id), así que aplicar_movimiento lo bloquea y lo ve sin problema
+        # dentro de esta misma transacción.
+        from app.services.stock import registrar_ingreso
+        registrar_ingreso(db, autor, producto.id, datos.stock_inicial, "Stock inicial", ip)
+        db.refresh(producto)
     return producto
 
 
@@ -266,7 +274,8 @@ def buscar_por_codigo(db, codigo: str) -> Producto:
 def listar_productos(db, *, busqueda: str | None = None, categoria_id: int | None = None,
                      proveedor_id: int | None = None, temporada: TemporadaProducto | None = None,
                      activo: bool | None = None, precio_desde: Decimal | None = None,
-                     precio_hasta: Decimal | None = None, pagina: int = 1, tamano: int = 10) -> tuple[list[Producto], int]:
+                     precio_hasta: Decimal | None = None, stock_cero: bool = False,
+                     pagina: int = 1, tamano: int = 10) -> tuple[list[Producto], int]:
     condiciones = []
     if busqueda and busqueda.strip():
         condiciones.append(or_(condiciones_codigo(busqueda), filtro_texto(Producto.sku_proveedor, busqueda),
@@ -283,6 +292,9 @@ def listar_productos(db, *, busqueda: str | None = None, categoria_id: int | Non
         condiciones.append(Producto.precio_venta >= precio_desde)
     if precio_hasta is not None:
         condiciones.append(Producto.precio_venta <= precio_hasta)
+    if stock_cero:
+        condiciones.append(Producto.stock <= 0)
+        condiciones.append(Producto.stock_infinito.is_(False))
     pagina, tamano = paginar(pagina, tamano, TAMANO_MAXIMO)
     total = db.scalar(select(func.count()).select_from(Producto).where(*condiciones))
     productos = db.scalars(

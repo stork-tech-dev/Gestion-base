@@ -25,6 +25,8 @@ class ProductoDatos(BaseModel):
 class ProductoCrear(ProductoDatos):
     proveedor_id: int
     margen: Decimal | None = Field(default=None, ge=0, le=1000, decimal_places=2)   # None → margen_default
+    # Con stock_infinito=True se ignora (no genera movimiento de stock).
+    stock_inicial: int = Field(0, ge=0, le=1_000_000)
 
 
 class ProductoEditar(ProductoDatos):
@@ -88,6 +90,9 @@ class ProductoResponse(BaseModel):
     temporada: TemporadaProducto
     ubicacion_deposito: str | None
     stock_infinito: bool
+    stock: int
+    stock_minimo: int
+    bajo_minimo: bool
     activo: bool
     foto_url: str | None
     created_at: datetime
@@ -106,6 +111,7 @@ class ProductoResponse(BaseModel):
             precio_venta=producto.precio_venta, descuento_producto=producto.descuento_producto,
             peso_gramos=producto.peso_gramos, temporada=producto.temporada,
             ubicacion_deposito=producto.ubicacion_deposito, stock_infinito=producto.stock_infinito,
+            stock=producto.stock, stock_minimo=producto.stock_minimo, bajo_minimo=producto.bajo_minimo,
             activo=producto.activo, foto_url=producto.foto_principal_url,
             created_at=producto.created_at, updated_at=producto.updated_at,
         )
