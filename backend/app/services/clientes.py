@@ -11,7 +11,8 @@ from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.codigos import cuit_es_valido
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
 from app.core.utils import filtro_texto, normalizar_texto, paginar
-from app.models import Cliente, ClientePromocion, CondicionIva, EstadoVenta, Promocion, Venta
+from app.models import Cliente, CondicionIva, EstadoVenta, Venta
+from app.services.promociones import promociones_de_cliente
 
 TAMANO_MAXIMO = 100
 LIMITE_BUSQUEDA_MAXIMO = 20
@@ -163,19 +164,13 @@ def cambiar_estado(db, autor, cliente: Cliente, activo: bool, ip) -> Cliente:
 
 def ficha(db, cliente_id: int) -> dict:
     """Cliente + resumen de compras (ventas CONFIRMADA, no anuladas) +
-    promociones exclusivas. Las promociones se consultan directo por ahora
-    (Task 3 todavía no define services.promociones); Task 3 podrá agregar acá
-    `promociones_de_cliente` si conviene reusarla."""
+    promociones exclusivas (services.promociones.promociones_de_cliente)."""
     cliente = obtener_cliente(db, cliente_id)
     compras_cantidad, compras_total = db.execute(
         select(func.count(Venta.id), func.coalesce(func.sum(Venta.total), 0))
         .where(Venta.cliente_id == cliente_id, Venta.estado == EstadoVenta.CONFIRMADA)
     ).one()
-    promociones = list(db.scalars(
-        select(Promocion).join(ClientePromocion, ClientePromocion.promocion_id == Promocion.id)
-        .where(ClientePromocion.cliente_id == cliente_id)
-        .order_by(func.lower(Promocion.nombre))
-    ).all())
+    promociones = promociones_de_cliente(db, cliente_id)
     return {
         "cliente": cliente,
         "promociones": promociones,
