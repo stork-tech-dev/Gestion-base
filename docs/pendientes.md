@@ -100,6 +100,27 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
   con conexiones/hilos separados) y tests JS (`node --test`) de `stock.js` y
   `auditorias.js`: hoy ninguno de los dos módulos tiene cobertura JS propia.
 
+## Módulo 06: pendientes
+- **`venta.descuento` se hereda del permiso general `ventas crear`**
+  (`resolver_permiso` del módulo 02): quien puede vender también puede
+  descontar; la casilla "Descuentos en ventas" del rol solo importa para
+  roles sin `VENTAS crear`. Decisión del usuario: se deja así.
+- El filtro Vendedor de `/ventas/resumen-ventas` sale de `GET /ventas/vendedores`
+  (solo usuarios activos): la venta de un vendedor después desactivado sigue
+  apareciendo en la tabla pero ya no se puede filtrar por él.
+- Verificar a mano en el navegador la pantalla de venta (columna fija, selects
+  de pagos, flujo de dos medios, F2/F10/ESC con lector de código).
+
+### Para la sesión 07 (turnos de caja)
+- Reemplazar `services/ventas.py::_turno_para_operar` por
+  `services.turnos.turno_para_operar()`: hoy devuelve siempre `None` y no
+  bloquea nada (desvío técnico 7 de `.superpowers/sdd/.../constraints.md`).
+- Sumar las columnas `turno_id` y `turno_anulacion_id` a `ventas` (hoy quedan
+  `NULL` en toda venta confirmada o anulada).
+- El aviso de turno de `/ventas/nueva` (`hay_turno`, fijo en `True` en
+  `app/api/pages.py::venta_nueva`) tiene que leer el turno real del usuario.
+- Agregar el test "confirmar sin turno de caja abierto de hoy → 409".
+
 ## Verificación manual pendiente (navegador)
 - Tema claro/oscuro sin recargar, cajón del sidebar debajo de 1024px, sin
   scroll horizontal de 320px a 1920px, y botones de al menos 44px en modo

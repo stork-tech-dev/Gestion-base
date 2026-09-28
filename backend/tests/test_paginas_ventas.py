@@ -1,7 +1,8 @@
 """Páginas HTML de la sesión de Ventas construidas en la Task 6: /clientes
 (ítem propio del sidebar) y los tres catálogos de configuración registrados
 en bucle (`_CATALOGOS_VENTAS`): /medios-de-pago, /motivos-descuento y
-/promociones; y los de la Task 7: el hub /ventas y la pantalla /ventas/nueva.
+/promociones; las de la Task 7: el hub /ventas y la pantalla /ventas/nueva; y
+la de la Task 8: /ventas/resumen-ventas (listado + detalle + anulación).
 La visibilidad usa la misma barrera que la API
 (resolver_permiso); acá solo se verifica que el layout arme lo esperado."""
 from app.models import Rol
@@ -173,3 +174,40 @@ def test_venta_nueva_sin_ventas_crear_da_403(client, crear_usuario, iniciar_sesi
     html = sesion.get("/ventas").text
     assert 'href="/ventas/nueva"' not in html
     assert 'href="/ventas/resumen-ventas"' in html
+
+
+# --- /ventas/resumen-ventas (Task 8) -----------------------------------------------
+
+def test_resumen_ventas_vendedor(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("vendedor")).get("/ventas/resumen-ventas").text
+    assert "ventasResumen(" in html and "/static/js/ventas.js?v=" in html
+    assert 'href="/ventas"' in html
+    # Vendedor: VENTAS ver + crear, sin venta.anular (seed.sql: solo el
+    # supervisor tiene el override puntual de ese recurso).
+    assert "puedeAnular: false" in html
+
+
+def test_resumen_ventas_supervisor_puede_anular(crear_usuario, iniciar_sesion):
+    # Supervisor: VENTAS ver (general) + venta.anular (recurso puntual, seed.sql).
+    html = iniciar_sesion(crear_usuario("supervisor")).get("/ventas/resumen-ventas").text
+    assert "puedeAnular: true" in html
+
+
+def test_resumen_ventas_admin_puede_anular(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("admin")).get("/ventas/resumen-ventas").text
+    assert "puedeAnular: true" in html
+
+
+def test_resumen_ventas_pasa_el_cliente_id_de_la_query(crear_usuario, iniciar_sesion):
+    # Enlace desde la ficha del cliente ("Ver compras"): no es un filtro
+    # persistido, solo el valor inicial del chip quitable.
+    sesion = iniciar_sesion(crear_usuario("vendedor"))
+    html = sesion.get("/ventas/resumen-ventas?cliente_id=42").text
+    assert "clienteIdInicial: 42" in html
+    html_sin_query = sesion.get("/ventas/resumen-ventas").text
+    assert "clienteIdInicial: null" in html_sin_query
+
+
+def test_resumen_ventas_sin_permiso_da_403(db, crear_usuario, iniciar_sesion):
+    respuesta = iniciar_sesion(_sin_permisos(db, crear_usuario)).get("/ventas/resumen-ventas")
+    assert respuesta.status_code == 403

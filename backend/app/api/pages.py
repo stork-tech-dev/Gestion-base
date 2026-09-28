@@ -14,6 +14,7 @@ from app.core.errores import NoEncontrado, SinPermiso
 from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
+from app.core.utils import ahora_db
 from app.models import NIVEL_MAXIMO, CondicionIva, TemporadaProducto, Usuario
 from app.services import auditoria_inventario as servicio_auditorias
 from app.services import descuentos as servicio_descuentos
@@ -533,4 +534,16 @@ def venta_nueva(request: Request, db: Session = Depends(get_db),
         # Sesión 07: saldrá de services.turnos (turno de caja abierto de hoy).
         # Hasta entonces no hay turnos y confirmar no se bloquea.
         hay_turno=True,
+    ))
+
+
+@router.get("/ventas/resumen-ventas")
+def resumen_ventas(request: Request, cliente_id: int | None = None, db: Session = Depends(get_db),
+                   usuario: Usuario = Depends(requiere_pagina(SECCION_RESUMEN_VENTAS, actual="/ventas"))):
+    # `cliente_id` es un enlace desde la ficha del cliente (chip quitable en
+    # la pantalla), no un filtro que la pantalla persista entre visitas.
+    return _pagina(request, "pages/ventas/listado.html", _contexto_ventas(
+        request, db, usuario,
+        cliente_id_inicial=cliente_id,
+        hoy_iso=ahora_db().date().isoformat(),
     ))
