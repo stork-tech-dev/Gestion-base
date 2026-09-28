@@ -4,9 +4,20 @@
 {% from "components/paginacion.html" import paginacion %}
 {% from "components/combobox.html" import combobox %}
 {% from "components/switch_estado.html" import switch_estado %}
+{% from "components/switch_activos.html" import switch_base %}
 {% from "components/botones.html" import accion, acciones %}
 {% from "components/icons.html" import icono %}
 {% from "components/producto_form.html" import producto_form_modal %}
+{# Acciones de fila: iguales con o sin la columna de checkboxes de "Stock 0"
+   (se factoriza para no repetir los 4 accion() en las dos variantes de tabla). #}
+{% macro fila_acciones() %}
+{% call acciones() %}
+  {{ accion("ver", atributos='@click="abrirFicha(fila)"') }}
+  {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(fila)"') }}
+  {{ accion("borrar", texto="Desactivar", atributos='x-show="puedeEditar && fila.activo" @click="cambiarEstado(fila)"') }}
+  {{ accion("activar", atributos='x-show="puedeEditar && !fila.activo" @click="cambiarEstado(fila)"') }}
+{% endcall %}
+{% endmacro %}
 {% block titulo %}Productos · {{ APP_NAME }}{% endblock %}
 {% block contenido %}
 <div x-data="productosListado({ puedeEditar: {{ puede_editar|js }}, temporadas: {{ temporadas|js }} })">
@@ -17,7 +28,11 @@
     {% endif %}
   {% endcall %}
 
-  {% call barra_filtros(etiqueta="productos encontrados", extras=switch_estado(modelo="filtros.activos", al_cambiar="cargar(1)")) %}
+  {% set filtro_extras %}
+    {{ switch_estado(modelo="filtros.activos", al_cambiar="cargar(1)") }}
+    {{ switch_base("filtros.stock_cero", "alternarStockCero()", "switch-stock-cero", "Stock 0") }}
+  {% endset %}
+  {% call barra_filtros(etiqueta="productos encontrados", extras=filtro_extras) %}
     <input type="search" class="campo" placeholder="Código, SKU o descripción" aria-label="Buscar por código, SKU o descripción" x-model="filtros.busqueda" @input="filtrar()">
     {{ combobox("filtro-categoria", "categoriasOpciones", "filtros.categoria_id", texto="texto", vacio="Categoría (todas)", al_cambiar="cargar(1)") }}
     {{ combobox("filtro-proveedor", "proveedores", "filtros.proveedor_id", texto="nombre", vacio="Proveedor (todos)", al_cambiar="cargar(1)") }}
@@ -33,17 +48,33 @@
     {"titulo": "Costo", "expr": "costoTexto(fila)"},
     {"titulo": "Margen %", "expr": "fila.margen + ' %'"},
     {"titulo": "Precio de venta", "expr": "pesos(fila.precio_venta)"},
+    {"titulo": "Stock", "expr": "stockHtml(fila)", "html": True, "clase": "text-right"},
   ] %}
+  {% set columnas_seleccion = [{"titulo": "", "expr": "checkboxHtml(fila)", "html": True, "clase": "w-10"}] + columnas %}
   {# Con el switch en "Activos" y una búsqueda sin resultados: el producto puede estar inactivo. #}
   <p class="mb-3 text-sm text-texto-muted" x-show="sugerirInactivos" x-cloak>¿Buscás un producto inactivo? Cambiá el switch a Inactivos.</p>
-  {% call tabla(columnas, cargando="cargando", vacio="No hay productos con esos filtros.") %}
-    {% call acciones() %}
-      {{ accion("ver", atributos='@click="abrirFicha(fila)"') }}
-      {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(fila)"') }}
-      {{ accion("borrar", texto="Desactivar", atributos='x-show="puedeEditar && fila.activo" @click="cambiarEstado(fila)"') }}
-      {{ accion("activar", atributos='x-show="puedeEditar && !fila.activo" @click="cambiarEstado(fila)"') }}
-    {% endcall %}
-  {% endcall %}
+
+  {# "Stock 0" + puedeEditar: agrega la columna de checkboxes, "seleccionar todos
+     los de la página" y "Desactivar seleccionados". Sin ese cruce, la tabla normal. #}
+  <template x-if="filtros.stock_cero && puedeEditar">
+    <div>
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <label class="inline-flex min-h-toque cursor-pointer items-center gap-2 text-sm text-texto">
+          <input type="checkbox" class="h-5 w-5" :checked="todosSeleccionadosDeLaPagina" @change="alternarTodos($event.target.checked)">
+          <span>Seleccionar todos los de esta página</span>
+        </label>
+        <button type="button" class="boton boton-peligro" :disabled="!seleccionados.size || desactivando" @click="desactivarSeleccionados()">
+          <span x-text="desactivando ? 'Desactivando…' : ('Desactivar seleccionados' + (seleccionados.size ? ' (' + seleccionados.size + ')' : ''))"></span>
+        </button>
+      </div>
+      <div @click="alternarSeleccionClick($event)">
+        {% call tabla(columnas_seleccion, cargando="cargando", vacio="No hay productos con esos filtros.") %}{{ fila_acciones() }}{% endcall %}
+      </div>
+    </div>
+  </template>
+  <template x-if="!(filtros.stock_cero && puedeEditar)">
+    {% call tabla(columnas, cargando="cargando", vacio="No hay productos con esos filtros.") %}{{ fila_acciones() }}{% endcall %}
+  </template>
   {{ paginacion() }}
 
   {% include "pages/productos/_modal_ficha.html" %}

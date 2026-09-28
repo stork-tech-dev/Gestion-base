@@ -23,8 +23,20 @@
       {% if es_admin %}
       <div><dt class="text-sm text-texto-muted">Stock infinito</dt><dd class="text-texto" x-text="ficha.stock_infinito ? 'Sí' : 'No'"></dd></div>
       {% endif %}
+      <div>
+        <dt class="text-sm text-texto-muted">Stock</dt>
+        <dd class="flex flex-wrap items-center gap-2 text-texto">
+          <span x-text="ficha.stock_infinito ? '∞' : ficha.stock"></span>
+          <span class="font-semibold text-danger" x-show="!ficha.stock_infinito && ficha.bajo_minimo" x-cloak>Bajo mínimo</span>
+        </dd>
+      </div>
+      <div><dt class="text-sm text-texto-muted">Mínimo</dt><dd class="text-texto" x-text="ficha.stock_infinito ? '—' : ficha.stock_minimo"></dd></div>
       <div><dt class="text-sm text-texto-muted">Estado</dt><dd class="font-semibold" :class="ficha.activo ? 'text-success' : 'text-danger'" x-text="ficha.activo ? 'Activo' : 'Inactivo'"></dd></div>
     </dl>
+
+    {% if puede_ver_stock %}
+    <a href="/stock" class="inline-flex min-h-toque w-fit items-center text-sm font-medium text-primary hover:underline">Ver en Stock</a>
+    {% endif %}
 
     <div>
       <h3 class="mb-2 text-lg font-medium text-texto">Fotos</h3>

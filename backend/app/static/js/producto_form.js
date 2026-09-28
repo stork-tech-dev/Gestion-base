@@ -69,6 +69,7 @@
       temporada: 'atemporal',
       ubicacion_deposito: '',
       stock_infinito: false,
+      stock_inicial: '0',
     };
   }
 
@@ -327,7 +328,10 @@
           ubicacion_deposito: (this.form.ubicacion_deposito || '').trim() || null,
           stock_infinito: !!this.form.stock_infinito,
         };
-        if (!this.form.id) cuerpo.proveedor_id = this.form.proveedor_id;
+        if (!this.form.id) {
+          cuerpo.proveedor_id = this.form.proveedor_id;
+          cuerpo.stock_inicial = stockEntero(this.form.stock_inicial);
+        }
         return cuerpo;
       },
 

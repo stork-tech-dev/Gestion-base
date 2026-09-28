@@ -91,14 +91,6 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - Probar en el navegador (sobre todo Safari) la cámara real y la ventana
   emergente de etiquetas.
 
-## Módulo 04: pendientes para el 05
-- El módulo 05 agrega `stock`/`stock_minimo` y completa lo que el 04 dejó
-  afuera a propósito: `stock_inicial` en el alta (ingreso de proveedor vía
-  `services.stock.aplicar_movimiento`), columna Stock y `bajo_minimo` en el
-  listado y la ficha, toggle "Stock 0" con checkboxes y "Desactivar
-  seleccionados", y `stock_cero` en `listar_productos`. El formulario ya
-  expone `productoFormUtil.stockEntero`.
-
 ## Verificación manual pendiente (navegador)
 - Tema claro/oscuro sin recargar, cajón del sidebar debajo de 1024px, sin
   scroll horizontal de 320px a 1920px, y botones de al menos 44px en modo

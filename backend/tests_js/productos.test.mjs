@@ -154,6 +154,92 @@ test('leyenda de inactivos: solo con el switch en Activos, una búsqueda y cero 
   assert.equal(c.sugerirInactivos, false);
 });
 
+// ---------- Stock (columna, "Stock 0" y desactivación masiva) ----------
+
+function elementoCheckbox(id, checked) {
+  const el = { checked, dataset: { productoId: String(id) } };
+  el.closest = () => el;
+  return el;
+}
+const elementoNoCheckbox = { closest: () => null };
+
+test('stockHtml: infinito, negativo y bajo mínimo', () => {
+  const { window } = cargarComponente();
+  const c = crear(window);
+  assert.match(c.stockHtml({ stock_infinito: true, stock: 0, bajo_minimo: false }), /∞/);
+  assert.match(c.stockHtml({ stock_infinito: false, stock: -3, bajo_minimo: false }), /text-danger/);
+  assert.match(c.stockHtml({ stock_infinito: false, stock: 5, bajo_minimo: false }), />5</);
+  assert.match(c.stockHtml({ stock_infinito: false, stock: 5, bajo_minimo: true }), /Bajo mínimo/);
+});
+
+test('selección por delegación: agrega y quita según el checkbox clickeado; fuera de un checkbox no hace nada', () => {
+  const { window } = cargarComponente();
+  const c = crear(window);
+  c.alternarSeleccionClick({ target: elementoCheckbox(5, true) });
+  assert.deepEqual([...c.seleccionados], [5]);
+  c.alternarSeleccionClick({ target: elementoCheckbox(7, true) });
+  assert.deepEqual([...c.seleccionados].sort(), [5, 7]);
+  c.alternarSeleccionClick({ target: elementoCheckbox(5, false) });
+  assert.deepEqual([...c.seleccionados], [7]);
+  c.alternarSeleccionClick({ target: elementoNoCheckbox });
+  assert.deepEqual([...c.seleccionados], [7]);
+});
+
+test('todosSeleccionadosDeLaPagina y alternarTodos: marcan/desmarcan toda la página actual', () => {
+  const { window } = cargarComponente();
+  const c = crear(window);
+  c.filas = [{ id: 1 }, { id: 2 }, { id: 3 }];
+  assert.equal(c.todosSeleccionadosDeLaPagina, false);
+  c.alternarTodos(true);
+  assert.deepEqual([...c.seleccionados].sort(), [1, 2, 3]);
+  assert.equal(c.todosSeleccionadosDeLaPagina, true);
+  c.alternarTodos(false);
+  assert.deepEqual([...c.seleccionados], []);
+});
+
+test('alternarStockCero: cambiar el filtro invalida la selección', () => {
+  const { window } = cargarComponente();
+  const { pedir } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crear(window);
+  c.seleccionados = new Set([1, 2]);
+  c.alternarStockCero();
+  assert.equal(c.seleccionados.size, 0);
+});
+
+test('desactivarSeleccionados: confirma, va en serie, cuenta éxitos/fallos y recarga la página', async () => {
+  const { window, toasts } = cargarComponente();
+  const llamadas = [];
+  window.pedir = (url) => {
+    llamadas.push(url);
+    return url.endsWith('/2/estado') ? Promise.reject(new Error('No se pudo')) : Promise.resolve({});
+  };
+  window.confirmar = () => Promise.resolve(true);
+  const c = crear(window);
+  c.filas = [{ id: 1, descripcion: 'Uno' }, { id: 2, descripcion: 'Dos' }];
+  c.seleccionados = new Set([1, 2]);
+  let recargadaEnPagina = null;
+  c.cargar = (pagina) => { recargadaEnPagina = pagina; };
+  await c.desactivarSeleccionados();
+  assert.deepEqual(llamadas, ['/api/v1/productos/1/estado', '/api/v1/productos/2/estado']);
+  assert.equal(c.seleccionados.size, 0);
+  assert.ok(toasts.some((t) => /1 producto desactivado/.test(t.mensaje)));
+  assert.ok(toasts.some((t) => t.tipo === 'error' && /No se pudo desactivar: Dos/.test(t.mensaje)));
+  assert.equal(recargadaEnPagina, c.pagina);
+});
+
+test('desactivarSeleccionados: sin confirmar no llama a la API ni toca la selección', async () => {
+  const { window } = cargarComponente();
+  let llamado = false;
+  window.pedir = () => { llamado = true; return Promise.resolve({}); };
+  window.confirmar = () => Promise.resolve(false);
+  const c = crear(window);
+  c.seleccionados = new Set([1]);
+  await c.desactivarSeleccionados();
+  assert.equal(llamado, false);
+  assert.equal(c.seleccionados.size, 1);
+});
+
 // ---------- webcamCapture (app.js) ----------
 
 function pista() {

@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Conteo #{{ auditoria_id }} · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="auditoriaConteo({ id: {{ auditoria_id|js }}, puedeAuditar: {{ puede_auditar|js }} })">
+  {% call encabezado("Conteo #" ~ auditoria_id, "/auditorias-inventario", "Auditorías de Stock") %}
+    <button type="button" class="boton boton-secundario" @click="imprimirPdf()">PDF</button>
+    <a class="boton boton-secundario" :href="`/api/v1/auditorias-inventario/${id}/xls`" target="_blank">Excel</a>
+    <button type="button" class="boton boton-peligro" x-show="puedeEditar" x-cloak :disabled="cerrando" @click="cerrarConteo()" x-text="cerrando ? 'Cerrando…' : 'Cerrar conteo'"></button>
+  {% endcall %}
+
+  <div class="tarjeta mb-6 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <p class="text-texto">Estado:
+      <span class="font-semibold" :class="auditoria && auditoria.estado === 'en_curso' ? 'text-primary' : 'text-success'"
+            x-text="auditoria ? (auditoria.estado === 'en_curso' ? 'En curso' : 'Cerrada') : '—'"></span>
+    </p>
+    <p class="text-sm text-texto-muted" x-show="auditoria && auditoria.notas" x-cloak x-text="auditoria ? auditoria.notas : ''"></p>
+  </div>
+
+  {# ---------- Escaneo (solo en curso, con permiso) ---------- #}
+  <div class="tarjeta mb-6 flex flex-col gap-3 sm:flex-row sm:items-end" x-show="puedeEditar" x-cloak>
+    <div class="flex flex-1 flex-col gap-1">
+      <label for="conteo-codigo" class="text-lg font-medium text-texto">Escaneá o tipeá el código</label>
+      <input id="conteo-codigo" type="text" class="campo" autocomplete="off" x-ref="inputCodigo" x-model="codigo"
+             @keydown.enter.prevent="$refs.inputContadas.focus()">
+    </div>
+    <div class="flex w-full flex-col gap-1 sm:w-32">
+      <label for="conteo-contadas" class="text-lg font-medium text-texto">Contadas</label>
+      <input id="conteo-contadas" type="number" class="campo" min="0" step="1" inputmode="numeric" x-ref="inputContadas" x-model="contadas"
+             @keydown.enter.prevent="agregarPorCodigo()">
+    </div>
+    <button type="button" class="boton boton-primario" :disabled="agregando" @click="agregarPorCodigo()">Agregar</button>
+  </div>
+
+  {# ---------- Ítems contados ---------- #}
+  <div class="tarjeta overflow-hidden p-0">
+    <div class="overflow-x-auto">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th scope="col">Código</th>
+            <th scope="col">Descripción</th>
+            <th scope="col" class="text-right">Sistema</th>
+            <th scope="col" class="text-right">Contado</th>
+            <th scope="col" class="text-right">Dif.</th>
+            <th scope="col" class="text-right"><span class="sr-only">Acciones</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="item in (auditoria ? auditoria.items : [])" :key="item.id">
+            <tr>
+              <td x-text="item.codigo"></td>
+              <td x-text="item.descripcion"></td>
+              <td class="text-right" x-text="item.cantidad_sistema"></td>
+              <td class="text-right">
+                <input type="number" class="campo ml-auto w-24 text-right" min="0" step="1" inputmode="numeric"
+                       :value="item.cantidad_contada" :disabled="!puedeEditar"
+                       @blur="guardarContado(item, $event.target.value)"
+                       @keydown.enter.prevent="$event.target.blur()">
+              </td>
+              <td class="text-right" :class="item.diferencia !== 0 ? 'font-semibold text-danger' : ''"
+                  x-text="(item.diferencia > 0 ? '+' : '') + item.diferencia"></td>
+              <td class="text-right">
+                <button type="button" class="btn-accion hover:text-danger" x-show="puedeEditar" title="Quitar" aria-label="Quitar" @click="quitarItem(item)">{{ icono("borrar") }}</button>
+              </td>
+            </tr>
+          </template>
+          <tr x-show="cargando"><td colspan="6" class="py-10 text-center text-texto-muted">Cargando…</td></tr>
+          <tr x-show="!cargando && (!auditoria || !auditoria.items.length)"><td colspan="6" class="py-10 text-center text-texto-muted">Sin ítems contados.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/auditorias.js') }}"></script>{% endblock %}

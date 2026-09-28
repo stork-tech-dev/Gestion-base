@@ -15,6 +15,7 @@ from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
 from app.models import NIVEL_MAXIMO, TemporadaProducto, Usuario
+from app.services import auditoria_inventario as servicio_auditorias
 from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
 from app.services import usuarios as servicio_usuarios
@@ -285,6 +286,8 @@ def productos(request: Request, db: Session = Depends(get_db),
         request, db, "/productos", usuario,
         puede_crear=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "crear"),
         puede_editar=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "editar"),
+        # Gatea el link "Ver en Stock" de la ficha: sin STOCK ver, /stock da 403.
+        puede_ver_stock=resolver_permiso(db, usuario.id, Modulo.STOCK, "ver"),
         nivel_maximo=NIVEL_MAXIMO, margen_default=str(config.margen_default),
         descuento_maximo=str(config.descuento_maximo), temporadas=TEMPORADAS,
     ))
@@ -321,6 +324,20 @@ def motivos_baja(request: Request, db: Session = Depends(get_db),
     return _pagina(request, "pages/motivos_baja/listado.html", contexto_base(
         request, db, "/gestion-de-stock", usuario,
     ))
+
+
+@router.get("/auditorias-inventario")
+def auditorias_inventario(request: Request, db: Session = Depends(get_db),
+                          usuario: Usuario = Depends(requiere_pagina(SECCION_AUDITORIAS, actual="/gestion-de-stock"))):
+    return _pagina(request, "pages/auditorias/listado.html", _contexto_stock(request, db, usuario))
+
+
+@router.get("/auditorias-inventario/{auditoria_id}")
+def auditoria_conteo(auditoria_id: int, request: Request, db: Session = Depends(get_db),
+                     usuario: Usuario = Depends(requiere_pagina(SECCION_AUDITORIAS, actual="/gestion-de-stock"))):
+    _o_no_encontrado(request, db, usuario, servicio_auditorias.obtener_auditoria, auditoria_id)
+    return _pagina(request, "pages/auditorias/conteo.html",
+                   _contexto_stock(request, db, usuario, auditoria_id=auditoria_id))
 
 
 @router.get("/usuarios")

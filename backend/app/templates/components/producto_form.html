@@ -107,6 +107,14 @@
     </div>
     {% endif %}
 
+    {# Solo en el alta: la edición no toca el stock (eso lo maneja el módulo de Stock). #}
+    <template x-if="!form.id && !form.stock_infinito">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {{ campo("pf-stock-inicial", "Stock inicial", tipo="number", modelo="form.stock_inicial", error="errores.stock_inicial",
+                 atributos='min="0" step="1" inputmode="numeric"') }}
+      </div>
+    </template>
+
     {% if puede_editar %}
     <template x-if="!form.id">
       <div class="flex flex-col gap-2" x-data="webcamCapture({ vigilar: 'abierto ? _apertura : null' })">

@@ -49,3 +49,17 @@ def test_temporadas_y_leyenda_de_inactivos(crear_usuario, iniciar_sesion):
     assert '<option value="otoño_invierno">Otoño-Invierno</option>' in html
     assert "temporadas: [[" in html and "Primavera-Verano" in html
     assert "¿Buscás un producto inactivo? Cambiá el switch a Inactivos." in html
+
+
+# --- Task 10: stock en el formulario, el listado y la ficha ------------
+
+def test_listado_tiene_stock_0_y_stock_inicial(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("admin")).get("/productos").text
+    assert "Stock 0" in html
+    assert "Stock inicial" in html
+
+
+def test_ficha_muestra_link_a_stock_con_permiso(crear_usuario, iniciar_sesion):
+    # Admin y Vendedor (seed.sql) tienen STOCK ver: ven el link "Ver en Stock".
+    assert "Ver en Stock" in iniciar_sesion(crear_usuario("admin")).get("/productos").text
+    assert "Ver en Stock" in iniciar_sesion(crear_usuario("vendedor")).get("/productos").text
