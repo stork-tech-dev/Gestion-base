@@ -220,7 +220,10 @@
         const proveedorId = this.form.proveedor_id;
         const costoValido = numeroValido(this.form.costo, { permiteCero: false });
         const margenValido = numeroValido(this.form.margen);
+        const apertura = this._apertura;
         if (!proveedorId || !costoValido || !margenValido) {
+          // Invalida también un pedido en vuelo: su respuesta ya no corresponde.
+          this._ultimaPreview(Promise.resolve(null));
           this.precioPreview = null;
           this.dolarProveedor = null;
           return;
@@ -228,7 +231,8 @@
         try {
           const params = new URLSearchParams({ proveedor_id: proveedorId, costo: this.form.costo, margen: this.form.margen });
           const datos = await this._ultimaPreview(window.pedir(`${API}/precio-preview?${params}`));
-          if (datos === undefined) return;  // llegó una respuesta más nueva
+          // Respuesta vieja: llegó otra más nueva o se abrió otro producto mientras tanto.
+          if (datos === undefined || apertura !== this._apertura) return;
           this.precioPreview = datos.precio_venta;
           this.dolarProveedor = datos.dolar_proveedor;
         } catch (e) {
