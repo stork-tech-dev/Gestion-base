@@ -7,12 +7,12 @@ from datetime import date
 from sqlalchemy import func, or_, select
 
 from app.core.auditoria import registrar_auditoria
-from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
+from app.core.errores import DatoInvalido, ReglaDeNegocio
 from app.core.utils import ahora_db, filtro_texto, paginar, rango_fechas, redondear
 from app.models import BAJO_MINIMO_SQL, MovimientoStock, Producto, TipoMovimientoStock
 from app.schemas.stock import StockResponse
 from app.services import categorias as servicio_categorias
-from app.services.productos import condiciones_codigo
+from app.services.productos import _sku_de_codigo, bloquear_producto, condiciones_codigo
 
 TAMANO_MAXIMO = 100
 STOCK_MAXIMO = 2_000_000_000
@@ -27,20 +27,17 @@ SIGNO_POR_TIPO = {
 def aplicar_movimiento(db, autor, *, tipo, producto_id, cantidad, motivo_baja_id=None, auditoria_id=None,
                        referencia_venta_id=None, permitir_faltante=False, notas=None, ip_origen=None):
     """ÚNICO camino por el que cambia productos.stock. Bloquea la fila del
-    producto, valida, guarda el stock resultante y audita. Sin commit."""
+    producto, valida, guarda el stock resultante y audita. Sin commit.
+
+    Si una operación mueve varios productos, llamar en orden de producto_id
+    ascendente (evita deadlocks): dos operaciones que tocan los mismos
+    productos en orden distinto pueden terminar esperándose en círculo."""
     signo = SIGNO_POR_TIPO[tipo]
     if cantidad == 0 or (signo and (cantidad > 0) != (signo > 0)):
         raise DatoInvalido("La cantidad no corresponde al tipo de movimiento.")
     if permitir_faltante and tipo is not TipoMovimientoStock.VENTA:
         raise DatoInvalido("Solo una venta puede dejar el stock en negativo.")
-    # FOR UPDATE directo sobre Producto falla: categoria y proveedor son joined
-    # con LEFT OUTER JOIN y Postgres no permite bloquear ese lado del join.
-    # Se bloquea la fila por id (sin relaciones) y se relee con populate_existing
-    # (mismo patrón que app.services.producto_fotos._bloquear_producto).
-    db.execute(select(Producto.id).where(Producto.id == producto_id).with_for_update())
-    producto = db.get(Producto, producto_id, populate_existing=True)
-    if producto is None:
-        raise NoEncontrado("Producto no encontrado")
+    producto = bloquear_producto(db, producto_id)
     antes = producto.stock
     resultante = antes if producto.stock_infinito else antes + cantidad
     if not producto.stock_infinito:
@@ -73,11 +70,7 @@ def registrar_ingreso(db, autor, producto_id: int, cantidad: int, notas: str | N
 def definir_minimo(db, autor, producto_id: int, stock_minimo: int, ip: str | None) -> Producto:
     if stock_minimo < 0:
         raise DatoInvalido("El mínimo no puede ser negativo.")
-    # Mismo lock que aplicar_movimiento (ver comentario ahí): por id, sin relaciones.
-    db.execute(select(Producto.id).where(Producto.id == producto_id).with_for_update())
-    producto = db.get(Producto, producto_id, populate_existing=True)
-    if producto is None:
-        raise NoEncontrado("Producto no encontrado")
+    producto = bloquear_producto(db, producto_id)
     if producto.stock_infinito:
         raise DatoInvalido("Un producto con stock infinito no lleva mínimo.")
     if producto.stock_minimo == stock_minimo:
@@ -99,8 +92,11 @@ def listar_stock(db, *, busqueda: str | None = None, categoria_id: int | None = 
         condiciones.append(or_(condiciones_codigo(busqueda), filtro_texto(Producto.sku_proveedor, busqueda),
                                filtro_texto(Producto.descripcion, busqueda)))
         # Los infinitos quedan afuera del listado de stock salvo que el código
-        # buscado sea justo el suyo (se los puede encontrar puntualmente).
-        condiciones.append(or_(Producto.stock_infinito.is_(False), condiciones_codigo(busqueda)))
+        # buscado sea EXACTAMENTE el suyo (SKU completo vía _sku_de_codigo, no
+        # una coincidencia parcial del ILIKE de arriba): se los puede
+        # encontrar puntualmente, no por una búsqueda de texto que matchee
+        # de casualidad.
+        condiciones.append(or_(Producto.stock_infinito.is_(False), Producto.sku == _sku_de_codigo(busqueda)))
     else:
         condiciones.append(Producto.stock_infinito.is_(False))
     if categoria_id is not None:

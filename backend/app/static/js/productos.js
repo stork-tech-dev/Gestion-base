@@ -74,15 +74,7 @@
 
       // Lista plana del árbol (todos los niveles), con el camino completo como texto.
       get categoriasOpciones() {
-        const opciones = [];
-        const recorrer = (nodos) => {
-          for (const n of nodos || []) {
-            opciones.push({ id: n.id, texto: window.rutaCategoria(this.arbol, n.id) });
-            recorrer(n.hijos);
-          }
-        };
-        recorrer(this.arbol);
-        return opciones;
+        return window.categoriasOpciones(this.arbol);
       },
 
       filtrar() {
@@ -141,12 +133,7 @@
         return TEXTO_TEMPORADA[t] || t;
       },
 
-      stockHtml(p) {
-        if (p.stock_infinito) return '<span class="text-texto-muted">∞</span>';
-        const clase = p.stock < 0 ? 'font-semibold text-danger' : '';
-        const bajo = p.bajo_minimo ? ' <span class="font-semibold text-danger">Bajo mínimo</span>' : '';
-        return `<span class="${clase}">${p.stock}</span>${bajo}`;
-      },
+      // stockHtml: window.stockHtml (app.js) — misma celda que /stock.
 
       // ---------- "Stock 0" + desactivación masiva ----------
 
@@ -325,39 +312,18 @@
 
       // ---------- Etiquetas ----------
 
-      // El PDF viaja como blob: `pedir` asume JSON, así que se usa fetch directo.
-      // La ventana se abre en el MISMO click, antes del fetch: abierta después
-      // de un await, el navegador la toma como emergente y la bloquea.
+      // window.abrirPdf (app.js): abre la ventana en el MISMO click (antes
+      // del fetch, si no el navegador la bloquea) y ahí muestra el blob.
       async imprimir(tipo) {
         if (!this.ficha) return;
         const cantidad = Math.max(1, Math.trunc(Number(this.cantEtiquetas)) || 1);
-        const ventana = window.open('', '_blank');
-        if (!ventana) {
-          window.toast('El navegador bloqueó la ventana; habilitá las ventanas emergentes.', 'error');
-          return;
-        }
         this.imprimiendo = true;
-        try {
-          const respuesta = await fetch(`${API}/etiquetas`, {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/pdf' },
-            body: JSON.stringify({ items: [{ producto_id: this.ficha.id, cantidad }], tipo }),
-          });
-          if (!respuesta.ok) {
-            let datos = null;
-            try { datos = await respuesta.json(); } catch (e) { /* no era JSON */ }
-            throw new Error(window.mensajeDeError(datos, respuesta.status));
-          }
-          const url = URL.createObjectURL(await respuesta.blob());
-          ventana.location = url;
-          setTimeout(() => URL.revokeObjectURL(url), 60000);
-        } catch (e) {
-          ventana.close();
-          window.toast(e.message, 'error');
-        } finally {
-          this.imprimiendo = false;
-        }
+        await window.abrirPdf(`${API}/etiquetas`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: [{ producto_id: this.ficha.id, cantidad }], tipo }),
+        });
+        this.imprimiendo = false;
       },
     };
   };

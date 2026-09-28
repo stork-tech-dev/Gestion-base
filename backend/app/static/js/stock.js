@@ -94,15 +94,7 @@
 
       // Lista plana del árbol (todos los niveles), con el camino completo como texto.
       get categoriasOpciones() {
-        const opciones = [];
-        const recorrer = (nodos) => {
-          for (const n of nodos || []) {
-            opciones.push({ id: n.id, texto: window.rutaCategoria(this.arbol, n.id) });
-            recorrer(n.hijos);
-          }
-        };
-        recorrer(this.arbol);
-        return opciones;
+        return window.categoriasOpciones(this.arbol);
       },
 
       filtrar() {
@@ -144,10 +136,9 @@
         return `<img src="${window.escaparHtml(p.foto_url)}" alt="Foto del producto" class="${clases}" loading="lazy">`;
       },
 
-      stockHtml(p) {
-        const clase = p.stock < 0 ? 'font-semibold text-danger' : '';
-        return `<span class="${clase}">${p.stock}</span>`;
-      },
+      // stockHtml: window.stockHtml (app.js) — misma celda que /productos
+      // (acá además hace que los infinitos, que solo aparecen buscados por
+      // código exacto, se vean con "∞" en vez de "0").
 
       minimoHtml(p) {
         const reponer = p.bajo_minimo ? ' <span class="font-semibold text-danger">Reponer</span>' : '';
@@ -216,6 +207,10 @@
       },
 
       async guardarBaja() {
+        if (!this.baja.motivo_baja_id) {
+          window.toast('Elegí un motivo.', 'error');
+          return;
+        }
         this.guardandoBaja = true;
         try {
           await window.pedir(`${API}/bajas`, {

@@ -48,15 +48,7 @@
 
       // Lista plana del árbol (todos los niveles), con el camino completo como texto.
       get categoriasOpciones() {
-        const opciones = [];
-        const recorrer = (nodos) => {
-          for (const n of nodos || []) {
-            opciones.push({ id: n.id, texto: window.rutaCategoria(this.arbol, n.id) });
-            recorrer(n.hijos);
-          }
-        };
-        recorrer(this.arbol);
-        return opciones;
+        return window.categoriasOpciones(this.arbol);
       },
 
       limpiarFiltros() {
@@ -115,39 +107,11 @@
       },
 
       // ---------- PDF ----------
-      // Mismo patrón que imprimir() en productos.js: la ventana se abre en
-      // el MISMO click (antes del fetch), si no el navegador la bloquea.
       async imprimirPdf(fila) {
-        await imprimirPdfDe(fila.id);
+        await window.abrirPdf(`${API}/${fila.id}/pdf`);
       },
     };
   };
-
-  // El PDF viaja como blob: `pedir` asume JSON, así que se usa fetch directo.
-  async function imprimirPdfDe(auditoriaId) {
-    const ventana = window.open('', '_blank');
-    if (!ventana) {
-      window.toast('El navegador bloqueó la ventana; habilitá las ventanas emergentes.', 'error');
-      return;
-    }
-    try {
-      const respuesta = await fetch(`${API}/${auditoriaId}/pdf`, {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/pdf' },
-      });
-      if (!respuesta.ok) {
-        let datos = null;
-        try { datos = await respuesta.json(); } catch (e) { /* no era JSON */ }
-        throw new Error(window.mensajeDeError(datos, respuesta.status));
-      }
-      const url = URL.createObjectURL(await respuesta.blob());
-      ventana.location = url;
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    } catch (e) {
-      ventana.close();
-      window.toast(e.message, 'error');
-    }
-  }
 
   // ---------- Pantalla de conteo ----------
 
@@ -187,6 +151,41 @@
         else this.auditoria.items.splice(indice, 1, item);
       },
 
+      // ¿Ya hay, entre los ítems cargados, uno del mismo producto que el
+      // código tipeado/escaneado? Compara contra el código completo (con
+      // verificador, como lo guarda cada ítem) y contra el SKU solo (los
+      // primeros 5 caracteres): cubre tanto escanear la etiqueta de vuelta
+      // como tipear el SKU a mano.
+      _itemPorCodigo(codigo) {
+        const normalizado = (codigo || '').trim().toUpperCase();
+        if (!normalizado || !this.auditoria) return null;
+        return this.auditoria.items.find((i) => {
+          const c = (i.codigo || '').toUpperCase();
+          return c === normalizado || c.slice(0, 5) === normalizado;
+        }) || null;
+      },
+
+      // Re-escanear un producto ya contado pisaba lo contado sin avisar.
+      // window.confirmar solo admite sí/no, así que va en dos pasos: primero
+      // ofrece sumar (sí = N+M); si dice que no, ofrece reemplazar (sí = M,
+      // no = cancela el alta). Devuelve la cantidad a mandar, o null si se canceló.
+      async _resolverRecontado(item, cantidadNueva) {
+        const suma = item.cantidad_contada + cantidadNueva;
+        const sumar = await window.confirmar({
+          titulo: `Ya contaste ${item.cantidad_contada} de "${item.descripcion}"`,
+          mensaje: `¿Sumar ${cantidadNueva}? Vas a tener ${suma}.`,
+          textoConfirmar: 'Sumar',
+        });
+        if (sumar) return suma;
+        const reemplazar = await window.confirmar({
+          titulo: `¿Reemplazar el conteo de "${item.descripcion}"?`,
+          mensaje: `Los ${item.cantidad_contada} contados pasan a ser ${cantidadNueva}.`,
+          textoConfirmar: 'Reemplazar',
+          peligro: true,
+        });
+        return reemplazar ? cantidadNueva : null;
+      },
+
       async agregarPorCodigo() {
         const codigo = (this.codigo || '').trim();
         if (!codigo) {
@@ -194,11 +193,17 @@
           return;
         }
         const cantidad = Math.max(0, Math.trunc(Number(this.contadas)) || 0);
+        const existente = this._itemPorCodigo(codigo);
+        let cantidadContada = cantidad;
+        if (existente) {
+          cantidadContada = await this._resolverRecontado(existente, cantidad);
+          if (cantidadContada === null) return;  // canceló los dos pasos
+        }
         this.agregando = true;
         try {
           const item = await window.pedir(`${API}/${this.id}/items/por-codigo`, {
             method: 'POST',
-            body: { codigo, cantidad_contada: cantidad },
+            body: { codigo, cantidad_contada: cantidadContada },
           });
           this._upsertItem(item);
           this.auditoria.cantidad_items = this.auditoria.items.length;
@@ -258,7 +263,13 @@
           this.auditoria = { ...this.auditoria, ...cerrada };
           window.toast('Conteo cerrado; el stock quedó ajustado.');
         } catch (e) {
-          window.toast(e.message, 'error');
+          // 409 más frecuente acá: el ajuste de algún producto no se pudo
+          // aplicar porque el stock real cambió después de contarlo (ej. se
+          // vendió con faltante entre el conteo y el cierre).
+          const mensaje = e.status === 409
+            ? `${e.message} Volvé a escanear ese producto para tomar el stock actual.`
+            : e.message;
+          window.toast(mensaje, 'error');
         } finally {
           this.cerrando = false;
         }
@@ -266,7 +277,7 @@
 
       // ---------- PDF ----------
       async imprimirPdf() {
-        await imprimirPdfDe(this.id);
+        await window.abrirPdf(`${API}/${this.id}/pdf`);
       },
     };
   };

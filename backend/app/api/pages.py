@@ -203,12 +203,14 @@ def _contexto_stock(request: Request, db: Session, usuario: Usuario, **extra) ->
     )
 
 
-def _o_no_encontrado(request: Request, db: Session, usuario: Usuario, funcion, *args):
-    """Llama a un obtener_* del servicio; si levanta NoEncontrado, página 404 HTML."""
+def _o_no_encontrado(request: Request, db: Session, usuario: Usuario, funcion, *args, actual: str = "/configuracion"):
+    """Llama a un obtener_* del servicio; si levanta NoEncontrado, página 404
+    HTML. `actual`: qué ítem del sidebar queda resaltado (por defecto,
+    Configuraciones; las pantallas de otros módulos pasan el suyo)."""
     try:
         return funcion(db, *args)
     except NoEncontrado:
-        raise PaginaNoEncontrada(contexto_base(request, db, "/configuracion", usuario))
+        raise PaginaNoEncontrada(contexto_base(request, db, actual, usuario))
 
 
 def _pagina(request: Request, plantilla: str, contexto: dict):
@@ -288,6 +290,9 @@ def productos(request: Request, db: Session = Depends(get_db),
         puede_editar=resolver_permiso(db, usuario.id, Modulo.PRODUCTOS, "editar"),
         # Gatea el link "Ver en Stock" de la ficha: sin STOCK ver, /stock da 403.
         puede_ver_stock=resolver_permiso(db, usuario.id, Modulo.STOCK, "ver"),
+        # Gatea el campo "Stock inicial" del alta: cargarlo es, en los
+        # hechos, un ingreso de stock (mismo permiso que services.stock).
+        puede_stock_inicial=resolver_permiso(db, usuario.id, Modulo.STOCK, "crear"),
         nivel_maximo=NIVEL_MAXIMO, margen_default=str(config.margen_default),
         descuento_maximo=str(config.descuento_maximo), temporadas=TEMPORADAS,
     ))
@@ -321,6 +326,12 @@ def stock(request: Request, db: Session = Depends(get_db),
 @router.get("/motivos-baja")
 def motivos_baja(request: Request, db: Session = Depends(get_db),
                  usuario: Usuario = Depends(requiere_pagina(PAGINA_MOTIVOS_BAJA, actual="/gestion-de-stock"))):
+    # PAGINA_MOTIVOS_BAJA solo exige el recurso puntual (STOCK editar sobre
+    # stock.motivos_baja): a diferencia del cambio masivo del dólar, acá
+    # además hace falta poder VER stock (es una pantalla de stock, no una
+    # herramienta aislada), así que se chequea a mano.
+    if not resolver_permiso(db, usuario.id, Modulo.STOCK, "ver"):
+        raise PaginaSinPermiso(contexto_base(request, db, "/gestion-de-stock", usuario))
     return _pagina(request, "pages/motivos_baja/listado.html", contexto_base(
         request, db, "/gestion-de-stock", usuario,
     ))
@@ -335,7 +346,8 @@ def auditorias_inventario(request: Request, db: Session = Depends(get_db),
 @router.get("/auditorias-inventario/{auditoria_id}")
 def auditoria_conteo(auditoria_id: int, request: Request, db: Session = Depends(get_db),
                      usuario: Usuario = Depends(requiere_pagina(SECCION_AUDITORIAS, actual="/gestion-de-stock"))):
-    _o_no_encontrado(request, db, usuario, servicio_auditorias.obtener_auditoria, auditoria_id)
+    _o_no_encontrado(request, db, usuario, servicio_auditorias.obtener_auditoria, auditoria_id,
+                     actual="/gestion-de-stock")
     return _pagina(request, "pages/auditorias/conteo.html",
                    _contexto_stock(request, db, usuario, auditoria_id=auditoria_id))
 

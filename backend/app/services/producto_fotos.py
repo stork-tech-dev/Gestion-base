@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
 from app.models import Producto, ProductoFoto
+from app.services.productos import bloquear_producto
 from config import settings
 
 MAXIMO_FOTOS = 5
@@ -46,17 +47,13 @@ def _auditar(db, autor, accion, producto_id, ip, *, estado_anterior=None, estado
                         estado_anterior=estado_anterior, estado_nuevo=estado_nuevo, ip_origen=ip)
 
 
-def _bloquear_producto(db, producto_id: int) -> None:
-    """SELECT ... FOR UPDATE de la fila del producto: serializa las altas,
-    bajas y cambios de principal sobre las fotos de un mismo producto (si no,
-    dos subidas simultáneas pueden contar 4 fotos cada una y terminar en 6)."""
-    db.execute(select(Producto.id).where(Producto.id == producto_id).with_for_update())
-
-
 def _bloquear_y_releer(db, foto: ProductoFoto) -> ProductoFoto:
-    """Lock del producto y relectura de la foto DESPUÉS del lock: mientras se
+    """Lock del producto (bloquear_producto de services.productos: serializa
+    las altas, bajas y cambios de principal sobre las fotos de un mismo
+    producto, si no dos subidas simultáneas pueden contar 4 fotos cada una y
+    terminar en 6) y relectura de la foto DESPUÉS del lock: mientras se
     esperaba, otra transacción pudo borrarla o cambiar la principal."""
-    _bloquear_producto(db, foto.producto_id)
+    bloquear_producto(db, foto.producto_id)
     releida = db.get(ProductoFoto, foto.id, populate_existing=True)
     if releida is None:
         raise NoEncontrado("Foto no encontrada")
@@ -69,7 +66,7 @@ def subir_foto(db, autor, producto, contenido: bytes, ip) -> ProductoFoto:
     formato = formato_de_imagen(contenido)
     if formato is None:
         raise DatoInvalido("La foto tiene que ser JPG, PNG o WEBP.")
-    _bloquear_producto(db, producto.id)
+    bloquear_producto(db, producto.id)
     cantidad = db.scalar(select(func.count()).select_from(ProductoFoto).where(ProductoFoto.producto_id == producto.id))
     if cantidad >= MAXIMO_FOTOS:
         raise ReglaDeNegocio(f"Un producto puede tener hasta {MAXIMO_FOTOS} fotos.")

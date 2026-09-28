@@ -163,13 +163,12 @@ function elementoCheckbox(id, checked) {
 }
 const elementoNoCheckbox = { closest: () => null };
 
-test('stockHtml: infinito, negativo y bajo mínimo', () => {
+test('stockHtml (window.stockHtml, app.js): infinito, negativo y bajo mínimo', () => {
   const { window } = cargarComponente();
-  const c = crear(window);
-  assert.match(c.stockHtml({ stock_infinito: true, stock: 0, bajo_minimo: false }), /∞/);
-  assert.match(c.stockHtml({ stock_infinito: false, stock: -3, bajo_minimo: false }), /text-danger/);
-  assert.match(c.stockHtml({ stock_infinito: false, stock: 5, bajo_minimo: false }), />5</);
-  assert.match(c.stockHtml({ stock_infinito: false, stock: 5, bajo_minimo: true }), /Bajo mínimo/);
+  assert.match(window.stockHtml({ stock_infinito: true, stock: 0, bajo_minimo: false }), /∞/);
+  assert.match(window.stockHtml({ stock_infinito: false, stock: -3, bajo_minimo: false }), /text-danger/);
+  assert.match(window.stockHtml({ stock_infinito: false, stock: 5, bajo_minimo: false }), />5</);
+  assert.match(window.stockHtml({ stock_infinito: false, stock: 5, bajo_minimo: true }), /Bajo mínimo/);
 });
 
 test('selección por delegación: agrega y quita según el checkbox clickeado; fuera de un checkbox no hace nada', () => {

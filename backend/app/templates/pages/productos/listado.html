@@ -78,7 +78,7 @@
   {{ paginacion() }}
 
   {% include "pages/productos/_modal_ficha.html" %}
-  {{ producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas) }}
+  {{ producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas, puede_stock_inicial) }}
 </div>
 {% endblock %}
 {% block scripts %}

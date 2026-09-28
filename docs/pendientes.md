@@ -91,6 +91,15 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - Probar en el navegador (sobre todo Safari) la cámara real y la ventana
   emergente de etiquetas.
 
+## Módulo 05: pendientes
+- Catálogos (árbol de categorías, proveedores) que dan 403 en `/stock` y en
+  los conteos para un rol con STOCK ver pero sin PRODUCTOS ver (se ven dos
+  toasts de error, uno por catálogo): agregar un flag `puede_ver_productos`
+  al contexto de esas páginas y no pedir esas rutas cuando falta.
+- Tests de concurrencia reales (dos `finalizar` o dos `iniciar` en paralelo,
+  con conexiones/hilos separados) y tests JS (`node --test`) de `stock.js` y
+  `auditorias.js`: hoy ninguno de los dos módulos tiene cobertura JS propia.
+
 ## Verificación manual pendiente (navegador)
 - Tema claro/oscuro sin recargar, cajón del sidebar debajo de 1024px, sin
   scroll horizontal de 320px a 1920px, y botones de al menos 44px en modo

@@ -156,11 +156,17 @@ class AuditoriaResponse(BaseModel):
 
     @classmethod
     def desde(cls, auditoria) -> "AuditoriaResponse":
+        # `servicio.listar` deja `cantidad_items` como atributo transient
+        # (subquery de COUNT, sin cargar `items`); si no está (alta, detalle),
+        # se cuenta la colección ya cargada.
+        cantidad_items = getattr(auditoria, "cantidad_items", None)
+        if cantidad_items is None:
+            cantidad_items = len(auditoria.items)
         return cls(
             id=auditoria.id, estado=auditoria.estado, usuario_id=auditoria.usuario_id,
             usuario_nombre=auditoria.usuario.nombre, filtro_categoria_id=auditoria.filtro_categoria_id,
             fecha_inicio=auditoria.fecha_inicio, fecha_fin=auditoria.fecha_fin, notas=auditoria.notas,
-            cantidad_items=len(auditoria.items),
+            cantidad_items=cantidad_items,
         )
 
 

@@ -11,6 +11,8 @@ from sqlalchemy import func, or_, select, text
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.codigos import codificar_sku, codigo_es_valido, digito_verificador
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
+from app.core.permisos import Modulo
+from app.core.seguridad import resolver_permiso
 from app.core.utils import (
     capitalizar_inicial, filtro_texto, normalizar_texto, paginar, patron_ilike,
     redondear, redondear_hacia_arriba, sin_tildes, sin_tildes_sql,
@@ -24,6 +26,20 @@ from app.services.proveedores import obtener_proveedor
 
 def obtener_producto(db, producto_id: int) -> Producto:
     producto = db.get(Producto, producto_id)
+    if producto is None:
+        raise NoEncontrado("Producto no encontrado")
+    return producto
+
+
+def bloquear_producto(db, producto_id: int) -> Producto:
+    """`SELECT ... FOR UPDATE` de la fila del producto POR ID (sin relaciones:
+    categoria y proveedor van joined con LEFT OUTER JOIN y Postgres no permite
+    bloquear ese lado del join) y relectura con `populate_existing`. Única
+    definición del patrón de lock de un producto: la reusan `services.stock`
+    (ingresos, mínimos, ajustes de auditoría) y `services.producto_fotos`
+    (altas, bajas y cambio de principal de fotos)."""
+    db.execute(select(Producto.id).where(Producto.id == producto_id).with_for_update())
+    producto = db.get(Producto, producto_id, populate_existing=True)
     if producto is None:
         raise NoEncontrado("Producto no encontrado")
     return producto
@@ -152,6 +168,11 @@ def crear_producto(db, autor, datos, ip) -> Producto:
     descripcion = _descripcion_libre(db, datos.descripcion, categoria.id, proveedor.id)
     _validar_descuento(db, datos.descuento_producto)
     _validar_stock_infinito(autor, False, datos.stock_infinito)
+    # Cargar stock inicial es, en los hechos, un ingreso de stock: exige el
+    # mismo permiso que services.stock.registrar_ingreso. Se valida ANTES de
+    # crear nada (ni el producto ni el movimiento).
+    if datos.stock_inicial and not datos.stock_infinito and not resolver_permiso(db, autor.id, Modulo.STOCK, "crear"):
+        raise SinPermiso("Cargar stock inicial requiere permiso de ingreso de stock")
     margen = redondear(datos.margen if datos.margen is not None else obtener_configuracion(db).margen_default)
     costo = redondear(datos.costo)
     precio = calcular_precio_venta(db, costo, margen, proveedor)

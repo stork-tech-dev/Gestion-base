@@ -49,11 +49,11 @@
     {"titulo": "Stock", "expr": "stockHtml(fila)", "html": True, "clase": "text-right"},
     {"titulo": "Mínimo", "expr": "minimoHtml(fila)", "html": True, "clase": "text-right"},
   ] %}
-  {% call tabla(columnas, cargando="cargando", vacio="No hay productos con esos filtros.") %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay productos con esos filtros.", clave="producto_id") %}
     {% call acciones() %}
-      {{ accion("ingreso", texto="Ingreso", icono_nombre="mas", atributos='x-show="puedeIngresar" @click="abrirIngreso(fila)"') }}
+      {{ accion("ingreso", texto="Ingreso", icono_nombre="mas", atributos='x-show="puedeIngresar && !fila.stock_infinito" @click="abrirIngreso(fila)"') }}
       {{ accion("minimo", texto="Mínimo", icono_nombre="editar", atributos='x-show="puedeMinimos && !fila.stock_infinito" @click="abrirMinimo(fila)"') }}
-      {{ accion("borrar", texto="Baja", atributos='x-show="puedeBaja" @click="abrirBaja(fila)"') }}
+      {{ accion("borrar", texto="Baja", atributos='x-show="puedeBaja && !fila.stock_infinito" @click="abrirBaja(fila)"') }}
       {{ accion("movimientos", texto="Movimientos", icono_nombre="reportes", atributos='@click="abrirMovimientos(fila)"') }}
     {% endcall %}
   {% endcall %}

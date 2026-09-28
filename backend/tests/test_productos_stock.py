@@ -4,7 +4,8 @@ listar_productos."""
 import pytest
 from sqlalchemy import select
 
-from app.models import Auditoria, MovimientoStock, TipoMovimientoStock
+from app.core.errores import SinPermiso
+from app.models import Auditoria, MovimientoStock, Producto, TipoMovimientoStock, UsuarioPermiso
 from app.schemas.categorias import CategoriaCrear
 from app.schemas.productos import ProductoCrear
 from app.schemas.proveedores import ProveedorCrear
@@ -68,6 +69,46 @@ def test_alta_stock_infinito_ignora_stock_inicial(db, admin, base):
     assert p.stock == 0
     assert p.stock_infinito is True
     assert db.scalar(select(MovimientoStock).where(MovimientoStock.producto_id == p.id)) is None
+
+
+def test_stock_inicial_sin_permiso_de_stock_da_sin_permiso(db, crear_usuario, base):
+    """Vendedor (seed.sql) tiene PRODUCTOS crear pero NO STOCK crear: cargar
+    stock inicial es, en los hechos, un ingreso de stock. Se valida ANTES de
+    crear nada: no queda producto ni movimiento."""
+    vendedor = crear_usuario("vendedor")
+    with pytest.raises(SinPermiso) as error:
+        _alta(db, vendedor, base, descripcion="Remera sin permiso de stock", stock_inicial=5)
+    assert error.value.mensaje == "Cargar stock inicial requiere permiso de ingreso de stock"
+    assert db.scalar(select(Producto).where(Producto.descripcion == "Remera sin permiso de stock")) is None
+
+
+def test_stock_inicial_sin_permiso_pero_sin_cantidad_no_molesta(db, crear_usuario, base):
+    """Sin stock_inicial (0, el default) no hace falta el permiso de stock."""
+    vendedor = crear_usuario("vendedor")
+    p = _alta(db, vendedor, base, descripcion="Remera stock cero sin permiso")
+    assert p.stock == 0
+
+
+def test_stock_inicial_con_permiso_puntual_de_stock_funciona(db, crear_usuario, base):
+    """Con un override que da STOCK crear (aunque no sea el rol Admin), el
+    alta con stock inicial funciona igual que para el Admin."""
+    vendedor = crear_usuario("vendedor")
+    db.add(UsuarioPermiso(usuario_id=vendedor.id, modulo="stock", puede_crear=True))
+    db.flush()
+    p = _alta(db, vendedor, base, descripcion="Remera con permiso puntual de stock", stock_inicial=4)
+    assert p.stock == 4
+
+
+def test_stock_inicial_infinito_no_exige_permiso_de_stock(db, admin, base, monkeypatch):
+    """stock_infinito=True ignora el stock inicial (no genera movimiento): no
+    debe ni consultar el permiso de stock. Stock infinito solo lo puede
+    definir el Admin (regla aparte, no relacionada), así que se usa admin y
+    se parchea resolver_permiso para que niegue todo: si el chequeo de
+    stock_inicial igual se evaluara, esto lo haría fallar con SinPermiso."""
+    monkeypatch.setattr(servicio, "resolver_permiso", lambda *a, **k: False)
+    p = _alta(db, admin, base, descripcion="Remera infinita sin permiso de stock",
+              stock_infinito=True, stock_inicial=5)
+    assert p.stock == 0 and p.stock_infinito is True
 
 
 def test_a_respuesta_trae_stock_stock_minimo_y_bajo_minimo(db, admin, base):

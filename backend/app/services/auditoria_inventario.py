@@ -7,6 +7,8 @@ nunca escribe `productos.stock` directamente."""
 from datetime import date
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import lazyload
 
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
@@ -51,11 +53,17 @@ def iniciar(db, autor, datos, ip) -> AuditoriaInventario:
         usuario_id=autor.id, filtro_categoria_id=datos.filtro_categoria_id, notas=normalizar_texto(datos.notas),
         fecha_inicio=ahora_db(),
     )
-    db.add(auditoria)
     # Si dos altas llegan a la vez, ambas pasan el chequeo de arriba y el
-    # índice único parcial (una sola en curso) salta acá: el handler de
-    # IntegrityError lo convierte en 409.
-    db.flush()
+    # índice único parcial (una sola en curso) salta acá, en el flush. Se
+    # corre en un savepoint propio (begin_nested) para poder seguir usando
+    # la sesión después de capturar el error: sin savepoint, el error deja
+    # TODA la transacción abortada, no solo este alta.
+    try:
+        with db.begin_nested():
+            db.add(auditoria)
+            db.flush()
+    except IntegrityError:
+        raise ReglaDeNegocio("Ya hay un conteo en curso.") from None
     db.refresh(auditoria)
     registrar_auditoria(db, accion="auditoria_inventario.iniciar", entidad="auditoria_inventario",
                         entidad_id=auditoria.id, usuario_id=autor.id, estado_nuevo=auditoria, ip_origen=ip)
@@ -90,6 +98,14 @@ def registrar_items(db, autor, auditoria: AuditoriaInventario, items: list, ip) 
             )
         ).all()
     }
+    # Snapshot de los ítems que este pedido va a SOBREESCRIBIR, tomado ANTES
+    # de tocarlos (si no, el snapshot reflejaría el estado nuevo, no el
+    # anterior). Ítems recién creados (no estaban en `existentes`) no
+    # aparecen acá: no había nada previo que perder.
+    estado_anterior_items = [
+        {"producto_id": pid, "cantidad_contada": item.cantidad_contada, "cantidad_sistema": item.cantidad_sistema}
+        for pid, item in existentes.items()
+    ]
 
     resultado = []
     for producto_id, cantidad_contada in por_producto.items():
@@ -115,6 +131,7 @@ def registrar_items(db, autor, auditoria: AuditoriaInventario, items: list, ip) 
     registrar_auditoria(
         db, accion="auditoria_inventario.items", entidad="auditoria_inventario", entidad_id=auditoria.id,
         usuario_id=autor.id,
+        estado_anterior={"items": estado_anterior_items} if estado_anterior_items else None,
         estado_nuevo={"items": [{"producto_id": pid, "cantidad_contada": c} for pid, c in por_producto.items()]},
         ip_origen=ip,
     )
@@ -167,6 +184,10 @@ def finalizar(db, autor, auditoria: AuditoriaInventario, ip) -> AuditoriaInventa
     items = list(auditoria.items)
     if not items:
         raise ReglaDeNegocio("Registrá al menos un producto antes de cerrar el conteo.")
+    # Orden de producto_id ascendente (ver docstring de aplicar_movimiento):
+    # evita el deadlock con el recálculo de dólar de un proveedor, que
+    # también bloquea los productos por PK.
+    items = sorted(items, key=lambda item: item.producto_id)
 
     ajustes = 0
     for item in items:
@@ -183,21 +204,41 @@ def finalizar(db, autor, auditoria: AuditoriaInventario, ip) -> AuditoriaInventa
     db.flush()
     db.refresh(auditoria)
     registrar_auditoria(db, accion="auditoria_inventario.cerrar", entidad="auditoria_inventario",
-                        entidad_id=auditoria.id, usuario_id=autor.id, estado_nuevo={"ajustes": ajustes}, ip_origen=ip)
+                        entidad_id=auditoria.id, usuario_id=autor.id, estado_anterior={"estado": "en_curso"},
+                        estado_nuevo={"ajustes": ajustes}, ip_origen=ip)
     return auditoria
 
 
 def listar(db, *, estado: EstadoAuditoriaInventario | None = None, desde: date | None = None,
           hasta: date | None = None, pagina: int = 1, tamano: int = 10) -> tuple[list[AuditoriaInventario], int]:
+    """El listado (a diferencia del detalle) no necesita los ítems de cada
+    auditoría, solo cuántos son: en vez de la relación `items` (selectin,
+    cargaría todas las filas de cada conteo de la página), se pide la
+    cantidad con una subquery de COUNT y se la deja en un atributo transient
+    `cantidad_items` (no persiste; lo usa AuditoriaResponse.desde). `items`
+    queda en lazyload (no noload): si algo llegara a acceder a `.items` de
+    todos modos, dispara un SELECT correcto en vez de devolver [] fijo."""
     condiciones = []
     if estado is not None:
         condiciones.append(AuditoriaInventario.estado == estado)
     condiciones.extend(rango_fechas(AuditoriaInventario.fecha_inicio, desde, hasta))
     pagina, tamano = paginar(pagina, tamano, TAMANO_MAXIMO)
     total = db.scalar(select(func.count()).select_from(AuditoriaInventario).where(*condiciones))
-    auditorias = db.scalars(
-        select(AuditoriaInventario).where(*condiciones)
+    subq_cantidad_items = (
+        select(func.count(AuditoriaItem.id))
+        .where(AuditoriaItem.auditoria_id == AuditoriaInventario.id)
+        .correlate(AuditoriaInventario)
+        .scalar_subquery()
+    )
+    filas = db.execute(
+        select(AuditoriaInventario, subq_cantidad_items)
+        .options(lazyload(AuditoriaInventario.items))
+        .where(*condiciones)
         .order_by(AuditoriaInventario.fecha_inicio.desc(), AuditoriaInventario.id.desc())
         .offset((pagina - 1) * tamano).limit(tamano)
     ).unique().all()
-    return list(auditorias), total
+    auditorias = []
+    for auditoria, cantidad_items in filas:
+        auditoria.cantidad_items = cantidad_items
+        auditorias.append(auditoria)
+    return auditorias, total

@@ -3,7 +3,7 @@ from io import BytesIO
 
 import pytest
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
 from app.models import (
@@ -65,6 +65,24 @@ def test_iniciar_categoria_inexistente(db, base):
         servicio.iniciar(db, base["admin"], AuditoriaIniciar(filtro_categoria_id=999999), None)
 
 
+def test_iniciar_carrera_en_el_flush_da_regla_de_negocio(db, base, monkeypatch):
+    """Simula la carrera real: dos altas pasan el chequeo previo (en_curso ->
+    None) casi a la vez y ambas intentan insertar; la segunda choca con el
+    índice único parcial recién en el flush. Se fuerza acá parcheando
+    en_curso para que no vea la primera auditoría ya creada, y se verifica
+    que el IntegrityError del savepoint se traduce en ReglaDeNegocio (no en
+    un 500 ni en una sesión inutilizable)."""
+    servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
+    monkeypatch.setattr(servicio, "en_curso", lambda db: None)
+    with pytest.raises(ReglaDeNegocio) as error:
+        servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
+    assert error.value.mensaje == "Ya hay un conteo en curso."
+    # La sesión sigue usable después del error: el savepoint se descartó
+    # solo (no toda la transacción), así que un query normal no explota.
+    monkeypatch.undo()
+    assert servicio.en_curso(db) is not None
+
+
 # --- 2. registrar_items -------------------------------------------------
 
 def test_registrar_items_captura_stock_al_registrar(db, base):
@@ -91,6 +109,35 @@ def test_registrar_items_de_nuevo_sobreescribe_y_recaptura_sistema(db, base):
     # Sigue habiendo un solo ítem para ese producto (upsert, no duplicado).
     total_items = db.scalars(select(servicio.AuditoriaItem).where(servicio.AuditoriaItem.auditoria_id == auditoria.id)).all()
     assert len(total_items) == 1
+
+
+def test_registrar_items_primera_vez_sin_estado_anterior(db, base):
+    p = base["alta"]("Remera conteo estado anterior alta")
+    servicio_stock.registrar_ingreso(db, base["admin"], p.id, 10, None, None)
+    auditoria = servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
+    servicio.registrar_items(db, base["admin"], auditoria, [ItemContado(producto_id=p.id, cantidad_contada=8)], None)
+    registro = db.scalar(
+        select(Auditoria).where(Auditoria.accion == "auditoria_inventario.items", Auditoria.entidad_id == auditoria.id)
+    )
+    assert registro.estado_anterior is None   # nada previo que perder: recién se cargó
+
+
+def test_registrar_items_de_nuevo_guarda_lo_contado_antes_en_estado_anterior(db, base):
+    p = base["alta"]("Remera conteo estado anterior sobre")
+    servicio_stock.registrar_ingreso(db, base["admin"], p.id, 10, None, None)
+    auditoria = servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
+    servicio.registrar_items(db, base["admin"], auditoria, [ItemContado(producto_id=p.id, cantidad_contada=8)], None)
+    servicio_stock.registrar_ingreso(db, base["admin"], p.id, 5, None, None)
+    servicio.registrar_items(db, base["admin"], auditoria, [ItemContado(producto_id=p.id, cantidad_contada=12)], None)
+    registros = db.scalars(
+        select(Auditoria).where(Auditoria.accion == "auditoria_inventario.items", Auditoria.entidad_id == auditoria.id)
+        .order_by(Auditoria.id)
+    ).all()
+    assert len(registros) == 2
+    assert registros[0].estado_anterior is None
+    assert registros[1].estado_anterior == {
+        "items": [{"producto_id": p.id, "cantidad_contada": 8, "cantidad_sistema": 10}]
+    }
 
 
 def test_registrar_items_producto_infinito(db, base):
@@ -200,10 +247,37 @@ def test_finalizar_genera_ajustes_por_diferencia(db, base):
         select(Auditoria).where(Auditoria.accion == "auditoria_inventario.cerrar", Auditoria.entidad_id == auditoria.id)
     )
     assert registro is not None
+    assert registro.estado_anterior == {"estado": "en_curso"}
 
     # Después de cerrar se puede iniciar otra.
     otra = servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
     assert otra.estado == EstadoAuditoriaInventario.EN_CURSO
+
+
+def test_finalizar_aplica_los_ajustes_en_orden_de_producto_id(db, base):
+    """Evita el deadlock con el recálculo de dólar de un proveedor (ver
+    docstring de aplicar_movimiento): los ajustes se aplican en orden de
+    producto_id ASCENDENTE, sin importar en qué orden se registraron los
+    ítems del conteo."""
+    a = base["alta"]("Remera orden ajuste A")
+    b = base["alta"]("Remera orden ajuste B")
+    c = base["alta"]("Remera orden ajuste C")
+    for p in (a, b, c):
+        servicio_stock.registrar_ingreso(db, base["admin"], p.id, 10, None, None)
+    mayor, medio, menor = sorted([a, b, c], key=lambda p: p.id, reverse=True)
+    auditoria = servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
+    # A propósito en orden DESCENDENTE de producto_id.
+    servicio.registrar_items(
+        db, base["admin"], auditoria,
+        [ItemContado(producto_id=mayor.id, cantidad_contada=1), ItemContado(producto_id=medio.id, cantidad_contada=1),
+         ItemContado(producto_id=menor.id, cantidad_contada=1)],
+        None,
+    )
+    servicio.finalizar(db, base["admin"], auditoria, None)
+    ajustes = db.scalars(
+        select(MovimientoStock).where(MovimientoStock.auditoria_id == auditoria.id).order_by(MovimientoStock.id)
+    ).all()
+    assert [m.producto_id for m in ajustes] == [menor.id, medio.id, mayor.id]
 
 
 def test_finalizar_con_faltante_no_aplica_nada_y_sigue_en_curso(db, base):
@@ -250,6 +324,22 @@ def test_listar_por_estado_y_fechas(db, base):
 
     todas, total_todas = servicio.listar(db, desde=date.today(), hasta=date.today())
     assert total_todas >= 2
+
+
+def test_listar_cantidad_items_con_subquery_sin_cargar_items(db, base):
+    """cantidad_items sale de un COUNT correlacionado, no de cargar la
+    colección `items` (selectin) de cada auditoría de la página."""
+    p = base["alta"]("Remera listar cantidad de items")
+    auditoria = servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
+    servicio.registrar_items(db, base["admin"], auditoria, [ItemContado(producto_id=p.id, cantidad_contada=1)], None)
+    # Como si esta auditoría llegara "fresca" a listar() (nada cargado
+    # todavía): registrar_items la dejó con `items` ya en memoria.
+    db.expire(auditoria, ["items"])
+    listadas, total_en_curso = servicio.listar(db, estado=EstadoAuditoriaInventario.EN_CURSO)
+    [encontrada] = [a for a in listadas if a.id == auditoria.id]
+    assert encontrada.cantidad_items == 1
+    assert total_en_curso == 1
+    assert "items" in inspect(encontrada).unloaded   # listar() no la cargó
 
 
 # --- 7. PDF y Excel --------------------------------------------------------

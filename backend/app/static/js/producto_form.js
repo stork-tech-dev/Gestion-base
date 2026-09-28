@@ -100,12 +100,13 @@
 
   // ---------- Componente Alpine ----------
 
-  window.productoForm = function ({ esAdmin, nivelMaximo, margenDefault, descuentoMaximo }) {
+  window.productoForm = function ({ esAdmin, nivelMaximo, margenDefault, descuentoMaximo, puedeStockInicial }) {
     return {
       esAdmin,
       nivelMaximo,
       margenDefault,
       descuentoMaximo,
+      puedeStockInicial,
 
       abierto: false,
       form: formVacio(margenDefault),

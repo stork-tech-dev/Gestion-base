@@ -101,6 +101,11 @@ def test_producto_inexistente(db, base):
         servicio.registrar_ingreso(db, base["admin"], 999999, 1, None, None)
 
 
+def test_bloquear_producto_inexistente(db):
+    with pytest.raises(NoEncontrado):
+        servicio.bloquear_producto(db, 999999)
+
+
 def test_minimo(db, base):
     p = base["alta"]("Remera mínimo")
     servicio.definir_minimo(db, base["admin"], p.id, 3, None)
@@ -126,6 +131,17 @@ def test_listar_stock(db, base):
     assert ids(busqueda=infinito.codigo_con_verificador) == {infinito.id}   # por código sí aparece
     assert ids(categoria_id=base["ropa"].id) == {a.id, b.id}      # filtro por rama
     assert ids(busqueda="lista a") == {a.id}
+
+
+def test_listar_stock_infinito_solo_por_sku_exacto(db, base):
+    """Una coincidencia PARCIAL (ILIKE) del SKU de un infinito no alcanza
+    para mostrarlo: solo aparece con el código completo (exacto)."""
+    infinito = base["alta"]("Remera lista infinita exacta", stock_infinito=True)
+    parcial = infinito.sku[:3]                                    # ej. "AB0" de "AB003"
+    ids = lambda **f: {p.id for p in servicio.listar_stock(db, proveedor_id=base["prov"].id, **f)[0]}
+    assert infinito.id not in ids(busqueda=parcial)                # coincidencia parcial: no aparece
+    assert ids(busqueda=infinito.sku) == {infinito.id}             # SKU exacto: sí aparece
+    assert ids(busqueda=infinito.codigo_con_verificador) == {infinito.id}   # con verificador: también
 
 
 def test_alertas_y_resumen(db, base):
