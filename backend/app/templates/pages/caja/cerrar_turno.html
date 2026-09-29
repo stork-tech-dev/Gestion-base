@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% block titulo %}Cerrar turno · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{# El esperado por medio SIEMPRE lo calcula el backend (GET
+   /turnos/{id}/arqueo/esperado): acá solo se declara lo que hay y se muestra
+   la diferencia mientras se tipea (en centavos enteros, cajaLogica). #}
+<div x-data="cerrarTurnoPantalla({ turnoId: {{ turno_id|js }} })">
+  {{ encabezado("Cerrar turno", "/caja", "Caja") }}
+
+  <p class="mb-4 text-texto-muted">Completá las novedades de caja antes de cerrar el turno.</p>
+
+  <p x-show="cargando" x-cloak class="py-10 text-center text-texto-muted">Cargando…</p>
+
+  <template x-if="!cargando">
+    <div class="flex flex-col gap-4">
+      <div class="tarjeta overflow-hidden p-0">
+        <div class="overflow-x-auto">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th scope="col">Medio</th>
+                <th scope="col" class="text-right">Esperado</th>
+                <th scope="col" class="text-right">Declarado</th>
+                <th scope="col" class="text-right">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="item in items" :key="claveDe(item)">
+                <tr>
+                  <td>
+                    <span x-text="item.medio_nombre"></span>
+                    <span x-show="item.es_informativo" class="text-texto-muted"> (informativo)</span>
+                    <p x-show="item.es_efectivo" x-cloak class="text-xs text-texto-muted"
+                       x-text="'Incluye ' + '$ ' + pesos(efectivoApertura) + ' de fondo inicial'"></p>
+                  </td>
+                  <td class="whitespace-nowrap text-right" x-text="'$ ' + pesos(item.monto_esperado)"></td>
+                  <td class="text-right">
+                    <label class="sr-only" :for="'declarado-' + claveDe(item)" x-text="'Declarado ' + item.medio_nombre"></label>
+                    <input :id="'declarado-' + claveDe(item)" type="text" inputmode="decimal" class="campo text-right"
+                           placeholder="$0" :disabled="item.es_informativo"
+                           x-model="declarados[claveDe(item)]">
+                  </td>
+                  <td class="whitespace-nowrap text-right" :class="diferenciaDe(item) !== null && diferenciaDe(item) !== 0 ? 'font-semibold text-danger' : ''"
+                      x-text="diferenciaDe(item) === null ? '' : '$ ' + pesos(diferenciaDe(item) / 100)"></td>
+                </tr>
+              </template>
+            </tbody>
+            <tfoot>
+              <tr class="font-semibold">
+                <td>Total esperado</td>
+                <td class="text-right" x-text="'$ ' + pesos(totalEsperado)" colspan="3"></td>
+              </tr>
+              <tr class="font-semibold">
+                <td>Total declarado</td>
+                <td class="text-right" colspan="3" x-text="totalDeclarado === null ? '—' : '$ ' + pesos(totalDeclarado / 100)"></td>
+              </tr>
+              <tr class="font-semibold">
+                <td>Diferencia</td>
+                <td class="text-right" colspan="3" :class="diferenciaTotal !== null && diferenciaTotal !== 0 ? 'text-danger' : ''"
+                    x-text="diferenciaTotal === null ? '—' : '$ ' + pesos(diferenciaTotal / 100)"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <div class="flex justify-end">
+        <button type="button" class="boton boton-primario min-h-toque" :disabled="!puedeCerrar" @click="cerrar()"
+                x-text="cerrando ? 'Cerrando…' : 'Cerrar turno'"></button>
+      </div>
+    </div>
+  </template>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/caja.js') }}"></script>{% endblock %}

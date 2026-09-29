@@ -149,8 +149,16 @@ def test_hub_ventas_sin_permiso_da_403(db, crear_usuario, iniciar_sesion):
     assert respuesta.status_code == 403
 
 
-def test_venta_nueva_vendedor(crear_usuario, iniciar_sesion):
-    html = iniciar_sesion(crear_usuario("vendedor")).get("/ventas/nueva").text
+def test_venta_nueva_vendedor(db, crear_usuario, iniciar_sesion):
+    from decimal import Decimal
+
+    from app.services import turnos as servicio_turnos
+
+    vendedor = crear_usuario("vendedor")
+    # `hay_turno` sale de services.turnos (sesión 07): sin turno abierto de
+    # hoy daría False, así que se abre uno para probar el resto del contexto.
+    servicio_turnos.abrir_turno(db, vendedor, Decimal("0"), None, None)
+    html = iniciar_sesion(vendedor).get("/ventas/nueva").text
     assert "ventaPantalla(" in html and "/static/js/venta.js?v=" in html
     assert "/static/js/cliente_form.js?v=" in html
     # Vendedor: venta.descuento (seed.sql) y CLIENTES ver + crear.

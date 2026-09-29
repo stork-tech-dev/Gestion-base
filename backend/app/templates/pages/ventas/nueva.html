@@ -17,9 +17,8 @@
           x-text="venta ? venta.numero : ''"></span>
   {% endcall %}
 
-  {# Sesión 07: hoy `hay_turno` siempre es verdadero. #}
   <p x-show="!hayTurno" x-cloak class="mb-4 rounded-input bg-danger/10 p-3 text-sm text-danger">
-    No hay un turno de caja abierto: no vas a poder confirmar la venta.
+    No hay un turno de caja abierto de hoy: abrilo (o cerrá el anterior) desde <a href="/caja" class="underline">Caja</a> para poder cobrar.
   </p>
 
   <div class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_24rem] lg:items-start">

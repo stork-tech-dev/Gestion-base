@@ -127,7 +127,7 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - `compras_total` del cliente sale "0" en vez de "0.00" (cosmético: el JS formatea).
 - Faltan tests de API de `/ventas/producto`, `/ventas/productos`, `/ventas/vendedores`, `/ventas/{id}/recalcular`, DELETE de ítem y de venta, etc.
 - `GET /configuracion/promociones/catalogos` no tiene `response_model` (Principio 1, documentación de OpenAPI).
-- DRY: `PAGINA_MAXIMA` repetida en 5 routers (llevarla a `schemas/comunes.py`); `_validar_fechas` idéntica en `services/descuentos.py` y `services/promociones.py` (llevarla a `core/utils.py::validar_rango_fechas`); `textoONull` en 4 JS (pasar a `window.textoONull` en `app.js`); `celdaEstado` en 5 JS y `celdaNombre` en 2 (helpers globales `estadoActivoHtml` / `nombreConNotaHtml`); `CLASES_BADGE` de `app.js` duplica `FONDOS_BADGE` de `components/badge.html`.
+- DRY: `PAGINA_MAXIMA` repetida en 5 routers (y ahora también en `api/v1/turnos.py`, sesión 07; llevarla a `schemas/comunes.py`); `_validar_fechas` idéntica en `services/descuentos.py` y `services/promociones.py` (llevarla a `core/utils.py::validar_rango_fechas`); `textoONull` en 4 JS (pasar a `window.textoONull` en `app.js`); `celdaEstado` en 5 JS y `celdaNombre` en 2 (helpers globales `estadoActivoHtml` / `nombreConNotaHtml`); `CLASES_BADGE` de `app.js` duplica `FONDOS_BADGE` de `components/badge.html`.
 - Ids de path mayores que BIGINT dan 500 (afecta a todo el proyecto, ya venía de antes).
 - Comentarios imprecisos sobre el orden de rutas en `api/v1/ventas.py` y `api/v1/clientes.py:31`.
 - Asignar una promoción general a un cliente (ficha del cliente) la vuelve exclusiva para todos sin avisar: pedir `confirmar()` antes y mostrar "Exclusiva" en el listado de promociones.
@@ -135,18 +135,15 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - `elegir_promocion` acepta una promoción aplicable que no ahorra nada (la venta dice "elegida a mano" y no cambia nada).
 - En la pantalla de venta, un monto con coma decimal ("5000,50") da un 422 genérico (hoy `type="number"` lo evita en la mayoría de los navegadores).
 
-### Para la sesión 07 (turnos de caja)
-- Reemplazar `services/ventas.py::_turno_para_operar` por
-  `services.turnos.turno_para_operar()`: hoy devuelve siempre `None` y no
-  bloquea nada (plan del módulo 06, "Decisiones y desvíos", punto 7).
-- Sumar las **FK a `turnos`** de las columnas `ventas.turno_id` y
-  `ventas.turno_anulacion_id` (las columnas ya existen y hoy quedan `NULL` en
-  toda venta confirmada o anulada).
-- El aviso de turno de `/ventas/nueva` (`hay_turno`, fijo en `True` en
-  `app/api/pages.py::venta_nueva`) tiene que leer el turno real del usuario.
-- Agregar el test "confirmar sin turno de caja abierto de hoy → 409".
-
 ## Verificación manual pendiente (navegador)
 - Tema claro/oscuro sin recargar, cajón del sidebar debajo de 1024px, sin
   scroll horizontal de 320px a 1920px, y botones de al menos 44px en modo
   táctil.
+
+## Módulo 07 — fuera de alcance / para después
+- Pantalla de configuración del arqueo por medio de pago (agrupación en
+  terminal, informativos): hoy solo se edita por SQL directo
+  (`medios_pago_arqueo_config`).
+- Panel completo de notificaciones: hoy la campanita del header solo muestra
+  las últimas 20 (lo que devuelve `GET /api/v1/notificaciones`), sin un
+  listado propio ni filtros.

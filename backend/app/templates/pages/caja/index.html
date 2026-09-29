@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/paginacion.html" import paginacion %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo %}
+{% block titulo %}Caja · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{# El esperado del arqueo lo calcula SIEMPRE el backend; acá solo se muestra
+   lo que ya trae la API (Principio 1). #}
+<div x-data="cajaPantalla({ usuarioId: {{ usuario_actual.id|js }}, puedeRetirar: {{ puede_retirar|js }}, puedeArquear: {{ puede_arquear|js }} })">
+  {{ encabezado("Caja") }}
+
+  {# ---------- Turno del día ---------- #}
+  <section class="tarjeta mb-6 flex flex-col gap-4">
+    <h2 class="text-lg font-semibold text-texto-header">Turno del día</h2>
+
+    <p x-show="verificando" x-cloak class="text-texto-muted">Verificando turno…</p>
+
+    {# Sin turno abierto #}
+    <div x-show="!verificando && !turno" x-cloak class="flex flex-col gap-3">
+      <p class="text-texto-muted">Todavía no se abrió un turno de caja hoy.</p>
+      <button type="button" class="boton boton-primario min-h-toque self-start" @click="abrirModalAbrir()">Iniciar turno</button>
+    </div>
+
+    {# Turno de un día anterior sin cerrar: bloqueo duro #}
+    <template x-if="turno && turno.es_de_dia_anterior">
+      <div class="flex flex-col gap-3">
+        <p class="rounded-input bg-danger/10 p-3 text-sm text-danger">
+          Hay un turno del <span x-text="fecha(turno.fecha_apertura)"></span> sin cerrar. Cerrá el turno anterior antes de continuar.
+        </p>
+        <a x-show="puedeArquear" x-cloak :href="'/caja/cerrar/' + turno.id" class="boton boton-primario min-h-toque self-start">Cerrar turno</a>
+      </div>
+    </template>
+
+    {# Turno de hoy, abierto #}
+    <template x-if="turno && !turno.es_de_dia_anterior">
+      <div class="flex flex-col gap-4">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <p class="text-sm text-texto-muted">Turno iniciado</p>
+            <p class="font-semibold text-texto-header" x-text="fechaHora(turno.fecha_apertura)"></p>
+          </div>
+          <div>
+            <p class="text-sm text-texto-muted">Abierto por</p>
+            <p class="font-semibold text-texto-header" x-text="turno.usuario_apertura_nombre"></p>
+          </div>
+          <div>
+            <p class="text-sm text-texto-muted">Efectivo inicial</p>
+            <p class="font-semibold text-texto-header" x-text="'$ ' + pesos(turno.efectivo_apertura)"></p>
+          </div>
+          <div>
+            <p class="text-sm text-texto-muted">En el turno</p>
+            <ul class="flex flex-col">
+              <template x-for="u in turno.usuarios" :key="u.id">
+                <li class="font-semibold text-texto-header" x-text="u.nombre"></li>
+              </template>
+            </ul>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button type="button" class="boton boton-secundario min-h-toque" x-show="!sumado" x-cloak
+                  :disabled="uniendome" @click="unirme()" x-text="uniendome ? 'Uniéndome…' : 'Unirme al turno'"></button>
+          <button type="button" class="boton boton-secundario min-h-toque" x-show="puedeRetirar" x-cloak
+                  @click="abrirModalRetiro()">Retiro de efectivo</button>
+          <a x-show="puedeArquear" x-cloak :href="'/caja/cerrar/' + turno.id" class="boton boton-primario min-h-toque">Cerrar turno</a>
+        </div>
+
+        {# ---------- Retiros del turno ---------- #}
+        <div x-show="retiros.length" x-cloak class="tarjeta overflow-hidden p-0">
+          <div class="overflow-x-auto">
+            <table class="tabla">
+              <thead><tr><th scope="col">Hora</th><th scope="col" class="text-right">Monto</th><th scope="col">Motivo</th><th scope="col">Usuario</th></tr></thead>
+              <tbody>
+                <template x-for="r in retiros" :key="r.id">
+                  <tr>
+                    <td x-text="fechaHora(r.timestamp)"></td>
+                    <td class="text-right" x-text="'$ ' + pesos(r.monto)"></td>
+                    <td x-text="r.motivo"></td>
+                    <td x-text="r.usuario_nombre"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </template>
+  </section>
+
+  {# ---------- Turnos anteriores ---------- #}
+  <section>
+    <h2 class="mb-3 text-lg font-semibold text-texto-header">Turnos anteriores</h2>
+    {% call barra_filtros(total="total", limpiar="limpiarFiltrosTurnos()", buscar="cargarTurnos(1)", etiqueta="turnos encontrados") %}
+      <div class="flex flex-col gap-1">
+        <label for="caja-turnos-desde" class="text-lg font-medium text-texto">Fecha desde</label>
+        <input id="caja-turnos-desde" type="date" class="campo" x-model="filtros.desde">
+      </div>
+      <div class="flex flex-col gap-1">
+        <label for="caja-turnos-hasta" class="text-lg font-medium text-texto">Fecha hasta</label>
+        <input id="caja-turnos-hasta" type="date" class="campo" x-model="filtros.hasta">
+      </div>
+    {% endcall %}
+
+    {% set columnas_turnos = [
+      {"titulo": "Apertura", "expr": "fechaHora(fila.fecha_apertura)"},
+      {"titulo": "Cierre", "expr": "fila.fecha_cierre ? fechaHora(fila.fecha_cierre) : '—'"},
+      {"titulo": "Abierto por", "expr": "fila.usuario_apertura_nombre"},
+      {"titulo": "Cerrado por", "expr": "fila.usuario_cierre_nombre || '—'"},
+      {"titulo": "Diferencia", "expr": "diferenciaTexto(fila)", "html": True, "clase": "text-right"},
+      {"titulo": "Estado", "expr": "estadoTurnoTexto(fila)", "html": True},
+    ] %}
+    {% call tabla(columnas_turnos, filas="filas", cargando="cargandoTurnos", vacio="No hay turnos con esos filtros.") %}
+      {% call acciones() %}
+        {{ accion("ver", texto="Ver arqueo", atributos='x-show="fila.estado === \'cerrado\'" @click="verArqueo(fila)"') }}
+      {% endcall %}
+    {% endcall %}
+    {{ paginacion(al_cambiar="cargarTurnos()") }}
+  </section>
+
+  {# ---------- Modal: iniciar turno ---------- #}
+  {% call modal("Iniciar el turno del día", "modal-caja-abrir", abierto="modalAbrir", ancho="max-w-md") %}
+  <form @submit.prevent="abrir()" class="flex flex-col gap-4" novalidate>
+    {{ campo("caja-efectivo-inicial", "Efectivo inicial", modelo="formAbrir.efectivo_apertura", placeholder="$0",
+             error="erroresAbrir.efectivo_apertura", atributos='inputmode="decimal"') }}
+    {{ campo("caja-notas-apertura", "Notas", tipo="text", modelo="formAbrir.notas", placeholder="Opcional",
+             error="erroresAbrir.notas") }}
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario min-h-toque" :disabled="abriendo"
+              x-text="abriendo ? 'Abriendo…' : 'Confirmar'"></button>
+    </div>
+  </form>
+  {% endcall %}
+
+  {# ---------- Modal: retiro de efectivo ---------- #}
+  {% call modal("Retiro de efectivo", "modal-caja-retiro", abierto="modalRetiro", ancho="max-w-md") %}
+  <form @submit.prevent="retirar()" class="flex flex-col gap-4" novalidate>
+    {{ campo("caja-retiro-monto", "Monto", modelo="formRetiro.monto", requerido=True, placeholder="$0",
+             error="erroresRetiro.monto", atributos='inputmode="decimal"') }}
+    {{ campo("caja-retiro-motivo", "Motivo", modelo="formRetiro.motivo", requerido=True,
+             error="erroresRetiro.motivo") }}
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario min-h-toque" :disabled="retirando"
+              x-text="retirando ? 'Retirando…' : 'Confirmar'"></button>
+    </div>
+  </form>
+  {% endcall %}
+
+  {# ---------- Modal: ver arqueo ---------- #}
+  {% call modal("Arqueo", "modal-caja-arqueo", abierto="modalArqueo", titulo_expr="arqueo ? 'Arqueo del ' + fecha(arqueo.created_at) : 'Arqueo'") %}
+  <p x-show="cargandoArqueo" x-cloak class="py-10 text-center text-texto-muted">Cargando…</p>
+  <template x-if="arqueo && !cargandoArqueo">
+    <div class="flex flex-col gap-4">
+      <div class="tarjeta overflow-hidden p-0">
+        <div class="overflow-x-auto">
+          <table class="tabla">
+            <thead><tr><th scope="col">Medio</th><th scope="col" class="text-right">Esperado</th><th scope="col" class="text-right">Declarado</th><th scope="col" class="text-right">Diferencia</th></tr></thead>
+            <tbody>
+              <template x-for="item in arqueo.items" :key="(item.medio_de_pago_id || item.grupo_terminal)">
+                <tr>
+                  <td x-text="item.medio_nombre + (item.es_informativo ? ' (informativo)' : '')"></td>
+                  <td class="text-right" x-text="'$ ' + pesos(item.monto_esperado)"></td>
+                  <td class="text-right" x-text="'$ ' + pesos(item.monto_declarado)"></td>
+                  <td class="text-right" :class="Number(item.diferencia) !== 0 ? 'font-semibold text-danger' : ''"
+                      x-text="'$ ' + pesos(item.diferencia)"></td>
+                </tr>
+              </template>
+            </tbody>
+            <tfoot>
+              <tr class="font-semibold">
+                <td>Total</td>
+                <td class="text-right" x-text="'$ ' + pesos(arqueo.total_esperado)"></td>
+                <td class="text-right" x-text="'$ ' + pesos(arqueo.total_declarado)"></td>
+                <td class="text-right" :class="Number(arqueo.diferencia) !== 0 ? 'text-danger' : ''"
+                    x-text="'$ ' + pesos(arqueo.diferencia)"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      <p class="text-sm text-texto-muted">Cerrado por <span x-text="arqueo.usuario_nombre"></span> el <span x-text="fechaHora(arqueo.created_at)"></span></p>
+    </div>
+  </template>
+  {% endcall %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/caja.js') }}"></script>{% endblock %}
