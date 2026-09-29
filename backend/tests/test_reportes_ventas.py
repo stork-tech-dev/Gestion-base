@@ -330,6 +330,16 @@ def test_nombre_del_excel_lleva_el_rango(client, h, e):
     assert 'filename="reporte-ventas-periodo-2025-03-01_2025-04-30.xlsx"' in r.headers["content-disposition"]
 
 
+def test_el_json_trae_el_grafico_segun_la_agrupacion(client, h, e):
+    assert _pedir(client, h, "ventas-periodo")["grafico"] == {
+        "tipo": "linea", "etiquetas": ["periodo"], "valor": "total", "titulo": "Total vendido por día"}
+    assert _pedir(client, h, "rentabilidad", agrupar="proveedor")["grafico"] == {
+        "tipo": "barras", "etiquetas": ["grupo"], "valor": "ganancia", "titulo": "Ganancia bruta por proveedor"}
+    assert _pedir(client, h, "productos-vendidos", orden="importe")["grafico"] == {
+        "tipo": "barras", "etiquetas": ["descripcion"], "valor": "importe", "titulo": "Importe vendido por producto"}
+    assert _pedir(client, h, "medios-pago")["grafico"]["etiquetas"] == ["medio", "plan"]
+
+
 def test_catalogo_en_el_orden_del_hub(client, h, e):
     assert [x["clave"] for x in client.get(API, headers=h).json()] == [
         "ventas-periodo", "medios-pago", "vendedores", "productos-vendidos", "rentabilidad", "stock-valorizado"]

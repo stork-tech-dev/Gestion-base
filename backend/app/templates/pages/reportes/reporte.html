@@ -64,6 +64,19 @@
     {% if "medio_de_pago_id" in admite %}{{ combobox("reporte-medio", "opciones.medios_de_pago", "filtros.medio_de_pago_id", texto="nombre", etiqueta="Medio de pago") }}{% endif %}
   {% endcall %}
 
+  {# Gráfico (Chart.js, solo en pantalla): una serie; en barras, las primeras
+     `grafico.maximo` filas. Si el CDN de Chart.js no cargó, no se muestra la
+     tarjeta (quedaría vacía). #}
+  <section x-show="grafico && hayGraficos" x-cloak class="tarjeta mb-4 flex flex-col gap-3" aria-labelledby="reporte-grafico-titulo">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 id="reporte-grafico-titulo" class="text-lg font-semibold text-texto-header" x-text="grafico ? grafico.titulo : ''"></h2>
+      <p x-show="grafico && grafico.recortado" class="text-sm text-texto-muted" x-text="grafico ? ('Primeras ' + grafico.maximo + ' · la tabla muestra todas') : ''"></p>
+    </div>
+    <div class="relative h-72 w-full">
+      <canvas x-ref="grafico" role="img" :aria-label="grafico ? grafico.titulo : ''"></canvas>
+    </div>
+  </section>
+
   <div class="tarjeta overflow-hidden p-0">
     <div class="overflow-x-auto">
       <table class="tabla">
@@ -97,4 +110,7 @@
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ estatico('/js/reporte.js') }}"></script>{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="{{ estatico('/js/reporte.js') }}"></script>
+{% endblock %}

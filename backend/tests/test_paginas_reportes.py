@@ -45,3 +45,10 @@ def test_la_pantalla_muestra_solo_los_filtros_que_admite(crear_usuario, iniciar_
     assert 'id="reporte-desde"' not in stock and 'id="reporte-nivel"' in stock
     medios = cliente.get("/reportes/medios-pago").text
     assert 'id="reporte-vendedor"' in medios and 'id="reporte-medio"' in medios
+
+
+def test_la_pantalla_carga_chart_js_y_el_lienzo(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("admin")).get("/reportes/vendedores").text
+    assert "chart.js@4.4.4/dist/chart.umd.min.js" in html
+    assert 'x-ref="grafico"' in html
+    assert html.index("chart.umd.min.js") < html.index("/static/js/reporte.js")

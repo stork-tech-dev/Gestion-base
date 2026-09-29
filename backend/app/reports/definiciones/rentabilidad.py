@@ -9,7 +9,7 @@ from app.models import Producto, Venta, VentaItem
 from app.reports.definiciones._comunes import (
     condiciones_de_producto, filas_y_totales, grupo_de_producto, periodo, porcentaje, ventas_confirmadas,
 )
-from app.reports.motor import Columna, DefinicionReporte, titulo_de_agrupacion
+from app.reports.motor import Columna, DefinicionReporte, Grafico, titulo_de_agrupacion
 from app.schemas.reportes import Agrupar
 from app.schemas.reportes import TipoColumna as T
 
@@ -56,6 +56,11 @@ def _consulta(db, filtros):
     return filas, totales
 
 
+def _grafico(filtros) -> Grafico:
+    return Grafico("linea" if filtros.agrupar in TIPO_DEL_GRUPO else "barras", ("grupo",), "ganancia",
+                   f"Ganancia bruta por {titulo_de_agrupacion(filtros.agrupar).lower()}")
+
+
 DEFINICION = DefinicionReporte(
     clave="rentabilidad",
     nombre="Rentabilidad",
@@ -64,4 +69,5 @@ DEFINICION = DefinicionReporte(
     columnas=_columnas,
     consulta=_consulta,
     agrupaciones=(Agrupar.DIA, Agrupar.MES, Agrupar.CATEGORIA, Agrupar.PROVEEDOR),
+    grafico=_grafico,
 )

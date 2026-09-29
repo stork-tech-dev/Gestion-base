@@ -24,7 +24,9 @@ def catalogo() -> list[dict]:
 
 def consultar(db, clave: str, filtros) -> dict:
     resultado = motor.generar(db, obtener_reporte(clave), filtros)
-    return {**resultado, "columnas": [asdict(c) for c in resultado["columnas"]]}
+    grafico = resultado["grafico"]
+    return {**resultado, "columnas": [asdict(c) for c in resultado["columnas"]],
+            "grafico": asdict(grafico) if grafico else None}
 
 
 def _sufijo(filtros) -> str:

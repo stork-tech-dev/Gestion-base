@@ -94,3 +94,73 @@ test('urlExportar: "#" antes de la primera búsqueda; después usa los filtros a
   assert.equal(pantalla.urlExportar('pdf'),
     '/api/v1/reportes/ventas-periodo/pdf?desde=2026-09-01&hasta=2026-09-29');
 });
+
+// ---------- Datos del gráfico ----------
+
+test('datos del gráfico: barras con etiquetas compuestas, top 10 y números', () => {
+  const columnas = [{ clave: 'medio', tipo: 'texto' }, { clave: 'plan', tipo: 'texto' },
+                    { clave: 'total_cobrado', tipo: 'moneda' }];
+  const filas = Array.from({ length: 12 }, (_, i) => ({ medio: 'Tarjeta', plan: `${i + 1} cuotas`, total_cobrado: `${1000 + i}.50` }));
+  const g = L.datosGrafico({ tipo: 'barras', etiquetas: ['medio', 'plan'], valor: 'total_cobrado', titulo: 'Total' },
+                           columnas, filas);
+  assert.equal(g.etiquetas.length, 10);
+  assert.equal(g.etiquetas[0], 'Tarjeta · 1 cuotas');
+  assert.equal(g.valores[0], 1000.5);
+  assert.equal(g.recortado, true);
+  assert.equal(g.maximo, 10);
+  assert.equal(g.tipoValor, 'moneda');
+  assert.equal(g.titulo, 'Total');
+});
+
+test('datos del gráfico: línea con todos los puntos y fechas formateadas', () => {
+  const columnas = [{ clave: 'periodo', tipo: 'fecha' }, { clave: 'total', tipo: 'moneda' }];
+  const filas = Array.from({ length: 15 }, (_, i) => ({ periodo: `2025-03-${String(i + 1).padStart(2, '0')}`, total: '10.00' }));
+  const g = L.datosGrafico({ tipo: 'linea', etiquetas: ['periodo'], valor: 'total', titulo: 'T' }, columnas, filas);
+  assert.equal(g.etiquetas.length, 15);
+  assert.equal(g.etiquetas[0], '01/03/2025');
+  assert.equal(g.recortado, false);
+});
+
+test('sin gráfico o sin filas no se dibuja nada', () => {
+  const columnas = [{ clave: 'total', tipo: 'moneda' }];
+  assert.equal(L.datosGrafico(null, columnas, [{ total: '1' }]), null);
+  assert.equal(L.datosGrafico({ tipo: 'barras', etiquetas: ['total'], valor: 'total', titulo: 'T' }, columnas, []), null);
+});
+
+test('datos del gráfico: línea con huecos completa los días entre desde y hasta', () => {
+  const columnas = [{ clave: 'periodo', tipo: 'fecha' }, { clave: 'total', tipo: 'moneda' }];
+  // Solo hay datos el 01, 02 y 05 de marzo; el rango pedido va del 01 al 05.
+  const filas = [
+    { periodo: '2025-03-01', total: '10.00' },
+    { periodo: '2025-03-02', total: '20.00' },
+    { periodo: '2025-03-05', total: '50.00' },
+  ];
+  const filtros = { desde: '2025-03-01', hasta: '2025-03-05' };
+  const g = L.datosGrafico({ tipo: 'linea', etiquetas: ['periodo'], valor: 'total', titulo: 'T' }, columnas, filas, filtros);
+  assert.equal(g.etiquetas.length, 5);
+  assert.deepEqual([...g.etiquetas], ['01/03/2025', '02/03/2025', '03/03/2025', '04/03/2025', '05/03/2025']);
+  assert.deepEqual([...g.valores], [10, 20, 0, 0, 50]);
+});
+
+test('datos del gráfico: línea agrupada por mes completa los meses entre desde y hasta', () => {
+  const columnas = [{ clave: 'periodo', tipo: 'mes' }, { clave: 'total', tipo: 'moneda' }];
+  // Rango de mediados de enero a mediados de marzo, con datos solo en marzo.
+  const filas = [{ periodo: '2025-03-01', total: '100.00' }];
+  const filtros = { desde: '2025-01-15', hasta: '2025-03-10' };
+  const g = L.datosGrafico({ tipo: 'linea', etiquetas: ['periodo'], valor: 'total', titulo: 'T' }, columnas, filas, filtros);
+  assert.equal(g.etiquetas.length, 3);
+  assert.deepEqual([...g.etiquetas], ['01/2025', '02/2025', '03/2025']);
+  assert.deepEqual([...g.valores], [0, 0, 100]);
+});
+
+test('datos del gráfico: las barras no completan huecos aunque la etiqueta sea fecha', () => {
+  const columnas = [{ clave: 'periodo', tipo: 'fecha' }, { clave: 'total', tipo: 'moneda' }];
+  const filas = [
+    { periodo: '2025-03-01', total: '10.00' },
+    { periodo: '2025-03-05', total: '50.00' },
+  ];
+  const filtros = { desde: '2025-03-01', hasta: '2025-03-05' };
+  const g = L.datosGrafico({ tipo: 'barras', etiquetas: ['periodo'], valor: 'total', titulo: 'T' }, columnas, filas, filtros);
+  assert.equal(g.etiquetas.length, 2);
+  assert.deepEqual([...g.valores], [10, 50]);
+});

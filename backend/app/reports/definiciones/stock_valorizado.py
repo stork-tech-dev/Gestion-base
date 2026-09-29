@@ -9,7 +9,7 @@ from app.models import Producto, Proveedor
 from app.reports.definiciones._comunes import (
     condiciones_de_producto, costo_en_pesos, filas_y_totales, grupo_de_producto, porcentaje,
 )
-from app.reports.motor import Columna, DefinicionReporte, titulo_de_agrupacion
+from app.reports.motor import Columna, DefinicionReporte, Grafico, titulo_de_agrupacion
 from app.schemas.reportes import Agrupar
 from app.schemas.reportes import TipoColumna as T
 from app.services.stock import STOCK_SQL
@@ -51,6 +51,11 @@ def _consulta(db, filtros):
     return filas, totales
 
 
+def _grafico(filtros) -> Grafico:
+    return Grafico("barras", ("grupo",), "valorizado_costo",
+                   f"Valorizado a costo por {titulo_de_agrupacion(filtros.agrupar).lower()}")
+
+
 DEFINICION = DefinicionReporte(
     clave="stock-valorizado",
     nombre="Stock valorizado",
@@ -59,4 +64,5 @@ DEFINICION = DefinicionReporte(
     columnas=_columnas,
     consulta=_consulta,
     agrupaciones=(Agrupar.CATEGORIA, Agrupar.PROVEEDOR),
+    grafico=_grafico,
 )
