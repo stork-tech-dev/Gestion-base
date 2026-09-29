@@ -1,5 +1,6 @@
 """Tests de services/ventas.anular_venta (sesión 06). El 403 sin el recurso
 `venta.anular` se prueba en la API (Task 5)."""
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -57,6 +58,14 @@ def test_anular_sin_turno_de_hoy_409(db, e):
     e["turno"].usuario_cierre_id = e["admin"].id
     db.flush()
     with pytest.raises(ReglaDeNegocio, match="No hay un turno de caja abierto."):
+        servicio.anular_venta(db, e["supervisor"], venta.id, "Error", None)
+
+
+def test_anular_con_turno_de_ayer_bloquea_con_la_fecha(db, e):
+    venta = _confirmada(db, e)
+    e["turno"].fecha_apertura = e["turno"].fecha_apertura - timedelta(days=1)
+    db.flush()
+    with pytest.raises(ReglaDeNegocio, match=f"Hay un turno del {e['turno'].fecha_apertura:%d/%m/%Y} sin cerrar"):
         servicio.anular_venta(db, e["supervisor"], venta.id, "Error", None)
 
 

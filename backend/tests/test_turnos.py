@@ -110,6 +110,17 @@ def test_retiro_sin_turno_de_hoy_409(db, crear_usuario):
         servicio.registrar_retiro(db, crear_usuario("supervisor"), D("10"), "x", None)
 
 
+def test_hay_turno_para_operar_true_con_turno_de_hoy(db, crear_usuario):
+    assert servicio.hay_turno_para_operar(db) is False
+    servicio.abrir_turno(db, crear_usuario("vendedor"), D("0"), None, None)
+    assert servicio.hay_turno_para_operar(db) is True
+
+
+def test_hay_turno_para_operar_false_con_turno_de_ayer(db, crear_usuario):
+    _turno_de_ayer(db, crear_usuario("admin"))
+    assert servicio.hay_turno_para_operar(db) is False
+
+
 def test_listar_turnos_filtra_por_estado_y_fecha(db, crear_usuario):
     admin = crear_usuario("admin")
     ayer = _turno_de_ayer(db, admin)

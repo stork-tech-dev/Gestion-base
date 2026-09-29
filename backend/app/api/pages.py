@@ -532,19 +532,13 @@ def ventas_hub(request: Request, db: Session = Depends(get_db),
     return _pagina(request, "pages/ventas/hub.html", _contexto_ventas(request, db, usuario, secciones=secciones))
 
 
-def _hay_turno_para_operar(db) -> bool:
-    """Mismo criterio que services.turnos.turno_para_operar (sin bloquear ni sumar)."""
-    turno = servicio_turnos.obtener_turno_activo(db)
-    return turno is not None and not servicio_turnos.es_de_dia_anterior(turno)
-
-
 @router.get("/ventas/nueva")
 def venta_nueva(request: Request, db: Session = Depends(get_db),
                 usuario: Usuario = Depends(requiere_pagina(SECCION_NUEVA_VENTA, actual="/ventas"))):
     # La venta en curso (si hay) la retoma la pantalla con GET /ventas/en-curso.
     return _pagina(request, "pages/ventas/nueva.html", _contexto_ventas(
         request, db, usuario,
-        hay_turno=_hay_turno_para_operar(db),
+        hay_turno=servicio_turnos.hay_turno_para_operar(db),
     ))
 
 

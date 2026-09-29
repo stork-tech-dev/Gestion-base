@@ -6,17 +6,30 @@
 
   const API = '/api/v1/turnos';
 
+  // Punto seguido de EXACTAMENTE 3 dígitos = separador de miles es-AR
+  // ("10.000", "1.500"), nunca decimales (esos son 1 o 2 dígitos). Puede
+  // combinarse con la coma decimal ("1.500,50").
+  const RE_MILES = /^\d{1,3}(\.\d{3})+$/;
+
   window.cajaLogica = {
-    // "1.500,50" / "1500.5" / "1500" → 150050 centavos; vacío o inválido → null.
+    // "10.000" / "1.500" / "1.500,50" / "1500.5" / "1500" → centavos;
+    // vacío o inválido → null. Nunca confundir "10.50" (decimal: 2 dígitos)
+    // con "10.500" (miles: 3 dígitos).
     aCentavos: (texto) => {
       if (texto === null || texto === undefined) return null;
       let limpio = String(texto).trim().replace(/\s|\$/g, '');
       if (!limpio) return null;
-      if (limpio.includes(',')) limpio = limpio.replace(/\./g, '').replace(',', '.');
-      if (!/^-?\d+(\.\d{1,2})?$/.test(limpio)) return null;
-      const [entero, dec = ''] = limpio.replace('-', '').split('.');
+      const esNegativo = limpio.startsWith('-');
+      if (esNegativo) limpio = limpio.slice(1);
+      if (limpio.includes(',')) {
+        limpio = limpio.replace(/\./g, '').replace(',', '.');
+      } else if (RE_MILES.test(limpio)) {
+        limpio = limpio.replace(/\./g, '');
+      }
+      if (!/^\d+(\.\d{1,2})?$/.test(limpio)) return null;
+      const [entero, dec = ''] = limpio.split('.');
       const centavos = Number(entero) * 100 + Number((dec + '00').slice(0, 2));
-      return limpio.startsWith('-') ? -centavos : centavos;
+      return esNegativo ? -centavos : centavos;
     },
     claveDe: (item) => (item.grupo_terminal ? `g:${item.grupo_terminal}` : `m:${item.medio_de_pago_id}`),
     diferencia(declarado, esperado) {
@@ -34,14 +47,16 @@
       return total;
     },
     // Montos como string con 2 decimales (el backend los recibe como Decimal).
+    // Las líneas informativas NO viajan: el backend ya las completa con el
+    // esperado (services/arqueo.py, decisión 10) y mandar monto_declarado ahí
+    // rompía la validación (ge=0) cuando el esperado es negativo.
     payloadArqueo(items, declarados) {
       const aTexto = (c) => (c / 100).toFixed(2);
       return {
-        items_declarados: items.map((i) => ({
+        items_declarados: items.filter((i) => !i.es_informativo).map((i) => ({
           medio_de_pago_id: i.medio_de_pago_id,
           grupo_terminal: i.grupo_terminal,
-          monto_declarado: i.es_informativo ? String(i.monto_esperado)
-            : aTexto(this.aCentavos(declarados[this.claveDe(i)])),
+          monto_declarado: aTexto(this.aCentavos(declarados[this.claveDe(i)])),
         })),
         total_declarado: aTexto(this.totalDeclarado(items, declarados)),
       };
@@ -75,10 +90,11 @@
       // ----- Ver arqueo (turnos anteriores) -----
       modalArqueo: false,
       arqueo: null,
+      arqueoFechaApertura: null,
       cargandoArqueo: false,
 
       // ----- Turnos anteriores (Principio 5: tabla de alto volumen, "Buscar" explícito) -----
-      filtros: { desde: '', hasta: '' },
+      filtros: { estado: '', desde: '', hasta: '' },
       pagina: 1,
       tamano: 20,
       total: 0,
@@ -106,6 +122,7 @@
         if (pagina) this.pagina = pagina;
         this.cargandoTurnos = true;
         const params = new URLSearchParams({ pagina: this.pagina, tamano: this.tamano });
+        if (this.filtros.estado) params.set('estado', this.filtros.estado);
         if (this.filtros.desde) params.set('desde', this.filtros.desde);
         if (this.filtros.hasta) params.set('hasta', this.filtros.hasta);
         try {
@@ -121,7 +138,7 @@
       },
 
       limpiarFiltrosTurnos() {
-        this.filtros = { desde: '', hasta: '' };
+        this.filtros = { estado: '', desde: '', hasta: '' };
         this.cargarTurnos(1);
       },
 
@@ -147,10 +164,17 @@
       },
 
       async abrir() {
-        this.abriendo = true;
         this.erroresAbrir = {};
-        const centavos = L.aCentavos(this.formAbrir.efectivo_apertura);
-        const efectivo_apertura = centavos === null ? '0.00' : (centavos / 100).toFixed(2);
+        // Vacío = $0 (placeholder); no vacío e ininterpretable = error de
+        // campo, nunca se manda crudo ni como 0 (nunca en silencio).
+        const texto = String(this.formAbrir.efectivo_apertura ?? '').trim();
+        const centavos = texto === '' ? 0 : L.aCentavos(texto);
+        if (centavos === null) {
+          this.erroresAbrir = { efectivo_apertura: 'Monto inválido' };
+          return;
+        }
+        this.abriendo = true;
+        const efectivo_apertura = (centavos / 100).toFixed(2);
         try {
           await window.pedir(`${API}/abrir`, {
             method: 'POST',
@@ -189,13 +213,20 @@
       },
 
       async retirar() {
-        this.retirando = true;
         this.erroresRetiro = {};
-        const centavos = L.aCentavos(this.formRetiro.monto);
+        const texto = String(this.formRetiro.monto ?? '').trim();
+        // El monto es obligatorio (> 0): vacío o ininterpretable es error de
+        // campo, nunca se manda crudo ni como 0 (nunca en silencio).
+        const centavos = texto === '' ? null : L.aCentavos(texto);
+        if (centavos === null) {
+          this.erroresRetiro = { monto: texto === '' ? 'El monto es obligatorio' : 'Monto inválido' };
+          return;
+        }
+        this.retirando = true;
         try {
           await window.pedir(`${API}/retiros`, {
             method: 'POST',
-            body: { monto: centavos === null ? this.formRetiro.monto : (centavos / 100).toFixed(2), motivo: this.formRetiro.motivo },
+            body: { monto: (centavos / 100).toFixed(2), motivo: this.formRetiro.motivo },
           });
           this.modalRetiro = false;
           window.toast('Retiro registrado');
@@ -211,6 +242,9 @@
       // ----- Ver arqueo (fila de "Turnos anteriores") -----
       async verArqueo(fila) {
         this.arqueo = null;
+        // Título del modal: fecha de APERTURA del turno (la misma que usa la
+        // notificación de diferencia), no arqueo.created_at.
+        this.arqueoFechaApertura = fila.fecha_apertura;
         this.modalArqueo = true;
         this.cargandoArqueo = true;
         try {
@@ -229,6 +263,7 @@
     return {
       turnoId,
       cargando: true,
+      error: false,
       items: [],
       efectivoApertura: '0',
       totalEsperado: '0',
@@ -248,6 +283,10 @@
             this.declarados[L.claveDe(item)] = item.es_informativo ? String(item.monto_esperado) : '';
           }
         } catch (e) {
+          // Si falla el esperado no hay con qué declarar ni cerrar: se avisa
+          // y se deja "Cerrar turno" deshabilitado (puedeCerrar), en vez de
+          // mostrar una tabla vacía con total $0 y el botón habilitado.
+          this.error = true;
           window.toast(e.message, 'error');
         } finally {
           this.cargando = false;
@@ -268,7 +307,7 @@
       },
 
       get puedeCerrar() {
-        return this.totalDeclarado !== null && !this.cerrando;
+        return !this.error && this.items.length > 0 && this.totalDeclarado !== null && !this.cerrando;
       },
 
       async cerrar() {

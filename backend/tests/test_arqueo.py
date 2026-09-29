@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
 from app.core.utils import ahora_db
-from app.models import Auditoria, EstadoTurno, MedioDePago, Notificacion, Rol, Usuario
+from app.models import Auditoria, EstadoTurno, MedioDePago, MedioPagoArqueoConfig, Notificacion, Rol, Usuario
 from app.services import arqueo as servicio
 from app.services import notificaciones as servicio_notificaciones
 from app.services import turnos as servicio_turnos
@@ -50,13 +50,6 @@ def _declarar(lineas, **montos):
     return [SimpleNamespace(medio_de_pago_id=l.medio_de_pago_id, grupo_terminal=l.grupo_terminal,
                             monto_declarado=D(montos.get(l.medio_nombre.replace(" ", "_"), l.monto_esperado)))
             for l in lineas]
-
-
-def _cerrar_a_mano(db, turno, usuario):
-    turno.estado = EstadoTurno.CERRADO
-    turno.fecha_cierre = ahora_db()
-    turno.usuario_cierre_id = usuario.id
-    db.flush()
 
 
 def test_esperado_efectivo_es_apertura_mas_cobros_menos_anulaciones_menos_retiros(db, e):
@@ -166,6 +159,67 @@ def test_arqueo_medio_que_no_esta_en_el_esperado_409(db, e):
                                                       monto_declarado=D("0"))]
     with pytest.raises(ReglaDeNegocio, match="cambiaron"):
         servicio.registrar_arqueo(db, e.admin, e.turno.id, declarados, total, None)
+
+
+def test_arqueo_medio_declarado_dos_veces_400(db, e):
+    lineas, total = servicio.calcular_esperado(db, e.turno)
+    declarados = _declarar(lineas)
+    declarados.append(declarados[0])  # el mismo medio dos veces
+    with pytest.raises(DatoInvalido, match="declarado dos veces"):
+        servicio.registrar_arqueo(db, e.admin, e.turno.id, declarados, total, None)
+
+
+def test_medio_informativo_no_suma_ni_hace_falta_declararlo_y_se_ignora_lo_declarado(db, e):
+    """Decisión 10 (medios_pago_arqueo_config.es_informativo): la línea no
+    suma al esperado (i), no hace falta declararla (iv, se omite del
+    payload como ahora hace el frontend) y lo que se declare se ignora: el
+    backend guarda monto_declarado = esperado, diferencia 0 (ii)."""
+    transferencia = _medio(db, "Transferencia")
+    db.add(MedioPagoArqueoConfig(medio_de_pago_id=transferencia.id, es_informativo=True))
+    db.flush()
+    _vender(db, e, "Transferencia")
+    _vender(db, e, "Efectivo")
+    lineas, total = servicio.calcular_esperado(db, e.turno)
+    linea_transferencia = _linea(lineas, "Transferencia")
+    assert linea_transferencia.es_informativo and linea_transferencia.monto_esperado == D("10000")
+    assert total == sum(l.monto_esperado for l in lineas if not l.es_informativo)  # (i) no suma
+    # (iv) no se declara Transferencia: el backend no la exige.
+    declarados = [d for d in _declarar(lineas) if d.medio_de_pago_id != transferencia.id]
+    arqueo = servicio.registrar_arqueo(db, e.admin, e.turno.id, declarados, total, None)
+    item = next(i for i in arqueo.items if i.medio_de_pago_id == transferencia.id)
+    assert item.monto_declarado == linea_transferencia.monto_esperado  # (ii) se guarda = esperado
+    assert item.diferencia == D("0")
+
+
+def test_medio_informativo_no_aparece_en_el_detalle_de_la_notificacion(db, e):
+    transferencia = _medio(db, "Transferencia")
+    db.add(MedioPagoArqueoConfig(medio_de_pago_id=transferencia.id, es_informativo=True))
+    db.flush()
+    _vender(db, e, "Transferencia")
+    _vender(db, e, "Efectivo")
+    lineas, total = servicio.calcular_esperado(db, e.turno)
+    declarados = [d for d in _declarar(lineas, Efectivo="14000") if d.medio_de_pago_id != transferencia.id]
+    arqueo = servicio.registrar_arqueo(db, e.admin, e.turno.id, declarados, total - D("1000"), None)
+    db.refresh(arqueo)
+    assert arqueo.notificacion_enviada
+    notificacion = db.scalar(select(Notificacion))
+    assert "Transferencia" not in notificacion.cuerpo  # (iii)
+
+
+def test_auditoria_arqueo_cerrado_incluye_es_informativo_y_diferencia_por_item(db, e):
+    transferencia = _medio(db, "Transferencia")
+    db.add(MedioPagoArqueoConfig(medio_de_pago_id=transferencia.id, es_informativo=True))
+    db.flush()
+    _vender(db, e, "Transferencia")
+    _vender(db, e, "Efectivo")
+    lineas, total = servicio.calcular_esperado(db, e.turno)
+    servicio.registrar_arqueo(db, e.admin, e.turno.id, _declarar(lineas), total, None)
+    auditoria = db.scalar(select(Auditoria).where(Auditoria.accion == "caja.arqueo_cerrado",
+                                                  Auditoria.entidad_id == e.turno.id))
+    item_transferencia = next(i for i in auditoria.estado_nuevo["items"]
+                              if i["medio_de_pago_id"] == transferencia.id)
+    assert item_transferencia["es_informativo"] is True
+    assert item_transferencia["diferencia"] == "0.00"
 
 
 def test_arqueo_de_turno_cerrado_409(db, e):

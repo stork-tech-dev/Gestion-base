@@ -12,7 +12,11 @@
 
   <p x-show="cargando" x-cloak class="py-10 text-center text-texto-muted">Cargando…</p>
 
-  <template x-if="!cargando">
+  <p x-show="error" x-cloak class="rounded-input bg-danger/10 p-3 text-sm text-danger">
+    No se pudo cargar lo esperado de este turno. Volvé a intentarlo más tarde.
+  </p>
+
+  <template x-if="!cargando && !error">
     <div class="flex flex-col gap-4">
       <div class="tarjeta overflow-hidden p-0">
         <div class="overflow-x-auto">
@@ -37,7 +41,7 @@
                   <td class="whitespace-nowrap text-right" x-text="'$ ' + pesos(item.monto_esperado)"></td>
                   <td class="text-right">
                     <label class="sr-only" :for="'declarado-' + claveDe(item)" x-text="'Declarado ' + item.medio_nombre"></label>
-                    <input :id="'declarado-' + claveDe(item)" type="text" inputmode="decimal" class="campo text-right"
+                    <input :id="'declarado-' + claveDe(item)" type="number" step="0.01" min="0" inputmode="decimal" class="campo text-right"
                            placeholder="$0" :disabled="item.es_informativo"
                            x-model="declarados[claveDe(item)]">
                   </td>
@@ -64,13 +68,13 @@
           </table>
         </div>
       </div>
-
-      <div class="flex justify-end">
-        <button type="button" class="boton boton-primario min-h-toque" :disabled="!puedeCerrar" @click="cerrar()"
-                x-text="cerrando ? 'Cerrando…' : 'Cerrar turno'"></button>
-      </div>
     </div>
   </template>
+
+  <div class="mt-4 flex justify-end" x-show="!cargando">
+    <button type="button" class="boton boton-primario min-h-toque" :disabled="!puedeCerrar" @click="cerrar()"
+            x-text="cerrando ? 'Cerrando…' : 'Cerrar turno'"></button>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}<script src="{{ estatico('/js/caja.js') }}"></script>{% endblock %}

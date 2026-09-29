@@ -192,7 +192,9 @@ def registrar_arqueo(db, usuario, turno_id: int, items_declarados, total_declara
                                       "items": [{"medio_de_pago_id": i.medio_de_pago_id,
                                                  "grupo_terminal": i.grupo_terminal,
                                                  "monto_esperado": i.monto_esperado,
-                                                 "monto_declarado": i.monto_declarado} for i in arqueo.items]},
+                                                 "monto_declarado": i.monto_declarado,
+                                                 "es_informativo": i.es_informativo,
+                                                 "diferencia": i.diferencia} for i in arqueo.items]},
                         ip_origen=ip)
     return arqueo
 

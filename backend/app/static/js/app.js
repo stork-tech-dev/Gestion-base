@@ -426,14 +426,22 @@
       },
       async leer(n) {
         if (n.leida) return;
-        await window.pedir(`/api/v1/notificaciones/${n.id}/leer`, { method: 'PATCH' });
-        n.leida = true;
-        this.noLeidas = Math.max(0, this.noLeidas - 1);
+        try {
+          await window.pedir(`/api/v1/notificaciones/${n.id}/leer`, { method: 'PATCH' });
+          n.leida = true;
+          this.noLeidas = Math.max(0, this.noLeidas - 1);
+        } catch (e) {
+          window.toast(e.message, 'error');
+        }
       },
       async leerTodas() {
-        await window.pedir('/api/v1/notificaciones/leer-todas', { method: 'PATCH' });
-        this.lista.forEach((n) => { n.leida = true; });
-        this.noLeidas = 0;
+        try {
+          await window.pedir('/api/v1/notificaciones/leer-todas', { method: 'PATCH' });
+          this.lista.forEach((n) => { n.leida = true; });
+          this.noLeidas = 0;
+        } catch (e) {
+          window.toast(e.message, 'error');
+        }
       },
     };
   };

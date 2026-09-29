@@ -39,6 +39,15 @@ def obtener_turno_activo(db) -> Turno | None:
     return db.scalar(select(Turno).where(Turno.estado == EstadoTurno.ABIERTO))
 
 
+def hay_turno_para_operar(db) -> bool:
+    """Mismo criterio que `turno_para_operar` (True solo con un turno abierto
+    de HOY) pero sin bloquear la fila ni sumar al usuario: lo usa `api/pages.py`
+    para decidir qué mostrar en /ventas/nueva, donde tomar el lock solo por
+    armar la pantalla sería un efecto secundario indebido."""
+    turno = obtener_turno_activo(db)
+    return turno is not None and not es_de_dia_anterior(turno)
+
+
 def obtener_turno(db, turno_id: int) -> Turno:
     turno = db.get(Turno, turno_id)
     if turno is None:

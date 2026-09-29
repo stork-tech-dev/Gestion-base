@@ -147,3 +147,18 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - Panel completo de notificaciones: hoy la campanita del header solo muestra
   las últimas 20 (lo que devuelve `GET /api/v1/notificaciones`), sin un
   listado propio ni filtros.
+- `turno_para_operar` lee el id sin lock: si T1 se cierra y T2 se abre justo
+  en el medio → 409 falso (reintentar alcanza).
+- Rama savepoint + IntegrityError de `abrir_turno` sin test (necesita dos
+  sesiones).
+- Test de auditoría `turno.abierto` no verifica ip_origen/estado_nuevo.
+- Diferencias por medio que se compensan (total 0) no notifican: coincide
+  con el spec; decisión de producto a revisar.
+- Grupo de terminal que mezcla medios informativos y no informativos: el
+  flag sale del primer medio iterado (no determinístico). Validar
+  consistencia cuando haya pantalla de configuración.
+- La tabla Medio | Esperado | Declarado | Diferencia está armada a mano en
+  `caja/index.html` y `caja/cerrar_turno.html`: candidata a macro.
+- Comentario de orden de rutas innecesario en `api/v1/notificaciones.py`.
+- Listado de turnos pagina de a 20 (lo pide el spec) mientras la regla
+  general de UX es de a 10.

@@ -563,6 +563,16 @@ def test_confirmar_sin_turno_de_hoy_409(db, e):
         servicio.confirmar_venta(db, e.vendedor, venta.id, venta.total, None)
 
 
+def test_confirmar_con_turno_de_ayer_bloquea_con_la_fecha(db, e):
+    venta = _venta(db, e.vendedor, e.p10)
+    efectivo = _medio(db, "Efectivo")
+    venta = _pagar(db, e.vendedor, venta, (efectivo, venta.cobrable))
+    e.turno.fecha_apertura = e.turno.fecha_apertura - timedelta(days=1)
+    db.flush()
+    with pytest.raises(ReglaDeNegocio, match=f"Hay un turno del {e.turno.fecha_apertura:%d/%m/%Y} sin cerrar"):
+        servicio.confirmar_venta(db, e.vendedor, venta.id, venta.total, None)
+
+
 def test_confirmar_suma_al_vendedor_al_turno(db, e):
     venta = _venta(db, e.vendedor, e.p10)
     _confirmar(db, e.vendedor, venta, (_medio(db, "Efectivo"), venta.cobrable))

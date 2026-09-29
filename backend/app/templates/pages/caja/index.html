@@ -4,7 +4,7 @@
 {% from "components/paginacion.html" import paginacion %}
 {% from "components/botones.html" import accion, acciones %}
 {% from "components/modal.html" import modal %}
-{% from "components/form_field.html" import campo %}
+{% from "components/form_field.html" import campo, campo_rango %}
 {% block titulo %}Caja · {{ APP_NAME }}{% endblock %}
 {% block contenido %}
 {# El esperado del arqueo lo calcula SIEMPRE el backend; acá solo se muestra
@@ -95,13 +95,14 @@
     <h2 class="mb-3 text-lg font-semibold text-texto-header">Turnos anteriores</h2>
     {% call barra_filtros(total="total", limpiar="limpiarFiltrosTurnos()", buscar="cargarTurnos(1)", etiqueta="turnos encontrados") %}
       <div class="flex flex-col gap-1">
-        <label for="caja-turnos-desde" class="text-lg font-medium text-texto">Fecha desde</label>
-        <input id="caja-turnos-desde" type="date" class="campo" x-model="filtros.desde">
+        <label for="caja-turnos-estado" class="text-lg font-medium text-texto">Estado</label>
+        <select id="caja-turnos-estado" class="campo" x-model="filtros.estado">
+          <option value="">Todos</option>
+          <option value="abierto">Abierto</option>
+          <option value="cerrado">Cerrado</option>
+        </select>
       </div>
-      <div class="flex flex-col gap-1">
-        <label for="caja-turnos-hasta" class="text-lg font-medium text-texto">Fecha hasta</label>
-        <input id="caja-turnos-hasta" type="date" class="campo" x-model="filtros.hasta">
-      </div>
+      {{ campo_rango("caja-turnos-fecha", "Fecha", "filtros.desde", "filtros.hasta", tipo="date") }}
     {% endcall %}
 
     {% set columnas_turnos = [
@@ -123,8 +124,8 @@
   {# ---------- Modal: iniciar turno ---------- #}
   {% call modal("Iniciar el turno del día", "modal-caja-abrir", abierto="modalAbrir", ancho="max-w-md") %}
   <form @submit.prevent="abrir()" class="flex flex-col gap-4" novalidate>
-    {{ campo("caja-efectivo-inicial", "Efectivo inicial", modelo="formAbrir.efectivo_apertura", placeholder="$0",
-             error="erroresAbrir.efectivo_apertura", atributos='inputmode="decimal"') }}
+    {{ campo("caja-efectivo-inicial", "Efectivo inicial", tipo="number", modelo="formAbrir.efectivo_apertura", placeholder="$0",
+             error="erroresAbrir.efectivo_apertura", atributos='step="0.01" min="0" inputmode="decimal"') }}
     {{ campo("caja-notas-apertura", "Notas", tipo="text", modelo="formAbrir.notas", placeholder="Opcional",
              error="erroresAbrir.notas") }}
     <div class="flex justify-end">
@@ -137,8 +138,8 @@
   {# ---------- Modal: retiro de efectivo ---------- #}
   {% call modal("Retiro de efectivo", "modal-caja-retiro", abierto="modalRetiro", ancho="max-w-md") %}
   <form @submit.prevent="retirar()" class="flex flex-col gap-4" novalidate>
-    {{ campo("caja-retiro-monto", "Monto", modelo="formRetiro.monto", requerido=True, placeholder="$0",
-             error="erroresRetiro.monto", atributos='inputmode="decimal"') }}
+    {{ campo("caja-retiro-monto", "Monto", tipo="number", modelo="formRetiro.monto", requerido=True, placeholder="$0",
+             error="erroresRetiro.monto", atributos='step="0.01" min="0.01" inputmode="decimal"') }}
     {{ campo("caja-retiro-motivo", "Motivo", modelo="formRetiro.motivo", requerido=True,
              error="erroresRetiro.motivo") }}
     <div class="flex justify-end">
@@ -149,7 +150,7 @@
   {% endcall %}
 
   {# ---------- Modal: ver arqueo ---------- #}
-  {% call modal("Arqueo", "modal-caja-arqueo", abierto="modalArqueo", titulo_expr="arqueo ? 'Arqueo del ' + fecha(arqueo.created_at) : 'Arqueo'") %}
+  {% call modal("Arqueo", "modal-caja-arqueo", abierto="modalArqueo", titulo_expr="arqueo ? 'Arqueo del ' + fecha(arqueoFechaApertura) : 'Arqueo'") %}
   <p x-show="cargandoArqueo" x-cloak class="py-10 text-center text-texto-muted">Cargando…</p>
   <template x-if="arqueo && !cargandoArqueo">
     <div class="flex flex-col gap-4">
