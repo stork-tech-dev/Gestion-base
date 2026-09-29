@@ -176,3 +176,28 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
   `proveedores/dolar_masivo.html`: extraer macro si aparece un tercer uso.
 - El primer commit del módulo (2df420b) tiene el trailer `Co-Authored-By`
   con otro modelo (no se enmendó).
+
+## Módulo 09: pendientes
+- `medios-pago` toma la etiqueta y el `costo_medio` del plan ACTUAL: editar un
+  plan cambia retroactivamente la etiqueta y el costo estimado de períodos
+  pasados (los montos sí están congelados). Congelarlo exige columnas nuevas
+  en `venta_pagos` (módulo 06).
+- La CTE de categoría de nivel N asume que `categorias.nivel` coincide con la
+  profundidad real (invariante del service de categorías): una categoría con
+  nivel inconsistente desaparecería del agrupado.
+- Sin índice en `ventas.anulada_en`: la columna "Anuladas" de `ventas-periodo`
+  filtra por `estado` + `anulada_en`; con mucho volumen, un índice parcial
+  `ON ventas (anulada_en) WHERE estado = 'anulada'` (requiere migración).
+- Los filtros de la pantalla de reportes (Desde/Hasta, selects, límite) están
+  escritos a mano en vez de usar `form_field.campo` / `campo_select`; lo mismo
+  en `ventas/listado.html` y `auditorias/listado.html` (deuda compartida de DRY).
+- La pantalla genérica repite las filas "Cargando…" / "No hay datos" de
+  `components/table.html::tabla` porque esa macro no admite columnas dinámicas.
+- Faltan tests: orientación apaisada del PDF, formatos numéricos del Excel en
+  la salida del endpoint, filtro `usuario_id` de `vendedores` y un rango sin
+  ventas de punta a punta.
+- Verificación manual en el navegador de `/reportes` (320px y 1440px, scroll
+  horizontal solo dentro de la tarjeta, descarga de Excel y PDF desde la
+  pantalla): pendiente.
+- Un error al exportar (ej. 409 por rango) abre el JSON del error en la
+  pestaña nueva del Excel (mismo patrón que las auditorías de inventario).
