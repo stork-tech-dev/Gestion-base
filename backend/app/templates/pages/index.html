@@ -15,15 +15,24 @@
 </nav>
 {% endif %}
 
+{# Tarjeta de un bloque del tablero: encabezado (título + link) y las dos
+   líneas de estado comunes a los tres; cada bloque aporta su contenido con
+   {% call %}. `id` queda en el <h2> (lo buscan los tests) y en aria-labelledby. #}
+{% macro bloque(id, titulo, href, texto_link, x_data) %}
+<section class="tarjeta flex flex-col gap-3" aria-labelledby="{{ id }}" x-data="{{ x_data }}">
+  <div class="flex items-center justify-between gap-2">
+    <h2 id="{{ id }}" class="text-lg font-semibold text-texto-header">{{ titulo }}</h2>
+    <a href="{{ href }}" class="inline-flex min-h-toque items-center text-sm font-medium text-primary hover:underline">{{ texto_link }}</a>
+  </div>
+  <p x-show="cargando" class="text-sm text-texto-muted">Cargando…</p>
+  <p x-show="error" x-cloak class="text-sm text-danger">No se pudo cargar.</p>
+  {{ caller() }}
+</section>
+{% endmacro %}
+
 <div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
   {% if ver_caja %}
-  <section class="tarjeta flex flex-col gap-3" aria-labelledby="inicio-caja" x-data="inicioCaja()">
-    <div class="flex items-center justify-between gap-2">
-      <h2 id="inicio-caja" class="text-lg font-semibold text-texto-header">Caja</h2>
-      <a href="/caja" class="text-sm font-medium text-primary hover:underline">Ir a Caja</a>
-    </div>
-    <p x-show="cargando" class="text-sm text-texto-muted">Cargando…</p>
-    <p x-show="error" x-cloak class="text-sm text-danger">No se pudo cargar.</p>
+  {% call bloque("inicio-caja", "Caja", "/caja", "Ir a Caja", "inicioCaja()") %}
     <template x-if="!cargando && !error && estado === 'sin_turno'">
       <div class="flex flex-col gap-3">
         <p class="text-texto-muted">No hay un turno abierto.</p>
@@ -31,10 +40,12 @@
       </div>
     </template>
     <template x-if="!cargando && estado === 'dia_anterior'">
-      <p class="rounded-input bg-danger/10 p-3 text-sm text-danger">
-        Hay un turno del <span x-text="fecha(turno.fecha_apertura)"></span> sin cerrar: no se puede vender hasta cerrarlo.
-        {% if puede_cerrar_turno %}<a :href="`/caja/cerrar/${turno.id}`" class="font-semibold underline">Cerrar turno</a>{% endif %}
-      </p>
+      <div class="flex flex-col gap-3">
+        <p class="rounded-input bg-danger/10 p-3 text-sm text-danger">
+          Hay un turno del <span x-text="fecha(turno.fecha_apertura)"></span> sin cerrar: no se puede vender hasta cerrarlo.
+        </p>
+        {% if puede_cerrar_turno %}<a :href="`/caja/cerrar/${turno.id}`" class="boton boton-primario min-h-toque self-start">Cerrar turno</a>{% endif %}
+      </div>
     </template>
     <template x-if="!cargando && estado === 'abierto'">
       <dl class="grid grid-cols-2 gap-3 text-sm">
@@ -44,17 +55,12 @@
         <div><dt class="text-texto-muted">En el turno</dt><dd class="font-medium text-texto-header" x-text="turno.usuarios.length"></dd></div>
       </dl>
     </template>
-  </section>
+  {% endcall %}
   {% endif %}
 
   {% if ver_ventas_hoy %}
-  <section class="tarjeta flex flex-col gap-3" aria-labelledby="inicio-ventas" x-data="inicioVentasHoy({ hoyIso: {{ hoy_iso|js }} })">
-    <div class="flex items-center justify-between gap-2">
-      <h2 id="inicio-ventas" class="text-lg font-semibold text-texto-header">Ventas de hoy</h2>
-      <a href="/reportes/ventas-periodo" class="text-sm font-medium text-primary hover:underline">Ver reporte</a>
-    </div>
-    <p x-show="cargando" class="text-sm text-texto-muted">Cargando…</p>
-    <p x-show="error" x-cloak class="text-sm text-danger">No se pudo cargar.</p>
+  {% set x_data_ventas %}inicioVentasHoy({ hoyIso: {{ hoy_iso|js }} }){% endset %}
+  {% call bloque("inicio-ventas", "Ventas de hoy", "/reportes/ventas-periodo", "Ver reporte", x_data_ventas) %}
     <template x-if="!cargando && totales">
       <dl class="grid grid-cols-2 gap-3">
         <div><dt class="text-sm text-texto-muted">Total vendido</dt><dd class="text-xl font-bold text-texto-header" x-text="'$ ' + pesos(totales.total)"></dd></div>
@@ -63,17 +69,11 @@
         <div><dt class="text-sm text-texto-muted">Anuladas</dt><dd class="text-xl font-bold text-texto-header" x-text="textoAnuladas(totales)"></dd></div>
       </dl>
     </template>
-  </section>
+  {% endcall %}
   {% endif %}
 
   {% if ver_stock %}
-  <section class="tarjeta flex flex-col gap-3" aria-labelledby="inicio-stock" x-data="inicioStock()">
-    <div class="flex items-center justify-between gap-2">
-      <h2 id="inicio-stock" class="text-lg font-semibold text-texto-header">Stock bajo el mínimo</h2>
-      <a href="/stock?solo_bajo_minimo=1" class="text-sm font-medium text-primary hover:underline">Ver todos</a>
-    </div>
-    <p x-show="cargando" class="text-sm text-texto-muted">Cargando…</p>
-    <p x-show="error" x-cloak class="text-sm text-danger">No se pudo cargar.</p>
+  {% call bloque("inicio-stock", "Stock bajo el mínimo", "/stock?solo_bajo_minimo=1", "Ver todos", "inicioStock()") %}
     <p x-show="!cargando && !error && !productos.length" x-cloak class="text-sm text-texto-muted">Todo el stock está por encima del mínimo.</p>
     <ul x-show="productos.length" x-cloak class="flex flex-col divide-y divide-borde">
       <template x-for="p in productos" :key="p.producto_id">
@@ -83,7 +83,7 @@
         </li>
       </template>
     </ul>
-  </section>
+  {% endcall %}
   {% endif %}
 </div>
 {% endblock %}
