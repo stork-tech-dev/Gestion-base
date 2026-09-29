@@ -10,7 +10,7 @@ from sqlalchemy import select
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
 from app.core.utils import ahora_db
 from app.models import (
-    Auditoria, EstadoVenta, MedioDePago, MovimientoStock, TipoAlcancePromocion, TipoMovimientoStock,
+    Auditoria, EstadoTurno, EstadoVenta, MedioDePago, MovimientoStock, TipoAlcancePromocion, TipoMovimientoStock,
     TipoPromocion, Venta, VentaItem, VentaPago,
 )
 from app.schemas.clientes import ClienteCrear
@@ -27,7 +27,7 @@ from app.services import productos as servicio_productos
 from app.services import promociones as servicio_promociones
 from app.services import ventas as servicio
 from app.services.stock import registrar_ingreso
-from tests.fabricas import catalogo
+from tests.fabricas import abrir_turno_de_test, catalogo
 
 D = Decimal
 
@@ -41,8 +41,9 @@ def e(db, crear_usuario):
     p6 = cat["alta"]("Remera", costo="6000")
     for p in (p10, p8, p6):
         registrar_ingreso(db, admin, p.id, 10, None, None)
+    turno = abrir_turno_de_test(db, admin)
     return SimpleNamespace(
-        admin=admin, cat=cat, p10=p10, p8=p8, p6=p6,
+        admin=admin, cat=cat, p10=p10, p8=p8, p6=p6, turno=turno,
         vendedor=crear_usuario("vendedor", nombre="Vendedor Uno"),
         supervisor=crear_usuario("supervisor", nombre="Supervisor Uno"),
     )
@@ -505,7 +506,7 @@ def test_confirmar_descuenta_stock_y_congela(db, e):
     venta = _venta(db, e.vendedor, e.p10, e.p8, e.p10)
     venta = _confirmar(db, e.vendedor, venta, (_medio(db, "Efectivo"), 1))
     assert venta.estado is EstadoVenta.CONFIRMADA and venta.confirmada_en is not None
-    assert venta.turno_id is None
+    assert venta.turno_id == e.turno.id
     assert len(venta.codigo_cambio) == servicio.LARGO_CODIGO
     assert all(c in servicio.ALFABETO_CODIGO for c in venta.codigo_cambio)
     movimientos = db.scalars(select(MovimientoStock).where(MovimientoStock.referencia_venta_id == venta.id)
@@ -548,6 +549,24 @@ def test_confirmar_sin_pagos_409(db, e):
     venta = _venta(db, e.vendedor, e.p10)
     with pytest.raises(ReglaDeNegocio, match="Cargá los medios de pago"):
         servicio.confirmar_venta(db, e.vendedor, venta.id, venta.total, None)
+
+
+def test_confirmar_sin_turno_de_hoy_409(db, e):
+    venta = _venta(db, e.vendedor, e.p10)
+    efectivo = _medio(db, "Efectivo")
+    venta = _pagar(db, e.vendedor, venta, (efectivo, venta.cobrable))
+    e.turno.estado = EstadoTurno.CERRADO
+    e.turno.fecha_cierre = ahora_db()
+    e.turno.usuario_cierre_id = e.admin.id
+    db.flush()
+    with pytest.raises(ReglaDeNegocio, match="No hay un turno de caja abierto."):
+        servicio.confirmar_venta(db, e.vendedor, venta.id, venta.total, None)
+
+
+def test_confirmar_suma_al_vendedor_al_turno(db, e):
+    venta = _venta(db, e.vendedor, e.p10)
+    _confirmar(db, e.vendedor, venta, (_medio(db, "Efectivo"), venta.cobrable))
+    assert e.vendedor.id in [p.usuario_id for p in e.turno.participantes]
 
 
 def test_codigo_de_cambio_reintenta_ante_colision(db, e, monkeypatch):

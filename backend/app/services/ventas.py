@@ -21,6 +21,7 @@ from app.schemas.ventas import MONTO_MAXIMO, ProductoVenta, VentaResponse
 from app.services import categorias as servicio_categorias
 from app.services import clientes as servicio_clientes
 from app.services import medios_pago as servicio_medios
+from app.services import turnos as servicio_turnos
 from app.services.descuentos import aplicar_descuentos, resolver_porcentaje, validar_tope
 from app.services.productos import buscar_por_codigo, obtener_producto
 from app.services.promociones import mejor_promocion, promociones_aplicables, simular
@@ -75,11 +76,10 @@ def _item_de(venta: Venta, item_id: int) -> VentaItem:
     return item
 
 
-def _turno_para_operar(db) -> int | None:
-    """Turno de caja en el que se cobra/anula. Hasta la sesión 07 no hay caja:
-    devuelve None y no bloquea. La sesión 07 reemplaza SOLO esta función por
-    services.turnos.turno_para_operar() (409 si no hay turno abierto de hoy)."""
-    return None
+def _turno_para_operar(db, autor, ip) -> int:
+    """Turno de caja en el que se cobra/anula: el abierto de HOY (409 si no
+    hay o si quedó abierto uno de un día anterior). Suma a quien opera."""
+    return servicio_turnos.turno_para_operar(db, autor, ip).id
 
 
 # --- Núcleo: recálculo ------------------------------------------------------------
@@ -353,7 +353,7 @@ def _generar_codigo(db) -> str:
 
 def confirmar_venta(db, autor, venta_id: int, total_esperado: Decimal, ip) -> Venta:
     venta = _venta_propia_en_curso(db, autor, venta_id)
-    turno_id = _turno_para_operar(db)
+    turno_id = _turno_para_operar(db, autor, ip)
     _recalcular(db, venta)
     if not venta.items:
         raise ReglaDeNegocio("La venta no tiene productos")
@@ -399,7 +399,7 @@ def anular_venta(db, autor, venta_id: int, motivo: str, ip) -> Venta:
     motivo = (motivo or "").strip()
     if not 1 <= len(motivo) <= 500:
         raise DatoInvalido("El motivo de anulación es obligatorio (hasta 500 caracteres)")
-    turno_id = _turno_para_operar(db)
+    turno_id = _turno_para_operar(db, autor, ip)
     antes = snapshot(venta)
     for producto_id, unidades in _movimientos_por_producto(venta):
         aplicar_movimiento(db, autor, tipo=TipoMovimientoStock.ANULACION_VENTA, producto_id=producto_id,
