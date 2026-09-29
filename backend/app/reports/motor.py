@@ -73,7 +73,10 @@ def normalizar_filtros(definicion: DefinicionReporte, filtros: FiltrosReporte, h
         raise NoProcesable(f"El reporte '{definicion.nombre}' no admite: {', '.join(no_admitidos)}.")
     if definicion.usa_fechas:
         hoy = hoy or ahora().date()
-        datos.setdefault("desde", hoy.replace(day=1))
+        # El 1° del mes de "hasta" si vino (no siempre el mes actual: si el
+        # usuario solo manda "hasta" de un mes anterior, "desde" tiene que
+        # acompañarlo y no quedar posterior a "hasta").
+        datos.setdefault("desde", datos.get("hasta", hoy).replace(day=1))
         datos.setdefault("hasta", hoy)
         if datos["desde"] > datos["hasta"]:
             raise NoProcesable("La fecha 'desde' no puede ser posterior a 'hasta'.")
@@ -209,6 +212,6 @@ def exportar_pdf(db, resultado: dict) -> bytes:
         "filas": [[formatear(fila[c.clave], c.tipo) for c in columnas] for fila in resultado["filas"]],
         "totales": _con_etiqueta_total([formatear(resultado["totales"][c.clave], c.tipo) for c in columnas]),
         "apaisado": len(columnas) > COLUMNAS_PDF_VERTICAL,
-        "emitido": f"{ahora():%d/%m/%Y %H:%M}",
+        "emitido": f"{resultado['generado_en']:%d/%m/%Y %H:%M}",
         "logo": logo.resolve().as_uri() if logo.is_file() else None,
     })

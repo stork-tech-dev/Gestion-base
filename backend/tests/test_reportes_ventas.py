@@ -10,6 +10,7 @@ import pytest
 from openpyxl import load_workbook
 
 from app.models import EstadoVenta, MedioDePago, PlanCuotas, Venta, VentaItem, VentaPago
+from app.reports.definiciones.medios_pago import etiqueta_plan
 from app.schemas.categorias import CategoriaCrear
 from app.schemas.productos import ProductoCrear
 from app.schemas.proveedores import ProveedorCrear
@@ -157,6 +158,17 @@ def test_rango_de_mas_de_366_dias_409(client, h, e):
     assert r.status_code == 409
 
 
+@pytest.mark.parametrize("cuotas, recargo, esperado", [
+    (None, None, "Un pago"),
+    (1, 0, "1 cuota"),
+    (3, Decimal("0"), "3 cuotas"),
+    (3, Decimal("12.50"), "3 cuotas +12,5%"),
+    (6, Decimal("10.00"), "6 cuotas +10%"),
+])
+def test_etiqueta_plan(cuotas, recargo, esperado):
+    assert etiqueta_plan(cuotas, recargo) == esperado
+
+
 # --- Medios de pago -----------------------------------------------------------
 
 def test_medios_de_pago_con_plan_recargo_y_costo_del_medio(client, h, e):
@@ -298,11 +310,17 @@ def test_excel_y_pdf_de_cada_reporte(client, h, e, clave):
     assert r.status_code == 200
     hoja = load_workbook(BytesIO(r.content)).active
     ultima = [c.value for c in hoja[hoja.max_row]]
-    assert ultima[0] == "Total"
-    for indice, columna in enumerate(datos["columnas"][1:], start=1):
-        valor = datos["totales"][columna["clave"]]
-        if valor is not None:
-            assert Decimal(str(ultima[indice])) == Decimal(str(valor))
+    if datos["filas"]:
+        assert ultima[0] == "Total"
+        for indice, columna in enumerate(datos["columnas"][1:], start=1):
+            valor = datos["totales"][columna["clave"]]
+            if valor is not None:
+                assert Decimal(str(ultima[indice])) == Decimal(str(valor))
+    else:
+        # stock-valorizado sale vacío con esta fixture (productos sin stock
+        # inicial): sin filas, no hay fila de totales; la última fila con
+        # datos es el encabezado.
+        assert ultima[0] == datos["columnas"][0]["titulo"]
     pdf = client.get(f"{API}/{clave}/pdf", params=params, headers=h)
     assert pdf.status_code == 200 and pdf.content.startswith(b"%PDF")
 

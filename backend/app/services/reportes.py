@@ -57,8 +57,10 @@ def opciones(db) -> dict:
          for id_, nivel in db.execute(select(Categoria.id, Categoria.nivel))),
         key=lambda c: c["nombre"].lower(),
     )
-    vendieron = select(Venta.usuario_id).where(Venta.estado != EstadoVenta.EN_CURSO)
-    vendedores = db.scalars(select(Usuario).where(Usuario.id.in_(vendieron)).order_by(func.lower(Usuario.nombre)))
+    # EXISTS correlacionado (no un IN sobre todas las ventas): usa ix_ventas_usuario_id.
+    vendieron = (select(Venta.id).where(Venta.usuario_id == Usuario.id, Venta.estado != EstadoVenta.EN_CURSO)
+                 .exists())
+    vendedores = db.scalars(select(Usuario).where(vendieron).order_by(func.lower(Usuario.nombre)))
     return {
         "proveedores": [Referencia.de(p) for p in db.scalars(select(Proveedor).order_by(func.lower(Proveedor.nombre)))],
         "categorias": categorias,

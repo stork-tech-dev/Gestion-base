@@ -97,6 +97,12 @@
           this.filas = respuesta.filas;
           this.totales = respuesta.totales;
           this.aplicados = params;
+          // Si el usuario borró Desde/Hasta, el backend completó el mes
+          // actual: reflejarlo en los inputs (solo esos dos campos).
+          if (admitidos.includes('desde')) {
+            this.filtros.desde = respuesta.filtros.desde;
+            this.filtros.hasta = respuesta.filtros.hasta;
+          }
           this.cargando = false;
         } catch (e) {
           this.cargando = false;

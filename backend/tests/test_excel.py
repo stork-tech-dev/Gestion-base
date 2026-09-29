@@ -204,3 +204,17 @@ def test_generar_reporte_titulo_filtros_formatos_y_totales():
     assert hoja["C6"].value == "=HYPERLINK(1)" and hoja["C6"].data_type == "s"   # nunca una fórmula
     assert hoja["A7"].value == "Total" and hoja["A7"].font.bold and hoja["B7"].value == 10.5
     assert hoja.freeze_panes == "A6"
+
+
+def test_generar_reporte_sin_filas_no_escribe_fila_de_totales():
+    """Sin filas, el Excel no escribe la fila de totales (igual que el PDF y
+    la pantalla, que la ocultan)."""
+    contenido = generar_reporte(
+        "Ventas por período",
+        [("Desde", "01/03/2025"), ("Hasta", "31/03/2025")],
+        [("Período", "DD/MM/YYYY"), ("Total", '"$" #,##0.00'), ("Nombre", None)],
+        [], ["Total", Decimal("0.00"), None],
+    )
+    hoja = load_workbook(BytesIO(contenido)).active
+    assert [c.value for c in hoja[5]] == ["Período", "Total", "Nombre"]   # encabezado en la fila 5
+    assert hoja.max_row == 5   # sin filas de datos ni fila de totales

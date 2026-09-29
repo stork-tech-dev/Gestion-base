@@ -13,7 +13,7 @@
 <div x-data="reporte({ clave: {{ reporte.clave|js }}, admitidos: {{ admite|js }}, agrupaciones: {{ reporte.agrupaciones|js }}, hoyIso: {{ hoy_iso|js }}, inicioMesIso: {{ inicio_mes_iso|js }} })">
   {% call encabezado(reporte.nombre, "/reportes", "Reportes") %}
     <a class="boton boton-secundario" :href="urlExportar('excel')" :class="aplicados ? '' : 'pointer-events-none opacity-50'"
-       :aria-disabled="!aplicados" target="_blank" rel="noopener">Excel</a>
+       :aria-disabled="!aplicados" :tabindex="aplicados ? null : -1" target="_blank" rel="noopener">Excel</a>
     <button type="button" class="boton boton-secundario" :disabled="!aplicados" @click="abrirPdf()">PDF</button>
   {% endcall %}
 

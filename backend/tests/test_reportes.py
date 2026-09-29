@@ -125,6 +125,13 @@ def test_fechas_por_defecto_del_primero_del_mes_a_hoy():
     assert (f.desde, f.hasta) == (date(2026, 9, 1), date(2026, 9, 29))
 
 
+def test_fechas_por_defecto_desde_el_primero_del_mes_de_hasta():
+    # Si solo llega "hasta" de un mes anterior, "desde" acompaña ese mes en
+    # vez del mes actual (si no, quedaría posterior a "hasta" y daría 422).
+    f = normalizar_filtros(_CON_FECHAS, FiltrosReporte(hasta=date(2026, 8, 15)), hoy=date(2026, 9, 29))
+    assert (f.desde, f.hasta) == (date(2026, 8, 1), date(2026, 8, 15))
+
+
 def test_rango_de_366_dias_se_acepta_y_de_367_da_409():
     normalizar_filtros(_CON_FECHAS, FiltrosReporte(desde=date(2024, 1, 1), hasta=date(2024, 12, 31)))  # bisiesto
     with pytest.raises(ReglaDeNegocio, match="366 días"):

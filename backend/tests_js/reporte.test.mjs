@@ -34,10 +34,10 @@ function cargar() {
   };
   vm.runInNewContext(readFileSync(RUTA_APP, 'utf8'), contexto);
   vm.runInNewContext(readFileSync(RUTA_REPORTE, 'utf8'), contexto);
-  return window.reporteLogica;
+  return window;
 }
 
-const L = cargar();
+const L = cargar().reporteLogica;
 const PRODUCTOS = ['desde', 'hasta', 'agrupar', 'nivel', 'orden', 'limite', 'proveedor_id', 'categoria_id'];
 
 test('filtros iniciales: mes actual, primera agrupación y valores por defecto', () => {
@@ -76,4 +76,21 @@ test('alineación: solo los números a la derecha', () => {
   assert.match(L.alineacion('porcentaje'), /text-right/);
   assert.equal(L.alineacion('texto'), '');
   assert.equal(L.alineacion('fecha'), '');
+});
+
+// ---------- Componente: urlExportar (sin red: no se llama init()) ----------
+
+test('urlExportar: "#" antes de la primera búsqueda; después usa los filtros aplicados', () => {
+  const window = cargar();
+  const pantalla = window.reporte({
+    clave: 'ventas-periodo', admitidos: ['desde', 'hasta'], agrupaciones: [],
+    hoyIso: '2026-09-29', inicioMesIso: '2026-09-01',
+  });
+  assert.equal(pantalla.urlExportar('excel'), '#');
+  // "aplicados" es la query de la última búsqueda exitosa, no filtros.
+  pantalla.aplicados = { desde: '2026-09-01', hasta: '2026-09-29' };
+  assert.equal(pantalla.urlExportar('excel'),
+    '/api/v1/reportes/ventas-periodo/excel?desde=2026-09-01&hasta=2026-09-29');
+  assert.equal(pantalla.urlExportar('pdf'),
+    '/api/v1/reportes/ventas-periodo/pdf?desde=2026-09-01&hasta=2026-09-29');
 });
