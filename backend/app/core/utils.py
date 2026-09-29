@@ -148,3 +148,11 @@ def rango_fechas(columna, desde: date | None, hasta: date | None) -> list:
 def paginar(pagina: int, tamano: int, maximo: int) -> tuple[int, int]:
     """(página, tamaño) acotados: página >= 1 y 1 <= tamaño <= maximo."""
     return max(1, pagina), max(1, min(tamano, maximo))
+
+
+def pesos_texto(valor) -> str:
+    """"$ 1.500,00" para textos guardados (notificaciones). La API devuelve
+    montos crudos: esto NO se usa en respuestas."""
+    monto = redondear(valor)
+    texto = f"{abs(monto):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    return f"{'-' if monto < 0 else ''}$ {texto}"

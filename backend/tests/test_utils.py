@@ -2,6 +2,7 @@ from datetime import timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import literal, select
 
 from config import settings
@@ -14,6 +15,7 @@ from app.core.utils import (
     normalizar_texto,
     paginar,
     patron_ilike,
+    pesos_texto,
     rango_fechas,
     redondear,
     redondear_hacia_abajo,
@@ -142,6 +144,14 @@ def test_paginar_hace_clamp():
     assert paginar(0, 0, 100) == (1, 1)
     assert paginar(3, 500, 100) == (3, 100)
     assert paginar(2, 10, 100) == (2, 10)
+
+
+@pytest.mark.parametrize("valor, esperado", [
+    (Decimal("1500"), "$ 1.500,00"), (Decimal("-1500.5"), "-$ 1.500,50"),
+    (Decimal("0"), "$ 0,00"), (Decimal("1234567.89"), "$ 1.234.567,89"),
+])
+def test_pesos_texto(valor, esperado):
+    assert pesos_texto(valor) == esperado
 
 
 def test_rango_fechas_con_hasta_inclusivo(db):

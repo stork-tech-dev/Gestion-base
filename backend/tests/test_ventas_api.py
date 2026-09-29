@@ -1,5 +1,5 @@
 from app.services import stock as servicio_stock
-from tests.fabricas import catalogo
+from tests.fabricas import abrir_turno_de_test, catalogo
 
 URL = "/api/v1/ventas"
 URL_CONFIG = "/api/v1/configuracion"
@@ -71,6 +71,7 @@ def test_en_curso_sin_venta_abierta_da_null_y_no_422(client, crear_usuario, head
 def test_flujo_completo_de_venta_sin_cliente(client, crear_usuario, headers_de, db):
     admin = crear_usuario("admin")
     h_admin = headers_de(admin)
+    abrir_turno_de_test(db, admin)
     producto = _producto_con_stock(db, admin, "Remera flujo completo")
     medio_id = _medio_efectivo(client, h_admin)
 
@@ -130,6 +131,7 @@ def test_costo_unitario_nunca_aparece(client, crear_usuario, headers_de, db):
 def test_permisos_del_carrito_descuento_y_anulacion(client, crear_usuario, headers_de, db):
     admin = crear_usuario("admin")
     h_admin = headers_de(admin)
+    abrir_turno_de_test(db, admin)
     producto = _producto_con_stock(db, admin, "Remera permisos ventas", cantidad=20)
     medio_id = _medio_efectivo(client, h_admin)
     motivo_id = _motivo_descuento(client, h_admin)
@@ -183,6 +185,7 @@ def test_permisos_del_carrito_descuento_y_anulacion(client, crear_usuario, heade
 def test_auditoria_de_anulacion(client, crear_usuario, headers_de, db):
     admin = crear_usuario("admin")
     h_admin = headers_de(admin)
+    abrir_turno_de_test(db, admin)
     producto = _producto_con_stock(db, admin, "Remera auditoria anular")
     medio_id = _medio_efectivo(client, h_admin)
 

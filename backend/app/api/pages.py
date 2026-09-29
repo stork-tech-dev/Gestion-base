@@ -15,11 +15,12 @@ from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
 from app.core.utils import ahora_db
-from app.models import NIVEL_MAXIMO, CondicionIva, TemporadaProducto, Usuario
+from app.models import NIVEL_MAXIMO, CondicionIva, EstadoTurno, TemporadaProducto, Usuario
 from app.services import auditoria_inventario as servicio_auditorias
 from app.services import descuentos as servicio_descuentos
 from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
+from app.services import turnos as servicio_turnos
 from app.services import usuarios as servicio_usuarios
 from app.services import ventas as servicio_ventas
 from app.services.auth import TokenInvalido
@@ -121,6 +122,11 @@ SECCION_RESUMEN_VENTAS = {
 }
 SECCIONES_VENTAS: list[dict] = [SECCION_NUEVA_VENTA, SECCION_RESUMEN_VENTAS]
 
+# Ítem del sidebar del módulo de caja (sesión 07).
+PAGINA_CAJA = {"nombre": "Caja", "url": "/caja", "icono": "caja", "modulo": Modulo.CAJA}
+# Página propia sin tarjeta en el hub: se entra desde /caja ("Cerrar turno").
+PAGINA_CERRAR_TURNO = {**PAGINA_CAJA, "accion": "crear", "recurso": Recurso.CAJA_ARQUEO}
+
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
 # hub_configuracion / modulo (+ accion, recurso). Cada módulo suma su ítem
 # ANTES de "Configuraciones".
@@ -130,6 +136,7 @@ MENU_SIDEBAR: list[dict] = [
     PAGINA_STOCK_HUB,
     PAGINA_VENTAS_HUB,
     PAGINA_CLIENTES,
+    PAGINA_CAJA,
     {"nombre": "Configuraciones", "url": "/configuracion", "icono": "configuracion", "hub_configuracion": True},
     # Sin pantalla HTML de auditoría: el ítem existe pero está oculto.
     {"nombre": "Auditoría", "url": "/auditoria", "icono": "auditoria", "oculto": True},
@@ -531,9 +538,7 @@ def venta_nueva(request: Request, db: Session = Depends(get_db),
     # La venta en curso (si hay) la retoma la pantalla con GET /ventas/en-curso.
     return _pagina(request, "pages/ventas/nueva.html", _contexto_ventas(
         request, db, usuario,
-        # Sesión 07: saldrá de services.turnos (turno de caja abierto de hoy).
-        # Hasta entonces no hay turnos y confirmar no se bloquea.
-        hay_turno=True,
+        hay_turno=servicio_turnos.hay_turno_para_operar(db),
     ))
 
 
@@ -547,3 +552,25 @@ def resumen_ventas(request: Request, cliente_id: int | None = None, db: Session 
         cliente_id_inicial=cliente_id,
         hoy_iso=ahora_db().date().isoformat(),
     ))
+
+
+# --- Caja (sesión 07) ------------------------------------------------------------
+
+@router.get("/caja")
+def caja(request: Request, db: Session = Depends(get_db),
+         usuario: Usuario = Depends(requiere_pagina(PAGINA_CAJA, actual="/caja"))):
+    return _pagina(request, "pages/caja/index.html", contexto_base(
+        request, db, "/caja", usuario,
+        puede_retirar=resolver_permiso(db, usuario.id, Modulo.CAJA, "crear", Recurso.CAJA_RETIRO),
+        puede_arquear=resolver_permiso(db, usuario.id, Modulo.CAJA, "crear", Recurso.CAJA_ARQUEO),
+    ))
+
+
+@router.get("/caja/cerrar/{turno_id}")
+def cerrar_turno(turno_id: int, request: Request, db: Session = Depends(get_db),
+                 usuario: Usuario = Depends(requiere_pagina(PAGINA_CERRAR_TURNO, actual="/caja"))):
+    turno = _o_no_encontrado(request, db, usuario, servicio_turnos.obtener_turno, turno_id, actual="/caja")
+    if turno.estado is not EstadoTurno.ABIERTO:
+        raise Redireccion("/caja")
+    return _pagina(request, "pages/caja/cerrar_turno.html", contexto_base(request, db, "/caja", usuario,
+                                                                         turno_id=turno.id))

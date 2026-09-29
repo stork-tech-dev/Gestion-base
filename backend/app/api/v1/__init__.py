@@ -2,8 +2,8 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
-    auditoria, auditorias_inventario, auth, categorias, clientes, configuracion, health, productos, proveedores,
-    roles, stock, usuarios, ventas,
+    auditoria, auditorias_inventario, auth, categorias, clientes, configuracion, health, notificaciones, productos,
+    proveedores, roles, stock, turnos, usuarios, ventas,
 )
 
 api_router = APIRouter()
@@ -20,3 +20,5 @@ api_router.include_router(auditorias_inventario.router)
 api_router.include_router(clientes.router)
 api_router.include_router(configuracion.router)
 api_router.include_router(ventas.router)
+api_router.include_router(turnos.router)
+api_router.include_router(notificaciones.router)

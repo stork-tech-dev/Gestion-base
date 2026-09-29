@@ -410,6 +410,42 @@
     };
   };
 
+  // ---------- Notificaciones ----------
+  // Campanita del header (decisión 4 del módulo 07): contador de no leídas y
+  // las últimas notificaciones del usuario logueado.
+  window.notificaciones = function () {
+    return {
+      abierto: false, noLeidas: 0, lista: [],
+      async init() { await this.cargar(); },
+      async cargar() {
+        try {
+          const datos = await window.pedir('/api/v1/notificaciones');
+          this.noLeidas = datos.no_leidas;
+          this.lista = datos.resultados;
+        } catch (e) { /* la campanita nunca rompe la página */ }
+      },
+      async leer(n) {
+        if (n.leida) return;
+        try {
+          await window.pedir(`/api/v1/notificaciones/${n.id}/leer`, { method: 'PATCH' });
+          n.leida = true;
+          this.noLeidas = Math.max(0, this.noLeidas - 1);
+        } catch (e) {
+          window.toast(e.message, 'error');
+        }
+      },
+      async leerTodas() {
+        try {
+          await window.pedir('/api/v1/notificaciones/leer-todas', { method: 'PATCH' });
+          this.lista.forEach((n) => { n.leida = true; });
+          this.noLeidas = 0;
+        } catch (e) {
+          window.toast(e.message, 'error');
+        }
+      },
+    };
+  };
+
   // ---------- Atajos globales ----------
   const ATAJOS = { F2: 'atajo-buscar', F10: 'atajo-confirmar', Escape: 'atajo-cancelar' };
   document.addEventListener('keydown', (evento) => {

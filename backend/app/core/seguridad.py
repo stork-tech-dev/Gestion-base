@@ -115,3 +115,10 @@ def requiere_admin(usuario: Usuario = Depends(get_current_user)) -> Usuario:
     if not usuario.es_admin:
         raise SinPermiso("Operación exclusiva del Admin")
     return usuario
+
+
+def requiere_login(usuario: Usuario = Depends(get_current_user)) -> Usuario:
+    """Dependency para lo que es del propio usuario (sus notificaciones):
+    alcanza con la sesión y la contraseña al día."""
+    _exigir_password_al_dia(usuario)
+    return usuario
