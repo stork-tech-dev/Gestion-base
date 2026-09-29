@@ -4,7 +4,7 @@
 (módulo 03) y la importación inicial (módulo 08)."""
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
-from zipfile import BadZipFile, ZipFile
+from zipfile import ZipFile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
@@ -50,7 +50,10 @@ def leer_tabla(contenido: bytes, requeridas, opcionales=()) -> list[tuple[int, d
     try:
         with ZipFile(BytesIO(contenido)) as comprimido:
             descomprimido = sum(entrada.file_size for entrada in comprimido.infolist())
-    except BadZipFile as exc:
+    except Exception as exc:
+        # Bytes no confiables: además de BadZipFile, un zip corrupto puede
+        # levantar NotImplementedError (versión no soportada) o
+        # UnicodeDecodeError (nombre de entrada corrupto), entre otros.
         raise ReglaDeNegocio("El archivo no es un Excel (.xlsx) válido.") from exc
     if descomprimido > TAMANO_DESCOMPRIMIDO_MAXIMO:
         raise ReglaDeNegocio("El archivo es demasiado grande una vez descomprimido.")

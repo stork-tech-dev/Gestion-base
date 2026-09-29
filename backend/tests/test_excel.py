@@ -169,3 +169,18 @@ def test_leer_tabla_rechaza_archivo_que_descomprimido_es_enorme():
         zf.writestr("xl/worksheets/sheet1.xml", b"\0" * (60 * 1024 * 1024))
     with pytest.raises(ReglaDeNegocio, match="descomprimido"):
         leer_tabla(salida.getvalue(), ["nombre"])
+
+
+def test_leer_tabla_rechaza_zip_con_directorio_central_corrupto():
+    # Un .xlsx corrupto puede hacer que ZipFile()/infolist() levante otras
+    # excepciones además de BadZipFile (ej. NotImplementedError por una
+    # "versión" de zip fuera de rango, en el byte extract_version del
+    # directorio central): tienen que dar 409, no un 500.
+    contenido = bytearray(_xlsx([["nombre"], ["x"]]))
+    firma = b"PK\x01\x02"  # firma de cada registro del directorio central
+    posicion = contenido.find(firma)
+    assert posicion != -1
+    contenido[posicion + 6] = 255  # extract_version: fuera del máximo soportado
+    with pytest.raises(ReglaDeNegocio) as error:
+        leer_tabla(bytes(contenido), ["nombre"])
+    assert "no es un Excel" in error.value.mensaje
