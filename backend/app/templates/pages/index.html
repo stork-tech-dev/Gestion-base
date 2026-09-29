@@ -1,4 +1,90 @@
 {% extends "base.html" %}
+{% from "components/icons.html" import icono %}
 {% block contenido %}
 <h1 class="text-2xl font-black text-welcome">Bienvenido{% if usuario_actual %}, {{ usuario_actual.nombre.split()[0] }}{% endif %}</h1>
+
+{# Tablero de inicio: cada bloque se renderiza solo con su permiso (pages.py)
+   y carga sus datos por su cuenta (static/js/inicio.js). #}
+{% if accesos %}
+<nav aria-label="Accesos rápidos" class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+  {% for a in accesos %}
+  <a href="{{ a.url }}" class="tarjeta tarjeta-enlace flex min-h-toque flex-col items-center justify-center gap-2 text-center font-semibold text-texto-header">
+    {{ icono(a.icono, "w-6 h-6 text-primary") }}<span>{{ a.nombre }}</span>
+  </a>
+  {% endfor %}
+</nav>
+{% endif %}
+
+<div class="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+  {% if ver_caja %}
+  <section class="tarjeta flex flex-col gap-3" aria-labelledby="inicio-caja" x-data="inicioCaja()">
+    <div class="flex items-center justify-between gap-2">
+      <h2 id="inicio-caja" class="text-lg font-semibold text-texto-header">Caja</h2>
+      <a href="/caja" class="text-sm font-medium text-primary hover:underline">Ir a Caja</a>
+    </div>
+    <p x-show="cargando" class="text-sm text-texto-muted">Cargando…</p>
+    <p x-show="error" x-cloak class="text-sm text-danger">No se pudo cargar.</p>
+    <template x-if="!cargando && !error && estado === 'sin_turno'">
+      <div class="flex flex-col gap-3">
+        <p class="text-texto-muted">No hay un turno abierto.</p>
+        <a href="/caja" class="boton boton-primario min-h-toque self-start">Iniciar turno</a>
+      </div>
+    </template>
+    <template x-if="!cargando && estado === 'dia_anterior'">
+      <p class="rounded-input bg-danger/10 p-3 text-sm text-danger">
+        Hay un turno del <span x-text="fecha(turno.fecha_apertura)"></span> sin cerrar: no se puede vender hasta cerrarlo.
+        {% if puede_cerrar_turno %}<a :href="`/caja/cerrar/${turno.id}`" class="font-semibold underline">Cerrar turno</a>{% endif %}
+      </p>
+    </template>
+    <template x-if="!cargando && estado === 'abierto'">
+      <dl class="grid grid-cols-2 gap-3 text-sm">
+        <div><dt class="text-texto-muted">Abierto</dt><dd class="font-medium text-texto-header" x-text="fechaHora(turno.fecha_apertura)"></dd></div>
+        <div><dt class="text-texto-muted">Por</dt><dd class="font-medium text-texto-header" x-text="turno.usuario_apertura_nombre"></dd></div>
+        <div><dt class="text-texto-muted">Efectivo inicial</dt><dd class="font-medium text-texto-header" x-text="'$ ' + pesos(turno.efectivo_apertura)"></dd></div>
+        <div><dt class="text-texto-muted">En el turno</dt><dd class="font-medium text-texto-header" x-text="turno.usuarios.length"></dd></div>
+      </dl>
+    </template>
+  </section>
+  {% endif %}
+
+  {% if ver_ventas_hoy %}
+  <section class="tarjeta flex flex-col gap-3" aria-labelledby="inicio-ventas" x-data="inicioVentasHoy({ hoyIso: {{ hoy_iso|js }} })">
+    <div class="flex items-center justify-between gap-2">
+      <h2 id="inicio-ventas" class="text-lg font-semibold text-texto-header">Ventas de hoy</h2>
+      <a href="/reportes/ventas-periodo" class="text-sm font-medium text-primary hover:underline">Ver reporte</a>
+    </div>
+    <p x-show="cargando" class="text-sm text-texto-muted">Cargando…</p>
+    <p x-show="error" x-cloak class="text-sm text-danger">No se pudo cargar.</p>
+    <template x-if="!cargando && totales">
+      <dl class="grid grid-cols-2 gap-3">
+        <div><dt class="text-sm text-texto-muted">Total vendido</dt><dd class="text-xl font-bold text-texto-header" x-text="'$ ' + pesos(totales.total)"></dd></div>
+        <div><dt class="text-sm text-texto-muted">Ventas</dt><dd class="text-xl font-bold text-texto-header" x-text="totales.ventas"></dd></div>
+        <div><dt class="text-sm text-texto-muted">Ticket promedio</dt><dd class="text-xl font-bold text-texto-header" x-text="'$ ' + pesos(totales.ticket_promedio)"></dd></div>
+        <div><dt class="text-sm text-texto-muted">Anuladas</dt><dd class="text-xl font-bold text-texto-header" x-text="textoAnuladas(totales)"></dd></div>
+      </dl>
+    </template>
+  </section>
+  {% endif %}
+
+  {% if ver_stock %}
+  <section class="tarjeta flex flex-col gap-3" aria-labelledby="inicio-stock" x-data="inicioStock()">
+    <div class="flex items-center justify-between gap-2">
+      <h2 id="inicio-stock" class="text-lg font-semibold text-texto-header">Stock bajo el mínimo</h2>
+      <a href="/stock?solo_bajo_minimo=1" class="text-sm font-medium text-primary hover:underline">Ver todos</a>
+    </div>
+    <p x-show="cargando" class="text-sm text-texto-muted">Cargando…</p>
+    <p x-show="error" x-cloak class="text-sm text-danger">No se pudo cargar.</p>
+    <p x-show="!cargando && !error && !productos.length" x-cloak class="text-sm text-texto-muted">Todo el stock está por encima del mínimo.</p>
+    <ul x-show="productos.length" x-cloak class="flex flex-col divide-y divide-borde">
+      <template x-for="p in productos" :key="p.producto_id">
+        <li class="flex items-center justify-between gap-3 py-2 text-sm">
+          <span class="min-w-0 truncate"><span class="font-mono text-texto-muted" x-text="p.codigo"></span> <span x-text="p.descripcion"></span></span>
+          <span class="shrink-0 font-semibold text-danger" x-text="p.stock + ' / mín. ' + p.stock_minimo"></span>
+        </li>
+      </template>
+    </ul>
+  </section>
+  {% endif %}
+</div>
 {% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/inicio.js') }}"></script>{% endblock %}

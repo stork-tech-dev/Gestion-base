@@ -9,7 +9,7 @@
 {% from "components/form_field.html" import campo %}
 {% block titulo %}Stock · {{ APP_NAME }}{% endblock %}
 {% block contenido %}
-<div x-data="stockListado({ puedeIngresar: {{ puede_ingresar|js }}, puedeMinimos: {{ puede_minimos|js }}, puedeBaja: {{ puede_baja|js }} })">
+<div x-data="stockListado({ puedeIngresar: {{ puede_ingresar|js }}, puedeMinimos: {{ puede_minimos|js }}, puedeBaja: {{ puede_baja|js }}, soloBajoMinimoInicial: {{ solo_bajo_minimo_inicial|default(false)|js }} })">
   {% call encabezado("Stock", "/gestion-de-stock", "Gestión de Stock") %}
     {% if puede_motivos %}
     <a href="/motivos-baja" class="boton boton-secundario">Motivos de baja</a>

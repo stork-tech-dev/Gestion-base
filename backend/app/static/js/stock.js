@@ -18,12 +18,12 @@
   const filtrosVacios = () => ({ busqueda: '', categoria_id: null, proveedor_id: null, solo_bajo_minimo: false });
   const resumenVacio = () => ({ productos_con_stock: 0, unidades: 0, valorizado: 0, bajo_minimo: 0 });
 
-  window.stockListado = function ({ puedeIngresar, puedeMinimos, puedeBaja }) {
+  window.stockListado = function ({ puedeIngresar, puedeMinimos, puedeBaja, soloBajoMinimoInicial = false }) {
     return {
       puedeIngresar,
       puedeMinimos,
       puedeBaja,
-      filtros: filtrosVacios(),
+      filtros: { ...filtrosVacios(), solo_bajo_minimo: !!soloBajoMinimoInicial },
       filas: [],
       total: 0,
       pagina: 1,
