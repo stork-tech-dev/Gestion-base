@@ -169,6 +169,12 @@ def registrar_arqueo(db, usuario, turno_id: int, items_declarados, total_declara
                                monto_esperado=l.monto_esperado, monto_declarado=declarados[l.clave],
                                es_informativo=l.es_informativo) for l in lineas]
     db.add(arqueo)
+    # Mantiene la relación en memoria consistente (mismo motivo que
+    # `_sumar_usuario` con `participantes`): sin esto, una lectura posterior
+    # del turno en la MISMA sesión (otro request reusando la sesión, como en
+    # los tests) seguiría viendo `turno.arqueo` como lo cacheó el primer
+    # selectin, antes de que este arqueo existiera.
+    turno.arqueo = arqueo
     turno.estado = EstadoTurno.CERRADO
     turno.fecha_cierre = ahora_db()
     turno.usuario_cierre_id = usuario.id
