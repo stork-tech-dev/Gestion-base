@@ -32,6 +32,17 @@
       return esNegativo ? -centavos : centavos;
     },
     claveDe: (item) => (item.grupo_terminal ? `g:${item.grupo_terminal}` : `m:${item.medio_de_pago_id}`),
+    // Única fuente de verdad para el error de un input de monto: vacío,
+    // inválido (aCentavos no lo puede leer) y negativo (los montos de caja
+    // nunca lo son) → mensaje de campo; nunca se manda nada en silencio.
+    // `obligatorio` decide el mensaje del caso vacío (abrir turno permite
+    // vacío = $0; retiro y cada línea del cierre lo declaran aparte).
+    errorDeMonto(texto, { obligatorio = false } = {}) {
+      const limpio = String(texto ?? '').trim();
+      if (!limpio) return obligatorio ? 'El monto es obligatorio' : null;
+      const centavos = this.aCentavos(limpio);
+      return (centavos === null || centavos < 0) ? 'Monto inválido' : null;
+    },
     diferencia(declarado, esperado) {
       const d = this.aCentavos(declarado);
       return d === null ? null : d - this.aCentavos(esperado);
@@ -165,14 +176,15 @@
 
       async abrir() {
         this.erroresAbrir = {};
-        // Vacío = $0 (placeholder); no vacío e ininterpretable = error de
-        // campo, nunca se manda crudo ni como 0 (nunca en silencio).
+        // Vacío = $0 (placeholder); no vacío e ininterpretable (o negativo) =
+        // error de campo, nunca se manda crudo ni como 0 (nunca en silencio).
         const texto = String(this.formAbrir.efectivo_apertura ?? '').trim();
-        const centavos = texto === '' ? 0 : L.aCentavos(texto);
-        if (centavos === null) {
-          this.erroresAbrir = { efectivo_apertura: 'Monto inválido' };
+        const error = L.errorDeMonto(texto, { obligatorio: false });
+        if (error) {
+          this.erroresAbrir = { efectivo_apertura: error };
           return;
         }
+        const centavos = texto === '' ? 0 : L.aCentavos(texto);
         this.abriendo = true;
         const efectivo_apertura = (centavos / 100).toFixed(2);
         try {
@@ -215,13 +227,14 @@
       async retirar() {
         this.erroresRetiro = {};
         const texto = String(this.formRetiro.monto ?? '').trim();
-        // El monto es obligatorio (> 0): vacío o ininterpretable es error de
-        // campo, nunca se manda crudo ni como 0 (nunca en silencio).
-        const centavos = texto === '' ? null : L.aCentavos(texto);
-        if (centavos === null) {
-          this.erroresRetiro = { monto: texto === '' ? 'El monto es obligatorio' : 'Monto inválido' };
+        // El monto es obligatorio (> 0): vacío, ininterpretable o negativo es
+        // error de campo, nunca se manda crudo ni como 0 (nunca en silencio).
+        const error = L.errorDeMonto(texto, { obligatorio: true });
+        if (error) {
+          this.erroresRetiro = { monto: error };
           return;
         }
+        const centavos = L.aCentavos(texto);
         this.retirando = true;
         try {
           await window.pedir(`${API}/retiros`, {
@@ -297,6 +310,15 @@
         return L.diferencia(this.declarados[L.claveDe(item)], item.monto_esperado);
       },
 
+      // "Monto inválido" debajo del input: solo para lo que el usuario ya
+      // tipeó y no se puede leer (o es negativo). Vacío no es "inválido"
+      // todavía (recién abrió la pantalla): eso lo explica motivoDeshabilitado.
+      // Las líneas informativas nunca muestran error: las completa el backend.
+      errorDe(item) {
+        if (item.es_informativo) return null;
+        return L.errorDeMonto(this.declarados[L.claveDe(item)], { obligatorio: false });
+      },
+
       get totalDeclarado() {
         return L.totalDeclarado(this.items, this.declarados);
       },
@@ -308,6 +330,14 @@
 
       get puedeCerrar() {
         return !this.error && this.items.length > 0 && this.totalDeclarado !== null && !this.cerrando;
+      },
+
+      // Texto que explica por qué "Cerrar turno" está deshabilitado cuando
+      // es por faltar o no poder leer algún monto (no por error de carga ni
+      // por estar cerrando, que ya se explican por su cuenta).
+      get motivoDeshabilitado() {
+        if (this.error || this.cerrando) return null;
+        return this.totalDeclarado === null ? 'Completá todos los montos para cerrar' : null;
       },
 
       async cerrar() {

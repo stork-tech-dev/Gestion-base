@@ -69,9 +69,9 @@
             <template x-for="n in lista" :key="n.id">
               <li class="border-b border-borde last:border-0" :class="n.leida ? 'opacity-60' : ''">
                 <button type="button" class="min-h-toque w-full px-4 py-3 text-left" @click="leer(n)">
-                  <p class="text-sm font-semibold" x-text="n.titulo"></p>
-                  <p class="text-xs text-texto-muted" x-text="fechaHora(n.created_at)"></p>
-                  <p class="mt-1 whitespace-pre-line text-sm" x-text="n.cuerpo"></p>
+                  <span class="block text-sm font-semibold" x-text="n.titulo"></span>
+                  <span class="block text-xs text-texto-muted" x-text="fechaHora(n.created_at)"></span>
+                  <span class="block mt-1 whitespace-pre-line text-sm" x-text="n.cuerpo"></span>
                 </button>
               </li>
             </template>

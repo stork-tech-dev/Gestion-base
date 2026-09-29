@@ -191,6 +191,26 @@ def test_medio_informativo_no_suma_ni_hace_falta_declararlo_y_se_ignora_lo_decla
     assert item.diferencia == D("0")
 
 
+def test_medio_informativo_declarado_con_monto_distinto_al_esperado_se_ignora(db, e):
+    """Si igual llega declarada (p. ej. una llamada directa a la API, sin
+    pasar por el filtro del frontend) con un monto DISTINTO al esperado, el
+    backend la sigue ignorando: guarda monto_declarado = esperado y
+    diferencia 0 (decisión 10), nunca lo que vino declarado."""
+    transferencia = _medio(db, "Transferencia")
+    db.add(MedioPagoArqueoConfig(medio_de_pago_id=transferencia.id, es_informativo=True))
+    db.flush()
+    _vender(db, e, "Transferencia")
+    _vender(db, e, "Efectivo")
+    lineas, total = servicio.calcular_esperado(db, e.turno)
+    linea_transferencia = _linea(lineas, "Transferencia")
+    distinto = str(linea_transferencia.monto_esperado + D("500"))
+    declarados = _declarar(lineas, Transferencia=distinto)  # declarada, y distinta al esperado
+    arqueo = servicio.registrar_arqueo(db, e.admin, e.turno.id, declarados, total, None)
+    item = next(i for i in arqueo.items if i.medio_de_pago_id == transferencia.id)
+    assert item.monto_declarado == linea_transferencia.monto_esperado
+    assert item.diferencia == D("0")
+
+
 def test_medio_informativo_no_aparece_en_el_detalle_de_la_notificacion(db, e):
     transferencia = _medio(db, "Transferencia")
     db.add(MedioPagoArqueoConfig(medio_de_pago_id=transferencia.id, es_informativo=True))

@@ -41,9 +41,11 @@
                   <td class="whitespace-nowrap text-right" x-text="'$ ' + pesos(item.monto_esperado)"></td>
                   <td class="text-right">
                     <label class="sr-only" :for="'declarado-' + claveDe(item)" x-text="'Declarado ' + item.medio_nombre"></label>
-                    <input :id="'declarado-' + claveDe(item)" type="number" step="0.01" min="0" inputmode="decimal" class="campo text-right"
+                    <input :id="'declarado-' + claveDe(item)" type="text" inputmode="decimal" class="campo text-right"
+                           :class="{ 'campo-error': errorDe(item) }"
                            placeholder="$0" :disabled="item.es_informativo"
                            x-model="declarados[claveDe(item)]">
+                    <p class="text-sm text-danger" x-show="errorDe(item)" x-text="errorDe(item)" x-cloak></p>
                   </td>
                   <td class="whitespace-nowrap text-right" :class="diferenciaDe(item) !== null && diferenciaDe(item) !== 0 ? 'font-semibold text-danger' : ''"
                       x-text="diferenciaDe(item) === null ? '' : '$ ' + pesos(diferenciaDe(item) / 100)"></td>
@@ -71,7 +73,8 @@
     </div>
   </template>
 
-  <div class="mt-4 flex justify-end" x-show="!cargando">
+  <div class="mt-4 flex flex-col items-end gap-1" x-show="!cargando">
+    <p class="text-sm text-texto-muted" x-show="motivoDeshabilitado" x-text="motivoDeshabilitado" x-cloak></p>
     <button type="button" class="boton boton-primario min-h-toque" :disabled="!puedeCerrar" @click="cerrar()"
             x-text="cerrando ? 'Cerrando…' : 'Cerrar turno'"></button>
   </div>
