@@ -1,6 +1,6 @@
 from decimal import Decimal
 from io import BytesIO
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -158,3 +158,28 @@ def test_plantilla_no_deja_inyectar_formulas():
     assert celdas[0].value == '=HYPERLINK("http://x","x")'
     assert libro["Instrucciones"]["A2"].data_type == "s"
     assert [f["nombre"] for _, f in leer_tabla(contenido, ["id", "nombre"])][0] == '=HYPERLINK("http://x","x")'
+
+
+def test_leer_tabla_rechaza_archivo_que_descomprimido_es_enorme():
+    # 60 MB de ceros comprimen a unos pocos KB: pasa el límite de 5 MB del
+    # archivo, pero no el de lo descomprimido (zip bomb).
+    salida = BytesIO()
+    with ZipFile(salida, "w", ZIP_DEFLATED) as zf:
+        zf.writestr("xl/worksheets/sheet1.xml", b"\0" * (60 * 1024 * 1024))
+    with pytest.raises(ReglaDeNegocio, match="descomprimido"):
+        leer_tabla(salida.getvalue(), ["nombre"])
+
+
+def test_leer_tabla_rechaza_zip_con_directorio_central_corrupto():
+    # Un .xlsx corrupto puede hacer que ZipFile()/infolist() levante otras
+    # excepciones además de BadZipFile (ej. NotImplementedError por una
+    # "versión" de zip fuera de rango, en el byte extract_version del
+    # directorio central): tienen que dar 409, no un 500.
+    contenido = bytearray(_xlsx([["nombre"], ["x"]]))
+    firma = b"PK\x01\x02"  # firma de cada registro del directorio central
+    posicion = contenido.find(firma)
+    assert posicion != -1
+    contenido[posicion + 6] = 255  # extract_version: fuera del máximo soportado
+    with pytest.raises(ReglaDeNegocio) as error:
+        leer_tabla(bytes(contenido), ["nombre"])
+    assert "no es un Excel" in error.value.mensaje

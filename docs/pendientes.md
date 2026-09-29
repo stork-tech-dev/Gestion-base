@@ -26,9 +26,6 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - Advertencia de "el rol tiene usuarios" cuenta todos y no solo los activos.
 
 ## Módulo 03: pendientes
-- Zip bomb: el límite de 5 MB de `leer_tabla` es sobre el .xlsx comprimido.
-  Antes del módulo 08 (importación), sumar el `file_size` de
-  `ZipFile.infolist()` y limitar lo descomprimido (ej. 50 MB).
 - No hay macro de botón-link: `<a class="boton ...">` se repite en ~6
   plantillas.
 - `importar_dolar` hace un `db.get` por fila (N+1): aceptable a esta escala;
@@ -162,3 +159,20 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - Comentario de orden de rutas innecesario en `api/v1/notificaciones.py`.
 - Listado de turnos pagina de a 20 (lo pide el spec) mientras la regla
   general de UX es de a 10.
+
+## Módulo 08: pendientes
+- Mientras corre una importación o validación de productos (≈34 s con 5000
+  filas) quedan bloqueados el árbol de categorías y los proveedores tocados:
+  altas/ediciones manuales de productos y categorías y cambios de dólar
+  esperan. Aceptable para la puesta en marcha; revisar si se usa en operación.
+- `importacion.js`: si una importación confirmada se considerara "vieja" (cambio
+  de pestaña o archivo en el medio), no se mostraría el toast de éxito. Hoy es
+  inalcanzable porque las pestañas y el archivo se deshabilitan mientras corre.
+- Falta un test con una celda float 2.5 en `stock_inicial` (el texto "2,5" sí
+  está cubierto; el código la rechaza igual).
+- Una categoría cuyo nombre contiene ">" no se puede referenciar por camino
+  (la plantilla lo aclara).
+- La zona de subida + tabla de errores se parece a la de
+  `proveedores/dolar_masivo.html`: extraer macro si aparece un tercer uso.
+- El primer commit del módulo (2df420b) tiene el trailer `Co-Authored-By`
+  con otro modelo (no se enmendó).

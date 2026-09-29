@@ -4,7 +4,7 @@ from sqlalchemy import func, select, text
 
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
-from app.core.utils import filtro_texto, normalizar_texto, sin_tildes, sin_tildes_sql
+from app.core.utils import buscar_por_nombre, filtro_texto, normalizar_texto
 from app.models import NIVEL_MAXIMO, Categoria, Producto
 
 MENSAJE_NIVELES = f"Se permiten hasta {NIVEL_MAXIMO} niveles de categorías."
@@ -117,17 +117,23 @@ def tiene_productos(db, categoria_id: int) -> bool:
     return db.scalar(select(Producto.id).where(Producto.categoria_id == categoria_id).limit(1)) is not None
 
 
+def _condicion_padre(parent_id: int | None):
+    """Condición "hija de `parent_id`" (None = primer nivel)."""
+    return Categoria.parent_id.is_(None) if parent_id is None else Categoria.parent_id == parent_id
+
+
+def buscar_hija(db, nombre: str | None, parent_id: int | None) -> Categoria | None:
+    """Categoría con ese nombre (sin mayúsculas ni tildes) entre las hijas de
+    `parent_id` (None = primer nivel)."""
+    return buscar_por_nombre(db, Categoria, nombre, _condicion_padre(parent_id))
+
+
 def _nombre_libre(db, nombre: str, parent_id: int | None, excepto_id: int | None = None) -> str:
     limpio = normalizar_texto(nombre)
     if not limpio:
         raise DatoInvalido("El nombre es obligatorio")
-    condiciones = [
-        func.lower(sin_tildes_sql(Categoria.nombre)) == sin_tildes(limpio).lower(),
-        Categoria.parent_id.is_(None) if parent_id is None else Categoria.parent_id == parent_id,
-    ]
-    if excepto_id is not None:
-        condiciones.append(Categoria.id != excepto_id)
-    existente = db.scalar(select(Categoria).where(*condiciones))
+    condiciones = [_condicion_padre(parent_id)] + ([Categoria.id != excepto_id] if excepto_id is not None else [])
+    existente = buscar_por_nombre(db, Categoria, limpio, *condiciones)
     if existente is not None:
         raise ReglaDeNegocio(f"Ya existe la categoría '{existente.nombre}' en ese nivel.")
     return limpio

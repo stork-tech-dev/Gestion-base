@@ -4,6 +4,7 @@
 (módulo 03) y la importación inicial (módulo 08)."""
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
+from zipfile import ZipFile
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
@@ -15,6 +16,10 @@ from app.core.utils import normalizar_texto, sin_tildes
 TAMANO_MAXIMO_BYTES = 5 * 1024 * 1024
 FILAS_MAXIMAS = 5000
 TIPO_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# Un .xlsx es un zip: 5 MB comprimidos pueden ser gigas descomprimidos (zip
+# bomb). Se suma el tamaño declarado de cada entrada antes de abrirlo; zipfile
+# nunca entrega más bytes que los declarados, así que el límite es efectivo.
+TAMANO_DESCOMPRIMIDO_MAXIMO = 50 * 1024 * 1024
 # Un texto que empiece con alguno de estos caracteres Excel lo puede tomar como
 # fórmula (inyección de fórmulas / CSV injection).
 PREFIJOS_FORMULA = ("=", "+", "-", "@", "\t", "\r")
@@ -43,6 +48,16 @@ def leer_tabla(contenido: bytes, requeridas, opcionales=()) -> list[tuple[int, d
     if len(contenido) > TAMANO_MAXIMO_BYTES:
         raise ReglaDeNegocio("El archivo supera los 5 MB.")
     try:
+        with ZipFile(BytesIO(contenido)) as comprimido:
+            descomprimido = sum(entrada.file_size for entrada in comprimido.infolist())
+    except Exception as exc:
+        # Bytes no confiables: además de BadZipFile, un zip corrupto puede
+        # levantar NotImplementedError (versión no soportada) o
+        # UnicodeDecodeError (nombre de entrada corrupto), entre otros.
+        raise ReglaDeNegocio("El archivo no es un Excel (.xlsx) válido.") from exc
+    if descomprimido > TAMANO_DESCOMPRIMIDO_MAXIMO:
+        raise ReglaDeNegocio("El archivo es demasiado grande una vez descomprimido.")
+    try:
         libro = load_workbook(BytesIO(contenido), read_only=True, data_only=True)
     except Exception as exc:
         # Esta función parsea bytes no confiables; cualquier falla de parseo es "archivo inválido".
@@ -55,8 +70,17 @@ def leer_tabla(contenido: bytes, requeridas, opcionales=()) -> list[tuple[int, d
         posiciones: dict[str, int] = {}
         for indice, celda in enumerate(encabezado):
             clave = clave_columna(celda)
-            if clave and clave not in posiciones:
+            if not clave:
+                continue
+            if clave not in posiciones:
                 posiciones[clave] = indice
+            # "Dólar Actual" (encabezado a mano) y "dolar_actual" (nombre de
+            # columna interno, el que también usa la plantilla generada) son
+            # la misma columna: se indexa también con "_" para que ambas
+            # formas encuentren la posición.
+            con_guion = clave.replace(" ", "_")
+            if con_guion not in posiciones:
+                posiciones[con_guion] = indice
         faltan = [c for c in requeridas if c not in posiciones]
         if faltan:
             raise ReglaDeNegocio(f"Faltan columnas: {', '.join(faltan)}")

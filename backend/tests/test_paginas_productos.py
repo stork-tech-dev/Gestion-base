@@ -45,7 +45,7 @@ def test_foto_inicial_solo_si_puede_editar(crear_usuario, iniciar_sesion):
 
 def test_temporadas_y_leyenda_de_inactivos(crear_usuario, iniciar_sesion):
     html = iniciar_sesion(crear_usuario("admin")).get("/productos").text
-    # Una sola definición (pages.TEMPORADAS): el select del formulario y el listado.
+    # Una sola definición (app.core.etiquetas.TEMPORADAS): el select del formulario y el listado.
     assert '<option value="otoño_invierno">Otoño-Invierno</option>' in html
     assert "temporadas: [[" in html and "Primavera-Verano" in html
     assert "¿Buscás un producto inactivo? Cambiá el switch a Inactivos." in html
