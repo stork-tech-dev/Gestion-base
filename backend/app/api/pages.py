@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.errores import NoEncontrado, SinPermiso
+from app.core.etiquetas import CONDICIONES_IVA, TEMPORADAS
 from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
 from app.core.utils import ahora_db
-from app.models import NIVEL_MAXIMO, CondicionIva, EstadoTurno, TemporadaProducto, Usuario
+from app.models import NIVEL_MAXIMO, EstadoTurno, Usuario
 from app.services import auditoria_inventario as servicio_auditorias
 from app.services import descuentos as servicio_descuentos
 from app.services import proveedores as servicio_proveedores
@@ -70,13 +71,6 @@ PAGINA_DOLAR_MASIVO = {
 
 # Ítem del sidebar del módulo de productos.
 PAGINA_PRODUCTOS = {"nombre": "Productos", "url": "/productos", "icono": "productos", "modulo": Modulo.PRODUCTOS}
-# Textos de las temporadas: ÚNICA definición (la usan el select del formulario
-# y, vía productosListado, el filtro y la ficha del listado).
-TEMPORADAS = [
-    (TemporadaProducto.ATEMPORAL.value, "Atemporal"),
-    (TemporadaProducto.OTONO_INVIERNO.value, "Otoño-Invierno"),
-    (TemporadaProducto.PRIMAVERA_VERANO.value, "Primavera-Verano"),
-]
 
 # Ítem del sidebar del módulo de stock: hub "Gestión de Stock".
 PAGINA_STOCK_HUB = {"nombre": "Gestión de Stock", "url": "/gestion-de-stock", "icono": "stock", "modulo": Modulo.STOCK}
@@ -99,13 +93,6 @@ PAGINA_MOTIVOS_BAJA = {
 
 # Ítem del sidebar del módulo de clientes (sesión 06).
 PAGINA_CLIENTES = {"nombre": "Clientes", "url": "/clientes", "icono": "clientes", "modulo": Modulo.CLIENTES}
-# Textos de condición de IVA: ÚNICA definición (select del formulario y filtro del listado).
-CONDICIONES_IVA = [
-    (CondicionIva.CONSUMIDOR_FINAL.value, "Consumidor final"),
-    (CondicionIva.RESPONSABLE_INSCRIPTO.value, "Responsable inscripto"),
-    (CondicionIva.MONOTRIBUTISTA.value, "Monotributista"),
-    (CondicionIva.EXENTO.value, "Exento"),
-]
 
 # Ítem del sidebar del módulo de ventas (sesión 06): hub "Ventas".
 PAGINA_VENTAS_HUB = {"nombre": "Ventas", "url": "/ventas", "icono": "ventas", "modulo": Modulo.VENTAS}

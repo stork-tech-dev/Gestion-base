@@ -114,6 +114,17 @@ def filtro_texto(columna, valor: str):
     return sin_tildes_sql(columna).ilike(patron_ilike(sin_tildes(valor)), escape="\\")
 
 
+def buscar_por_nombre(db, modelo, nombre: str | None, *condiciones):
+    """Fila de `modelo` cuyo `nombre` coincide sin importar mayúsculas, tildes
+    ni espacios de más (None si no hay). `condiciones` suma filtros (ej. el
+    padre de una categoría). Única definición de esta búsqueda."""
+    limpio = normalizar_texto(nombre)
+    if not limpio:
+        return None
+    return db.scalar(select(modelo).where(
+        func.lower(sin_tildes_sql(modelo.nombre)) == sin_tildes(limpio).lower(), *condiciones))
+
+
 def nombre_libre(db, modelo, nombre: str, *, excepto_id: int | None = None, mensaje_duplicado) -> str:
     """Nombre único sin importar mayúsculas ni tildes (Principio 2): única
     definición del patrón que antes estaba copiado en varios `services`
@@ -125,10 +136,8 @@ def nombre_libre(db, modelo, nombre: str, *, excepto_id: int | None = None, mens
     limpio = normalizar_texto(nombre)
     if not limpio:
         raise DatoInvalido("El nombre es obligatorio")
-    condiciones = [func.lower(sin_tildes_sql(modelo.nombre)) == sin_tildes(limpio).lower()]
-    if excepto_id is not None:
-        condiciones.append(modelo.id != excepto_id)
-    existente = db.scalar(select(modelo).where(*condiciones))
+    condiciones = [modelo.id != excepto_id] if excepto_id is not None else []
+    existente = buscar_por_nombre(db, modelo, limpio, *condiciones)
     if existente is not None:
         raise ReglaDeNegocio(mensaje_duplicado(existente))
     return limpio
