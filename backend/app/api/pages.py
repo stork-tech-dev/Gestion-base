@@ -110,10 +110,28 @@ SECCION_RESUMEN_VENTAS = {
 }
 SECCIONES_VENTAS: list[dict] = [SECCION_NUEVA_VENTA, SECCION_RESUMEN_VENTAS]
 
+
+def _con_venta_en_curso(secciones: list[dict], en_curso) -> list[dict]:
+    """"Nueva venta" pasa a "Continuar venta V-…" si el usuario tiene una en
+    curso. Devuelve copias: las constantes las comparten sidebar y páginas."""
+    if en_curso is None:
+        return secciones
+    return [{**s, "nombre": f"Continuar venta {en_curso.numero}"} if s["url"] == SECCION_NUEVA_VENTA["url"] else s
+            for s in secciones]
+
+
 # Ítem del sidebar del módulo de caja (sesión 07).
 PAGINA_CAJA = {"nombre": "Caja", "url": "/caja", "icono": "caja", "modulo": Modulo.CAJA}
 # Página propia sin tarjeta en el hub: se entra desde /caja ("Cerrar turno").
 PAGINA_CERRAR_TURNO = {**PAGINA_CAJA, "accion": "crear", "recurso": Recurso.CAJA_ARQUEO}
+
+# Accesos rápidos del inicio: mismas constantes (y permisos) que sidebar y hubs.
+ACCESOS_INICIO: list[dict] = [
+    {**SECCION_NUEVA_VENTA, "icono": "ventas"},
+    PAGINA_PRODUCTOS,
+    PAGINA_STOCK_HUB,
+    PAGINA_CAJA,
+]
 
 # Ítem del sidebar del módulo de reportes (sesión 09): hub "Reportes".
 PAGINA_REPORTES = {"nombre": "Reportes", "url": "/reportes", "icono": "reportes", "modulo": Modulo.REPORTES}
@@ -272,7 +290,19 @@ def _pagina(request: Request, plantilla: str, contexto: dict):
 
 @router.get("/")
 def inicio(request: Request, db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_sesion)):
-    return _pagina(request, "pages/index.html", contexto_base(request, db, "/", usuario))
+    """Tablero: cada bloque se renderiza solo si el usuario puede pedir su API
+    (misma barrera, así nunca hay 403) y carga sus datos por su cuenta (inicio.js)."""
+    accesos = _con_venta_en_curso(menu_visible(ACCESOS_INICIO, usuario, db),
+                                  servicio_ventas.venta_en_curso(db, usuario))
+    return _pagina(request, "pages/index.html", contexto_base(
+        request, db, "/", usuario,
+        accesos=accesos,
+        ver_caja=resolver_permiso(db, usuario.id, Modulo.CAJA, "ver"),
+        puede_cerrar_turno=resolver_permiso(db, usuario.id, Modulo.CAJA, "crear", Recurso.CAJA_ARQUEO),
+        ver_ventas_hoy=resolver_permiso(db, usuario.id, Modulo.REPORTES, "ver"),
+        ver_stock=resolver_permiso(db, usuario.id, Modulo.STOCK, "ver"),
+        hoy_iso=ahora_db().date().isoformat(),
+    ))
 
 
 @router.get("/ajustes")
@@ -413,9 +443,11 @@ def gestion_de_stock(request: Request, db: Session = Depends(get_db),
 
 
 @router.get("/stock")
-def stock(request: Request, db: Session = Depends(get_db),
-         usuario: Usuario = Depends(requiere_pagina(SECCION_STOCK, actual="/gestion-de-stock"))):
-    return _pagina(request, "pages/stock/listado.html", _contexto_stock(request, db, usuario))
+def stock(request: Request, solo_bajo_minimo: bool = False, db: Session = Depends(get_db),
+          usuario: Usuario = Depends(requiere_pagina(SECCION_STOCK, actual="/gestion-de-stock"))):
+    # `solo_bajo_minimo` llega del link "Ver todos" del inicio: tilda el filtro al entrar.
+    return _pagina(request, "pages/stock/listado.html",
+                   _contexto_stock(request, db, usuario, solo_bajo_minimo_inicial=solo_bajo_minimo))
 
 
 @router.get("/motivos-baja")
@@ -542,12 +574,8 @@ def _contexto_ventas(request: Request, db: Session, usuario: Usuario, **extra) -
 @router.get("/ventas")
 def ventas_hub(request: Request, db: Session = Depends(get_db),
                usuario: Usuario = Depends(requiere_pagina(PAGINA_VENTAS_HUB, actual="/ventas"))):
-    secciones = menu_visible(SECCIONES_VENTAS, usuario, db)
-    en_curso = servicio_ventas.venta_en_curso(db, usuario)
-    if en_curso is not None:
-        # Copia: la constante la comparten el sidebar y la página.
-        secciones = [{**s, "nombre": f"Continuar venta {en_curso.numero}"} if s is SECCION_NUEVA_VENTA else s
-                     for s in secciones]
+    secciones = _con_venta_en_curso(menu_visible(SECCIONES_VENTAS, usuario, db),
+                                    servicio_ventas.venta_en_curso(db, usuario))
     return _pagina(request, "pages/ventas/hub.html", _contexto_ventas(request, db, usuario, secciones=secciones))
 
 
