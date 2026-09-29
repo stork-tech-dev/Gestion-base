@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+{# Plantilla ÚNICA de todos los reportes (motor.exportar_pdf): los valores
+   llegan ya formateados y alineados; acá no hay lógica por reporte. #}
+<style>
+  @page {
+    size: A4{% if apaisado %} landscape{% endif %};
+    margin: 12mm;
+    @bottom-right { content: "Página " counter(page) " de " counter(pages); font-size: 8pt; color: #555; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "DejaVu Sans", sans-serif; font-size: 9pt; color: #111; }
+  .cabecera { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5mm; }
+  .marca img { max-height: 14mm; max-width: 50mm; }
+  .marca span { font-size: 14pt; font-weight: bold; }
+  .emitido { color: #555; font-size: 8pt; }
+  h1 { font-size: 15pt; margin-bottom: 2mm; }
+  .filtros { color: #444; margin-bottom: 5mm; }
+  .filtros span { margin-right: 4mm; }
+  table { width: 100%; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  th, td { border: 0.3mm solid #ccc; padding: 1.2mm 1.8mm; text-align: left; }
+  th { background: #f0f0f0; }
+  .numero { text-align: right; white-space: nowrap; }
+  tfoot td { font-weight: bold; background: #f7f7f7; }
+  .vacio { text-align: center; color: #555; padding: 6mm; }
+</style>
+</head>
+<body>
+  <div class="cabecera">
+    <div class="marca">{% if logo %}<img src="{{ logo }}" alt="{{ APP_NAME }}">{% else %}<span>{{ APP_NAME }}</span>{% endif %}</div>
+    <div class="emitido">Emitido el {{ emitido }}</div>
+  </div>
+  <h1>{{ titulo }}</h1>
+  {% if filtros %}
+  <div class="filtros">{% for etiqueta, valor in filtros %}<span><strong>{{ etiqueta }}:</strong> {{ valor }}</span>{% endfor %}</div>
+  {% endif %}
+  <table>
+    <thead>
+      <tr>{% for c in columnas %}<th class="{{ alineaciones[loop.index0] }}">{{ c.titulo }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+      {% for fila in filas %}
+      <tr>{% for valor in fila %}<td class="{{ alineaciones[loop.index0] }}">{{ valor }}</td>{% endfor %}</tr>
+      {% else %}
+      <tr><td class="vacio" colspan="{{ columnas|length }}">No hay datos para los filtros elegidos.</td></tr>
+      {% endfor %}
+    </tbody>
+    {% if filas %}
+    <tfoot>
+      <tr>{% for valor in totales %}<td class="{{ alineaciones[loop.index0] }}">{{ valor }}</td>{% endfor %}</tr>
+    </tfoot>
+    {% endif %}
+  </table>
+</body>
+</html>

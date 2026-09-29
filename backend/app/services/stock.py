@@ -17,6 +17,11 @@ from app.services.productos import _sku_de_codigo, bloquear_producto, condicione
 TAMANO_MAXIMO = 100
 STOCK_MAXIMO = 2_000_000_000
 
+# Única expresión SQL del stock de un producto (hoy, el del único local). Los
+# reportes que agregan stock en la base la usan en vez de Producto.stock: el
+# día que haya multi-local se cambia acá y no en cada consulta.
+STOCK_SQL = Producto.stock
+
 SIGNO_POR_TIPO = {
     TipoMovimientoStock.INGRESO_PROVEEDOR: 1, TipoMovimientoStock.ANULACION_VENTA: 1,
     TipoMovimientoStock.VENTA: -1, TipoMovimientoStock.BAJA: -1,

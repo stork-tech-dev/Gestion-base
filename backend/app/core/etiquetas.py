@@ -18,3 +18,16 @@ TEMPORADAS = [
     (TemporadaProducto.OTONO_INVIERNO.value, "Otoño-Invierno"),
     (TemporadaProducto.PRIMAVERA_VERANO.value, "Primavera-Verano"),
 ]
+
+# Reportes (sesión 09): "Agrupar por" y "Orden" de la pantalla, del Excel y del PDF.
+AGRUPACIONES = [
+    ("dia", "Día"),
+    ("mes", "Mes"),
+    ("producto", "Producto"),
+    ("categoria", "Categoría"),
+    ("proveedor", "Proveedor"),
+]
+ORDENES = [
+    ("unidades", "Unidades"),
+    ("importe", "Importe"),
+]
