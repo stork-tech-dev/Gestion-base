@@ -7,7 +7,7 @@ from app.models import Producto, Venta, VentaItem
 from app.reports.definiciones._comunes import (
     condiciones_de_producto, filas_y_totales, grupo_de_producto, porcentaje, ventas_confirmadas,
 )
-from app.reports.motor import Columna, DefinicionReporte
+from app.reports.motor import Columna, DefinicionReporte, Grafico
 from app.schemas.reportes import Agrupar, Orden
 from app.schemas.reportes import TipoColumna as T
 
@@ -50,6 +50,13 @@ def _consulta(db, filtros):
     return filas, totales
 
 
+def _grafico(filtros) -> Grafico:
+    por_categoria = filtros.agrupar is Agrupar.CATEGORIA
+    medida = "Unidades vendidas" if filtros.orden is Orden.UNIDADES else "Importe vendido"
+    return Grafico("barras", ("categoria",) if por_categoria else ("descripcion",), filtros.orden.value,
+                   f"{medida} por {'categoría' if por_categoria else 'producto'}")
+
+
 DEFINICION = DefinicionReporte(
     clave="productos-vendidos",
     nombre="Productos más vendidos",
@@ -58,4 +65,5 @@ DEFINICION = DefinicionReporte(
     columnas=_columnas,
     consulta=_consulta,
     agrupaciones=(Agrupar.PRODUCTO, Agrupar.CATEGORIA),
+    grafico=_grafico,
 )

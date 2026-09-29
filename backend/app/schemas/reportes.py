@@ -3,7 +3,7 @@ viajan crudos (Decimal como string, fechas ISO); el formato lo pone cada
 consumidor (pantalla, Excel, PDF)."""
 from datetime import date, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -68,6 +68,13 @@ class ReporteCatalogo(BaseModel):
     agrupaciones: list[Agrupar]
 
 
+class GraficoResponse(BaseModel):
+    tipo: Literal["linea", "barras"]
+    etiquetas: list[str]             # claves de columna que nombran cada punto o barra
+    valor: str                       # clave de la columna numérica
+    titulo: str
+
+
 class ReporteResponse(BaseModel):
     clave: str
     nombre: str
@@ -75,6 +82,7 @@ class ReporteResponse(BaseModel):
     columnas: list[ColumnaResponse]
     filas: list[dict[str, Any]]      # {clave de columna: valor crudo}
     totales: dict[str, Any]          # mismas claves; las de texto van en null
+    grafico: GraficoResponse | None = None
     generado_en: datetime
 
 

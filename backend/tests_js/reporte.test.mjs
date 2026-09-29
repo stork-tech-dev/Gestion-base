@@ -94,3 +94,34 @@ test('urlExportar: "#" antes de la primera búsqueda; después usa los filtros a
   assert.equal(pantalla.urlExportar('pdf'),
     '/api/v1/reportes/ventas-periodo/pdf?desde=2026-09-01&hasta=2026-09-29');
 });
+
+// ---------- Datos del gráfico ----------
+
+test('datos del gráfico: barras con etiquetas compuestas, top 10 y números', () => {
+  const columnas = [{ clave: 'medio', tipo: 'texto' }, { clave: 'plan', tipo: 'texto' },
+                    { clave: 'total_cobrado', tipo: 'moneda' }];
+  const filas = Array.from({ length: 12 }, (_, i) => ({ medio: 'Tarjeta', plan: `${i + 1} cuotas`, total_cobrado: `${1000 + i}.50` }));
+  const g = L.datosGrafico({ tipo: 'barras', etiquetas: ['medio', 'plan'], valor: 'total_cobrado', titulo: 'Total' },
+                           columnas, filas);
+  assert.equal(g.etiquetas.length, 10);
+  assert.equal(g.etiquetas[0], 'Tarjeta · 1 cuotas');
+  assert.equal(g.valores[0], 1000.5);
+  assert.equal(g.recortado, true);
+  assert.equal(g.tipoValor, 'moneda');
+  assert.equal(g.titulo, 'Total');
+});
+
+test('datos del gráfico: línea con todos los puntos y fechas formateadas', () => {
+  const columnas = [{ clave: 'periodo', tipo: 'fecha' }, { clave: 'total', tipo: 'moneda' }];
+  const filas = Array.from({ length: 15 }, (_, i) => ({ periodo: `2025-03-${String(i + 1).padStart(2, '0')}`, total: '10.00' }));
+  const g = L.datosGrafico({ tipo: 'linea', etiquetas: ['periodo'], valor: 'total', titulo: 'T' }, columnas, filas);
+  assert.equal(g.etiquetas.length, 15);
+  assert.equal(g.etiquetas[0], '01/03/2025');
+  assert.equal(g.recortado, false);
+});
+
+test('sin gráfico o sin filas no se dibuja nada', () => {
+  const columnas = [{ clave: 'total', tipo: 'moneda' }];
+  assert.equal(L.datosGrafico(null, columnas, [{ total: '1' }]), null);
+  assert.equal(L.datosGrafico({ tipo: 'barras', etiquetas: ['total'], valor: 'total', titulo: 'T' }, columnas, []), null);
+});

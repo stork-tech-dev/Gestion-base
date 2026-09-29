@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 
 from app.models import Usuario, Venta
 from app.reports.definiciones._comunes import dividir, filas_y_totales, unidades_por_venta, ventas_confirmadas
-from app.reports.motor import Columna, DefinicionReporte
+from app.reports.motor import Columna, DefinicionReporte, Grafico
 from app.schemas.reportes import TipoColumna as T
 
 
@@ -42,6 +42,10 @@ def _consulta(db, filtros):
     return filas, totales
 
 
+def _grafico(_filtros) -> Grafico:
+    return Grafico("barras", ("vendedor",), "total", "Total vendido por vendedor")
+
+
 DEFINICION = DefinicionReporte(
     clave="vendedores",
     nombre="Ventas por vendedor",
@@ -49,4 +53,5 @@ DEFINICION = DefinicionReporte(
     filtros_admitidos=("desde", "hasta", "usuario_id"),
     columnas=_columnas,
     consulta=_consulta,
+    grafico=_grafico,
 )

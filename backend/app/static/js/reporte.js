@@ -1,13 +1,15 @@
 /* Pantalla genérica de reportes (/reportes/{clave}): filtros según lo que
    admite el reporte, tabla con las columnas que devuelve la API
-   (app/api/v1/reportes.py) y fila de totales. Excel y PDF usan los filtros
-   de la última búsqueda exitosa (lo que se está viendo). */
+   (app/api/v1/reportes.py), gráfico arriba (Chart.js) y fila de totales.
+   Excel y PDF usan los filtros de la última búsqueda exitosa (lo que se
+   está viendo). */
 (function () {
   'use strict';
 
   const API = '/api/v1/reportes';
   const NUMERICOS = ['entero', 'moneda', 'porcentaje'];
   const CATALOGOS = ['proveedor_id', 'categoria_id', 'usuario_id', 'medio_de_pago_id'];
+  const MAX_BARRAS = 10;   // barras: el gráfico muestra las primeras N filas; la tabla, todas
 
   // ---------- Lógica pura (testeada con node --test en tests_js/reporte.test.mjs) ----------
   window.reporteLogica = {
@@ -54,11 +56,32 @@
     },
 
     alineacion: (tipo) => (NUMERICOS.includes(tipo) ? 'text-right whitespace-nowrap' : ''),
+
+    // Datos del gráfico (una serie) a partir de la respuesta: barras = las
+    // primeras MAX_BARRAS filas en el orden del reporte; línea = todas.
+    // Las etiquetas usan el mismo formato que la tabla. null = no se dibuja.
+    datosGrafico: (grafico, columnas, filas) => {
+      if (!grafico || !filas.length) return null;
+      const tipos = Object.fromEntries(columnas.map((c) => [c.clave, c.tipo]));
+      const formatear = window.reporteLogica.formatear;
+      const visibles = grafico.tipo === 'barras' ? filas.slice(0, MAX_BARRAS) : filas;
+      return {
+        tipo: grafico.tipo,
+        titulo: grafico.titulo,
+        tipoValor: tipos[grafico.valor],
+        recortado: visibles.length < filas.length,
+        etiquetas: visibles.map((fila) => grafico.etiquetas
+          .map((clave) => formatear(fila[clave], tipos[clave])).filter(Boolean).join(' · ')),
+        valores: visibles.map((fila) => Number(fila[grafico.valor]) || 0),
+      };
+    },
   };
   const L = window.reporteLogica;
 
   window.reporte = function ({ clave, admitidos, agrupaciones, hoyIso, inicioMesIso }) {
     const iniciales = () => L.filtrosIniciales({ admitidos, agrupaciones, hoyIso, inicioMesIso });
+    // Instancia de Chart.js FUERA del estado reactivo (el proxy de Alpine la rompe).
+    let chart = null;
     return {
       filtros: iniciales(),
       aplicados: null,   // query de la última búsqueda exitosa (la usan Excel y PDF)
@@ -66,12 +89,18 @@
       columnas: [],
       filas: [],
       totales: {},
+      grafico: null,   // datosGrafico de la última respuesta (null = sin gráfico)
       cargando: false,
       _ultima: window.ultimaRespuesta(),
 
       init() {
         this.buscar();
         if (CATALOGOS.some((c) => admitidos.includes(c))) this._cargarOpciones();
+        // Redibujar con los colores del tema al alternar claro/oscuro.
+        if (typeof MutationObserver !== 'undefined') {
+          new MutationObserver(() => this._dibujar())
+            .observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+        }
       },
 
       async _cargarOpciones() {
@@ -96,6 +125,8 @@
           this.columnas = respuesta.columnas;
           this.filas = respuesta.filas;
           this.totales = respuesta.totales;
+          this.grafico = L.datosGrafico(respuesta.grafico, respuesta.columnas, respuesta.filas);
+          this.$nextTick(() => this._dibujar());
           this.aplicados = params;
           // Si el usuario borró Desde/Hasta, el backend completó el mes
           // actual: reflejarlo en los inputs (solo esos dos campos).
@@ -117,6 +148,39 @@
 
       abrirPdf() {
         if (this.aplicados) window.abrirPdf(this.urlExportar('pdf'));
+      },
+
+      // Dibuja (o borra) el gráfico con el color primario del tema actual.
+      _dibujar() {
+        if (chart) { chart.destroy(); chart = null; }
+        const lienzo = this.$refs.grafico;
+        if (!this.grafico || !lienzo || typeof window.Chart === 'undefined') return;
+        const estilo = getComputedStyle(document.documentElement);
+        const color = (variable) => estilo.getPropertyValue(variable).trim();
+        const g = this.grafico;
+        const barras = g.tipo === 'barras';
+        const formatear = (valor) => L.formatear(valor, g.tipoValor);
+        const ejeValor = { beginAtZero: true, grid: { color: color('--color-border') },
+                           ticks: { color: color('--color-text-muted'), callback: (valor) => formatear(valor) } };
+        const ejeGrupo = { grid: { display: false }, ticks: { color: color('--color-text-muted') } };
+        chart = new window.Chart(lienzo, {
+          type: barras ? 'bar' : 'line',
+          data: {
+            labels: g.etiquetas,
+            datasets: [{
+              data: g.valores, backgroundColor: color('--color-primary'), borderColor: color('--color-primary'),
+              borderWidth: 2, borderRadius: 4, maxBarThickness: 28, pointRadius: 3, pointHoverRadius: 5, tension: 0.2,
+            }],
+          },
+          options: {
+            indexAxis: barras ? 'y' : 'x',
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => formatear(ctx.raw) } } },
+            scales: barras ? { x: ejeValor, y: ejeGrupo } : { x: ejeGrupo, y: ejeValor },
+          },
+        });
       },
 
       // ---------- Celdas ----------

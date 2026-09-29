@@ -12,12 +12,13 @@ from sqlalchemy import func, select
 from app.core.errores import NoProcesable, ReglaDeNegocio
 from app.core.excel import TIPO_XLSX
 from app.models import Auditoria
+from app.reports.definiciones import REPORTES
 from app.reports.definiciones._comunes import porcentaje
 from app.reports.motor import DefinicionReporte, normalizar_filtros
 from app.schemas.categorias import CategoriaCrear
 from app.schemas.productos import ProductoCrear
 from app.schemas.proveedores import ProveedorCrear
-from app.schemas.reportes import FiltrosReporte
+from app.schemas.reportes import FiltrosReporte, TipoColumna
 from app.services import categorias as servicio_categorias
 from app.services import productos as servicio_productos
 from app.services import proveedores as servicio_proveedores
@@ -141,6 +142,21 @@ def test_rango_de_366_dias_se_acepta_y_de_367_da_409():
 def test_desde_posterior_a_hasta_422():
     with pytest.raises(NoProcesable):
         normalizar_filtros(_CON_FECHAS, FiltrosReporte(desde=date(2026, 9, 2), hasta=date(2026, 9, 1)))
+
+
+# --- Gráfico --------------------------------------------------------------
+
+@pytest.mark.parametrize("clave", list(REPORTES))
+def test_cada_reporte_declara_un_grafico_sobre_sus_columnas(clave):
+    definicion = REPORTES[clave]
+    for agrupar in definicion.agrupaciones or (None,):
+        filtros = normalizar_filtros(definicion, FiltrosReporte(agrupar=agrupar), hoy=date(2026, 9, 29))
+        tipos = {c.clave: c.tipo for c in definicion.columnas(filtros)}
+        grafico = definicion.grafico(filtros)
+        assert grafico.tipo in ("linea", "barras")
+        assert grafico.etiquetas and set(grafico.etiquetas) <= set(tipos)
+        assert tipos[grafico.valor] in (TipoColumna.ENTERO, TipoColumna.MONEDA, TipoColumna.PORCENTAJE)
+        assert grafico.titulo
 
 
 # --- Stock valorizado ---------------------------------------------------------

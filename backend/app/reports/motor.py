@@ -41,6 +41,17 @@ class Columna:
 
 
 @dataclass(frozen=True)
+class Grafico:
+    """Qué dibujar arriba de la tabla (solo en pantalla): una serie y un eje.
+    `etiquetas`: columnas que forman el nombre de cada punto o barra (la
+    pantalla las une con " · "); `valor`: columna numérica a dibujar."""
+    tipo: str                  # "linea" | "barras"
+    etiquetas: tuple[str, ...]
+    valor: str
+    titulo: str
+
+
+@dataclass(frozen=True)
 class DefinicionReporte:
     clave: str
     nombre: str
@@ -51,6 +62,8 @@ class DefinicionReporte:
     # consulta(db, filtros) -> (filas, totales): dicts por clave de columna, agregados en SQL.
     consulta: Callable
     agrupaciones: tuple[Agrupar, ...] = ()   # la primera es la de por defecto
+    # Gráfico de la pantalla; puede depender de los filtros (línea por día, barras por categoría).
+    grafico: Callable[[FiltrosReporte], Grafico] | None = None
 
     @property
     def usa_fechas(self) -> bool:
@@ -116,7 +129,7 @@ def _normalizar_fila(columnas: list[Columna], fila: dict) -> dict:
 
 def generar(db, definicion: DefinicionReporte, filtros: FiltrosReporte) -> dict:
     """Corre la consulta del reporte. Devuelve {clave, nombre, filtros
-    (normalizados), columnas (list[Columna]), filas, totales, generado_en}."""
+    (normalizados), columnas (list[Columna]), filas, totales, grafico, generado_en}."""
     filtros = normalizar_filtros(definicion, filtros)
     columnas = definicion.columnas(filtros)
     filas, totales = definicion.consulta(db, filtros)
@@ -127,6 +140,7 @@ def generar(db, definicion: DefinicionReporte, filtros: FiltrosReporte) -> dict:
         "columnas": columnas,
         "filas": [_normalizar_fila(columnas, f) for f in filas],
         "totales": _normalizar_fila(columnas, totales),
+        "grafico": definicion.grafico(filtros) if definicion.grafico else None,
         "generado_en": ahora_db(),
     }
 

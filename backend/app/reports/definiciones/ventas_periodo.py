@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from app.core.utils import rango_fechas
 from app.models import EstadoVenta, Venta
 from app.reports.definiciones._comunes import dividir, filas_y_totales, periodo, unidades_por_venta, ventas_confirmadas
-from app.reports.motor import Columna, DefinicionReporte
+from app.reports.motor import Columna, DefinicionReporte, Grafico
 from app.schemas.reportes import Agrupar
 from app.schemas.reportes import TipoColumna as T
 
@@ -63,6 +63,10 @@ def _consulta(db, filtros):
     return filas, totales
 
 
+def _grafico(filtros) -> Grafico:
+    return Grafico("linea", ("periodo",), "total", f"Total vendido por {'mes' if filtros.agrupar is Agrupar.MES else 'día'}")
+
+
 DEFINICION = DefinicionReporte(
     clave="ventas-periodo",
     nombre="Ventas por período",
@@ -71,4 +75,5 @@ DEFINICION = DefinicionReporte(
     columnas=_columnas,
     consulta=_consulta,
     agrupaciones=(Agrupar.DIA, Agrupar.MES),
+    grafico=_grafico,
 )
