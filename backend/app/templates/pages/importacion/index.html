@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/paginacion.html" import paginacion %}
+{% block titulo %}Importar desde Excel · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{{ encabezado("Importar desde Excel", "/configuracion", "Configuraciones") }}
+<div x-data="importacion({{ tipos|js }})" class="flex flex-col gap-6">
+  <p class="text-texto-muted">Cargá los datos iniciales en tres pasos: descargá la plantilla, completala y subila. Primero proveedores, después productos.</p>
+
+  <div class="flex flex-wrap gap-2" role="tablist" aria-label="Qué importar">
+    <template x-for="t in tipos" :key="t.valor">
+      <button type="button" role="tab" class="boton min-h-toque" :aria-selected="t === tipo"
+              :class="t === tipo ? 'boton-primario' : 'boton-secundario'" @click="elegirTipo(t)" x-text="t.etiqueta"></button>
+    </template>
+  </div>
+
+  <section class="tarjeta flex flex-col gap-4">
+    <h2 class="text-xl font-bold text-texto-header">1. Descargá la plantilla</h2>
+    <p class="text-sm text-texto-muted">La hoja "Instrucciones" explica cada columna. No cambies los encabezados.</p>
+    <a :href="urlPlantilla" class="boton boton-secundario self-start" download>Descargar plantilla</a>
+  </section>
+
+  <section class="tarjeta flex flex-col gap-4">
+    <h2 class="text-xl font-bold text-texto-header">2. Subí el archivo completo</h2>
+    <label class="flex min-h-[8rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-input border-2 border-dashed p-6 text-center"
+           :class="arrastrando ? 'border-accent bg-accent/5' : 'border-borde'"
+           @dragover.prevent="arrastrando = true" @dragleave.prevent="arrastrando = false" @drop.prevent="soltar($event)">
+      <span class="text-texto" x-text="archivo ? archivo.name : 'Arrastrá el .xlsx acá o hacé clic para elegirlo'"></span>
+      <input type="file" x-ref="archivo" class="sr-only"
+             accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+             @change="elegirArchivo($event.target.files[0])">
+    </label>
+    <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
+      <button type="button" class="boton boton-secundario" :disabled="!archivo || ocupado" @click="validar()">Validar</button>
+      <button type="button" class="boton boton-primario" :disabled="!puedeImportar" @click="importar()">Importar</button>
+    </div>
+
+    <template x-if="resultado">
+      <div class="flex flex-col gap-3">
+        <p class="font-semibold text-texto" x-text="resumen()"></p>
+        <template x-if="resultado.categorias_nuevas.length">
+          <details class="text-sm text-texto">
+            <summary class="cursor-pointer">Se van a crear <span x-text="resultado.categorias_nuevas.length"></span> categorías nuevas</summary>
+            <ul class="mt-2 list-disc pl-5">
+              <template x-for="camino in resultado.categorias_nuevas" :key="camino"><li x-text="camino"></li></template>
+            </ul>
+          </details>
+        </template>
+        <div x-show="errores.length">
+          <p class="mb-2 font-semibold text-danger">Errores (no se va a importar nada hasta corregirlos)</p>
+          <div class="overflow-x-auto">
+            <table class="tabla">
+              <thead><tr><th scope="col" class="text-right">Fila</th><th scope="col">Columna</th><th scope="col">Error</th></tr></thead>
+              <tbody>
+                <template x-for="(e, i) in erroresPagina" :key="`${e.fila}-${e.columna}-${i}`">
+                  <tr><td class="text-right" x-text="e.fila"></td><td x-text="e.columna || '—'"></td><td x-text="e.error"></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          {{ paginacion(total="errores.length", al_cambiar="null") }}
+        </div>
+      </div>
+    </template>
+
+    <template x-if="importado">
+      <p class="text-texto">
+        Se crearon <span class="font-semibold" x-text="importado.creados"></span> registros.
+        <a :href="tipo.listado" class="font-semibold text-accent underline">Ver el listado</a>
+      </p>
+    </template>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/importacion.js') }}"></script>{% endblock %}

@@ -297,6 +297,27 @@ for _seccion in _CATALOGOS_VENTAS:
     _registrar_catalogo(_seccion)
 
 
+# Tarjeta del hub Configuraciones (sesión 08).
+SECCION_IMPORTACION = {
+    "nombre": "Importar desde Excel", "descripcion": "Carga inicial de proveedores, clientes y productos",
+    "url": "/importacion", "modulo": Modulo.IMPORTACION, "accion": "crear",
+}
+CONFIGURACION_SECCIONES.append(SECCION_IMPORTACION)
+# Pestañas de la pantalla: valor del tipo en la API, texto y listado al que lleva el toast de éxito.
+TIPOS_IMPORTACION = [
+    {"valor": "proveedores", "etiqueta": "Proveedores", "listado": "/proveedores"},
+    {"valor": "clientes", "etiqueta": "Clientes", "listado": "/clientes"},
+    {"valor": "productos", "etiqueta": "Productos", "listado": "/productos"},
+]
+
+
+@router.get("/importacion")
+def importacion(request: Request, db: Session = Depends(get_db),
+                usuario: Usuario = Depends(requiere_pagina(SECCION_IMPORTACION))):
+    return _pagina(request, "pages/importacion/index.html",
+                   contexto_base(request, db, "/configuracion", usuario, tipos=TIPOS_IMPORTACION))
+
+
 @router.get("/login")
 def login(request: Request, db: Session = Depends(get_db)):
     if usuario_de_pagina(request, db) is not None:
