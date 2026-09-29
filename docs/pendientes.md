@@ -14,7 +14,7 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
   extiende 15 minutos más; decidir si se prefiere una duración fija.
 - **Notas de Railway en el README:** volumen para `/uploads`, backups (el
   servicio `backup` no existe allí) y zona horaria del Postgres administrado.
-- **Pin y SRI de los CDN** (Tailwind, htmx, Alpine).
+- **Pin y SRI de los CDN** (Tailwind, htmx, Alpine, Chart.js en la pantalla de reportes).
 - `/health/db` con mensaje genérico cuando `APP_ENV=production`.
 
 ## Módulo 02-B: pendientes que quedaron
