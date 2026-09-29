@@ -14,11 +14,14 @@ from app.core.errores import NoEncontrado, SinPermiso
 from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
-from app.models import NIVEL_MAXIMO, TemporadaProducto, Usuario
+from app.core.utils import ahora_db
+from app.models import NIVEL_MAXIMO, CondicionIva, TemporadaProducto, Usuario
 from app.services import auditoria_inventario as servicio_auditorias
+from app.services import descuentos as servicio_descuentos
 from app.services import proveedores as servicio_proveedores
 from app.services import roles as servicio_roles
 from app.services import usuarios as servicio_usuarios
+from app.services import ventas as servicio_ventas
 from app.services.auth import TokenInvalido
 from app.services.configuracion import obtener_configuracion
 from config import settings
@@ -39,6 +42,24 @@ SECCION_ROLES = {
     "url": "/roles", "solo_admin": True,
 }
 CONFIGURACION_SECCIONES: list[dict] = [SECCION_PROVEEDORES, SECCION_USUARIOS, SECCION_ROLES]
+
+# Catálogos de ventas en el hub Configuraciones (sesión 06).
+_CATALOGOS_VENTAS = [
+    {"nombre": "Medios de pago", "descripcion": "Formas de cobro y planes de cuotas", "url": "/medios-de-pago",
+     "modulo": Modulo.CONFIGURACION, "plantilla": "pages/medios_pago/listado.html"},
+    {"nombre": "Motivos de descuento", "descripcion": "Por qué se descuenta al vender y cuánto se sugiere",
+     "url": "/motivos-descuento", "modulo": Modulo.CONFIGURACION,
+     "plantilla": "pages/motivos_descuento/listado.html",
+     # % sugerido del formulario: NO se pide a /ventas/opciones-descuento
+     # porque exige VENTAS ver (un permiso que esta pantalla no requiere).
+     "contexto_extra": lambda db: {"porcentajes_descuento": servicio_descuentos.porcentajes_validos(db)}},
+    {"nombre": "Promociones", "descripcion": "2x1, 3x2 y descuentos por porcentaje", "url": "/promociones",
+     "modulo": Modulo.CONFIGURACION, "recurso": Recurso.PROMOCIONES,
+     "plantilla": "pages/promociones/listado.html"},
+]
+CONFIGURACION_SECCIONES.extend(_CATALOGOS_VENTAS)
+# Las rutas de _CATALOGOS_VENTAS se registran más abajo, con _registrar_catalogo:
+# necesitan requiere_pagina/contexto_base/_pagina, definidas después en este archivo.
 
 # Página propia sin tarjeta en el hub: se entra desde el listado de proveedores.
 PAGINA_DOLAR_MASIVO = {
@@ -75,6 +96,31 @@ PAGINA_MOTIVOS_BAJA = {
     "modulo": Modulo.STOCK, "accion": "editar", "recurso": Recurso.STOCK_MOTIVOS_BAJA,
 }
 
+# Ítem del sidebar del módulo de clientes (sesión 06).
+PAGINA_CLIENTES = {"nombre": "Clientes", "url": "/clientes", "icono": "clientes", "modulo": Modulo.CLIENTES}
+# Textos de condición de IVA: ÚNICA definición (select del formulario y filtro del listado).
+CONDICIONES_IVA = [
+    (CondicionIva.CONSUMIDOR_FINAL.value, "Consumidor final"),
+    (CondicionIva.RESPONSABLE_INSCRIPTO.value, "Responsable inscripto"),
+    (CondicionIva.MONOTRIBUTISTA.value, "Monotributista"),
+    (CondicionIva.EXENTO.value, "Exento"),
+]
+
+# Ítem del sidebar del módulo de ventas (sesión 06): hub "Ventas".
+PAGINA_VENTAS_HUB = {"nombre": "Ventas", "url": "/ventas", "icono": "ventas", "modulo": Modulo.VENTAS}
+# Tarjetas del hub de ventas (`title` = el texto explicativo de cada una).
+SECCION_NUEVA_VENTA = {
+    "nombre": "Nueva venta", "descripcion": "Cargar productos, aplicar descuentos y cobrar",
+    "title": "Cargar productos, aplicar descuentos y cobrar",
+    "url": "/ventas/nueva", "modulo": Modulo.VENTAS, "accion": "crear",
+}
+SECCION_RESUMEN_VENTAS = {
+    "nombre": "Resumen de Ventas", "descripcion": "Ventas del período con subtotal, descuento, total y medio de pago",
+    "title": "Ventas del período con subtotal, descuento, total y medio de pago",
+    "url": "/ventas/resumen-ventas", "modulo": Modulo.VENTAS,
+}
+SECCIONES_VENTAS: list[dict] = [SECCION_NUEVA_VENTA, SECCION_RESUMEN_VENTAS]
+
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
 # hub_configuracion / modulo (+ accion, recurso). Cada módulo suma su ítem
 # ANTES de "Configuraciones".
@@ -82,6 +128,8 @@ MENU_SIDEBAR: list[dict] = [
     {"nombre": "Inicio", "url": "/", "icono": "inicio"},
     PAGINA_PRODUCTOS,
     PAGINA_STOCK_HUB,
+    PAGINA_VENTAS_HUB,
+    PAGINA_CLIENTES,
     {"nombre": "Configuraciones", "url": "/configuracion", "icono": "configuracion", "hub_configuracion": True},
     # Sin pantalla HTML de auditoría: el ítem existe pero está oculto.
     {"nombre": "Auditoría", "url": "/auditoria", "icono": "auditoria", "oculto": True},
@@ -232,6 +280,27 @@ def configuracion(request: Request, db: Session = Depends(get_db), usuario: Usua
     secciones = menu_visible(CONFIGURACION_SECCIONES, usuario, db)
     return _pagina(request, "pages/configuracion/index.html",
                    contexto_base(request, db, "/configuracion", usuario, secciones=secciones))
+
+
+def _registrar_catalogo(seccion: dict) -> None:
+    """Registra la ruta GET de un catálogo de `_CATALOGOS_VENTAS`: mismo
+    contexto (puede_ver/crear/editar) para los tres, más lo puntual de cada
+    uno vía `contexto_extra`."""
+    def pagina(request: Request, db: Session = Depends(get_db),
+               usuario: Usuario = Depends(requiere_pagina(seccion))):
+        extra = seccion["contexto_extra"](db) if "contexto_extra" in seccion else {}
+        return _pagina(request, seccion["plantilla"], contexto_base(
+            request, db, "/configuracion", usuario,
+            puede_editar=resolver_permiso(db, usuario.id, seccion["modulo"], "editar", seccion.get("recurso")),
+            puede_crear=resolver_permiso(db, usuario.id, seccion["modulo"],
+                                         "crear" if seccion.get("recurso") else "editar", seccion.get("recurso")),
+            **extra,
+        ))
+    router.add_api_route(seccion["url"], pagina, methods=["GET"])
+
+
+for _seccion in _CATALOGOS_VENTAS:
+    _registrar_catalogo(_seccion)
 
 
 @router.get("/login")
@@ -406,3 +475,75 @@ def historial_de_usuario(usuario_id: int, request: Request, db: Session = Depend
     objetivo = _o_no_encontrado(request, db, usuario, servicio_usuarios.obtener_usuario, usuario_id)
     return _pagina(request, "pages/usuarios/historial.html",
                    contexto_base(request, db, "/configuracion", usuario, objetivo=objetivo))
+
+
+# --- Clientes (sesión 06) ------------------------------------------------------
+
+@router.get("/clientes")
+def clientes(request: Request, db: Session = Depends(get_db),
+            usuario: Usuario = Depends(requiere_pagina(PAGINA_CLIENTES, actual="/clientes"))):
+    return _pagina(request, "pages/clientes/listado.html", contexto_base(
+        request, db, "/clientes", usuario,
+        puede_crear=resolver_permiso(db, usuario.id, Modulo.CLIENTES, "crear"),
+        puede_editar=resolver_permiso(db, usuario.id, Modulo.CLIENTES, "editar"),
+        # Gatea el select + "Asignar" de la ficha: sin este permiso no se pide
+        # /configuracion/promociones (para no disparar toasts de 403).
+        puede_ver_promociones=resolver_permiso(db, usuario.id, Modulo.CONFIGURACION, "ver", Recurso.PROMOCIONES),
+        condiciones_iva=CONDICIONES_IVA,
+    ))
+
+
+# --- Ventas (sesión 06) ----------------------------------------------------------
+
+def _contexto_ventas(request: Request, db: Session, usuario: Usuario, **extra) -> dict:
+    """Contexto común a las páginas del módulo de ventas: mismos permisos
+    puntuales que exige la API (app/api/v1/ventas.py y clientes.py), para
+    mostrar/ocultar acciones sin depender de que el backend las rechace.
+    `actual` siempre apunta al hub: todas resaltan "Ventas" en el sidebar."""
+    return contexto_base(
+        request, db, "/ventas", usuario,
+        puede_vender=resolver_permiso(db, usuario.id, Modulo.VENTAS, "crear"),
+        puede_descontar=resolver_permiso(db, usuario.id, Modulo.VENTAS, "crear", Recurso.VENTA_DESCUENTO),
+        puede_anular=(resolver_permiso(db, usuario.id, Modulo.VENTAS, "ver")
+                      and resolver_permiso(db, usuario.id, Modulo.VENTAS, "eliminar", Recurso.VENTA_ANULAR)),
+        puede_crear_cliente=resolver_permiso(db, usuario.id, Modulo.CLIENTES, "crear"),
+        puede_ver_clientes=resolver_permiso(db, usuario.id, Modulo.CLIENTES, "ver"),
+        condiciones_iva=CONDICIONES_IVA,
+        **extra,
+    )
+
+
+@router.get("/ventas")
+def ventas_hub(request: Request, db: Session = Depends(get_db),
+               usuario: Usuario = Depends(requiere_pagina(PAGINA_VENTAS_HUB, actual="/ventas"))):
+    secciones = menu_visible(SECCIONES_VENTAS, usuario, db)
+    en_curso = servicio_ventas.venta_en_curso(db, usuario)
+    if en_curso is not None:
+        # Copia: la constante la comparten el sidebar y la página.
+        secciones = [{**s, "nombre": f"Continuar venta {en_curso.numero}"} if s is SECCION_NUEVA_VENTA else s
+                     for s in secciones]
+    return _pagina(request, "pages/ventas/hub.html", _contexto_ventas(request, db, usuario, secciones=secciones))
+
+
+@router.get("/ventas/nueva")
+def venta_nueva(request: Request, db: Session = Depends(get_db),
+                usuario: Usuario = Depends(requiere_pagina(SECCION_NUEVA_VENTA, actual="/ventas"))):
+    # La venta en curso (si hay) la retoma la pantalla con GET /ventas/en-curso.
+    return _pagina(request, "pages/ventas/nueva.html", _contexto_ventas(
+        request, db, usuario,
+        # Sesión 07: saldrá de services.turnos (turno de caja abierto de hoy).
+        # Hasta entonces no hay turnos y confirmar no se bloquea.
+        hay_turno=True,
+    ))
+
+
+@router.get("/ventas/resumen-ventas")
+def resumen_ventas(request: Request, cliente_id: int | None = None, db: Session = Depends(get_db),
+                   usuario: Usuario = Depends(requiere_pagina(SECCION_RESUMEN_VENTAS, actual="/ventas"))):
+    # `cliente_id` es un enlace desde la ficha del cliente (chip quitable en
+    # la pantalla), no un filtro que la pantalla persista entre visitas.
+    return _pagina(request, "pages/ventas/listado.html", _contexto_ventas(
+        request, db, usuario,
+        cliente_id_inicial=cliente_id,
+        hoy_iso=ahora_db().date().isoformat(),
+    ))

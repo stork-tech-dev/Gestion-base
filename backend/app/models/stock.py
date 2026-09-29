@@ -40,8 +40,7 @@ class MovimientoStock(Base):
     auditoria_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("auditorias_inventario.id", ondelete="RESTRICT")
     )
-    # La FK a ventas se agrega en la sesión 06.
-    referencia_venta_id: Mapped[int | None] = mapped_column(BigInteger)
+    referencia_venta_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("ventas.id", ondelete="RESTRICT"))
     usuario_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("usuarios.id", ondelete="RESTRICT"))
     timestamp: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     notas: Mapped[str | None] = mapped_column(Text)

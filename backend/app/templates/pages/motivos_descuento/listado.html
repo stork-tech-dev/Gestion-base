@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/switch_activos.html" import switch_activos %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/icons.html" import icono %}
+{% from "components/modal.html" import modal %}
+{% from "components/form_field.html" import campo, campo_booleano %}
+{% block titulo %}Motivos de descuento · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+<div x-data="motivosDescuentoListado({ puedeEditar: {{ puede_editar|js }}, porcentajesDescuento: {{ porcentajes_descuento|js }} })">
+  {% call encabezado("Motivos de descuento", "/configuracion", "Configuraciones") %}
+    {% if puede_crear %}
+    <button type="button" class="boton boton-acento" @click="nuevo()">{{ icono("mas", "w-4 h-4") }}<span>Crear nuevo</span></button>
+    {% endif %}
+  {% endcall %}
+
+  {% call barra_filtros(etiqueta="motivos encontrados", extras=switch_activos("soloActivos", "cargar()")) %}
+    <input type="search" class="campo" placeholder="Nombre" aria-label="Filtrar por nombre" x-model="filtros.nombre" @input="filtrar()">
+    <select class="campo" aria-label="Cuotas sin interés" x-model="filtros.habilita" @change="cargar()">
+      <option value="">Cuotas sin interés (todos)</option>
+      <option value="true">Las habilita</option>
+      <option value="false">No las habilita</option>
+    </select>
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Nombre", "expr": "celdaNombre(fila)", "html": True},
+    {"titulo": "% sugerido", "expr": "porcentajeTexto(fila)"},
+    {"titulo": "Cuotas sin interés", "expr": "fila.habilita_cuotas_sin_interes ? 'Sí' : 'No'"},
+    {"titulo": "Estado", "expr": "celdaEstado(fila)", "html": True},
+  ] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay motivos de descuento con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("editar", atributos='x-show="puedeEditar" @click="editar(fila)"') }}
+      {{ accion("borrar", texto="Desactivar", atributos='x-show="puedeEditar && fila.activo" @click="cambiarEstado(fila, false)"') }}
+      {{ accion("activar", atributos='x-show="puedeEditar && !fila.activo" @click="cambiarEstado(fila, true)"') }}
+    {% endcall %}
+  {% endcall %}
+
+  {% call modal("Motivo de descuento", "modal-motivo-descuento-form", abierto="formAbierto", titulo_expr="form.id ? 'Editar motivo de descuento' : 'Nuevo motivo de descuento'") %}
+  <form @submit.prevent="guardar()" class="flex flex-col gap-4" novalidate>
+    {{ campo("motivo-nombre", "Nombre", modelo="form.nombre", requerido=True, placeholder="Cumpleaños", error="errores.nombre") }}
+    <div class="flex flex-col gap-1">
+      <label for="motivo-nota" class="text-lg font-medium text-texto">Nota</label>
+      <textarea id="motivo-nota" rows="2" class="campo" x-model="form.nota"></textarea>
+    </div>
+
+    {{ campo_booleano("motivo-sin-sugerido", "Que lo elija quien vende", "form.sinSugerido", atributos='@change="alAlternarSinSugerido()"') }}
+    <div x-show="!form.sinSugerido" x-cloak class="flex flex-col gap-1">
+      <label for="motivo-porcentaje" class="text-lg font-medium text-texto">% sugerido</label>
+      <select id="motivo-porcentaje" class="campo" x-model="form.porcentaje_sugerido" :class="{ 'campo-error': errores.porcentaje_sugerido }">
+        <option value="">Elegí un porcentaje</option>
+        <template x-for="p in porcentajesDescuento" :key="p">
+          <option :value="p" x-text="p + '%'"></option>
+        </template>
+      </select>
+      <p class="text-sm text-danger" x-show="errores.porcentaje_sugerido" x-text="errores.porcentaje_sugerido" x-cloak></p>
+    </div>
+
+    {{ campo_booleano("motivo-cuotas-sin-interes", "Habilita cuotas sin interés", "form.habilita_cuotas_sin_interes") }}
+
+    <fieldset class="flex flex-col gap-1">
+      <legend class="text-lg font-medium text-texto">Vigencia</legend>
+      <div class="grid grid-cols-2 gap-2">
+        <input type="date" class="campo" aria-label="Vigencia desde" x-model="form.fecha_inicio">
+        <input type="date" class="campo" aria-label="Vigencia hasta" x-model="form.fecha_fin">
+      </div>
+      <p class="text-sm text-texto-muted">Sin fechas: vigencia indefinida.</p>
+    </fieldset>
+
+    <fieldset class="flex flex-col gap-2">
+      <legend class="text-lg font-medium text-texto">Medios de pago</legend>
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <template x-for="medio in mediosCatalogo" :key="medio.id">
+          <label class="inline-flex min-h-toque cursor-pointer items-center gap-2 text-texto">
+            <input type="checkbox" class="acceso-check" :checked="form.medio_de_pago_ids.includes(medio.id)" @change="alternarMedio(medio.id)">
+            <span x-text="medio.nombre"></span>
+          </label>
+        </template>
+      </div>
+      <p class="text-sm text-texto-muted">Ninguno marcado = todos los medios de pago.</p>
+    </fieldset>
+
+    <div class="flex justify-end">
+      <button type="submit" class="boton boton-primario" :disabled="guardando" x-text="guardando ? 'Guardando…' : (form.id ? 'Guardar' : 'Crear')"></button>
+    </div>
+  </form>
+  {% endcall %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/motivos_descuento.js') }}"></script>{% endblock %}

@@ -2,8 +2,9 @@
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 
+from app.core.errores import DatoInvalido, ReglaDeNegocio
 from config import settings
 
 # Misma tabla de reemplazo en Python y en SQL (translate de Postgres; no se
@@ -111,6 +112,26 @@ def filtro_texto(columna, valor: str):
     """Condición ILIKE insensible a mayúsculas y tildes (Principio 5): única
     definición para los filtros de texto libre sobre VARCHAR/TEXT."""
     return sin_tildes_sql(columna).ilike(patron_ilike(sin_tildes(valor)), escape="\\")
+
+
+def nombre_libre(db, modelo, nombre: str, *, excepto_id: int | None = None, mensaje_duplicado) -> str:
+    """Nombre único sin importar mayúsculas ni tildes (Principio 2): única
+    definición del patrón que antes estaba copiado en varios `services`
+    (proveedores, motivos de baja, medios de pago, motivos de descuento).
+    `modelo` es la clase SQLAlchemy (con columnas `nombre` e `id`);
+    `excepto_id` excluye la propia fila al editar; `mensaje_duplicado(fila)`
+    arma el mensaje del 409 a partir de la fila existente (cada entidad tiene
+    el suyo, a propósito: no se unifica el texto, solo la lógica)."""
+    limpio = normalizar_texto(nombre)
+    if not limpio:
+        raise DatoInvalido("El nombre es obligatorio")
+    condiciones = [func.lower(sin_tildes_sql(modelo.nombre)) == sin_tildes(limpio).lower()]
+    if excepto_id is not None:
+        condiciones.append(modelo.id != excepto_id)
+    existente = db.scalar(select(modelo).where(*condiciones))
+    if existente is not None:
+        raise ReglaDeNegocio(mensaje_duplicado(existente))
+    return limpio
 
 
 def rango_fechas(columna, desde: date | None, hasta: date | None) -> list:

@@ -1,0 +1,54 @@
+{% from "components/modal.html" import modal %}
+{% from "components/icons.html" import icono %}
+{% call modal("Cliente", "modal-cliente-ficha", abierto="fichaAbierta", titulo_expr="ficha ? ficha.cliente.nombre : ''") %}
+<template x-if="ficha">
+  <div class="flex flex-col gap-6">
+    <dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div><dt class="text-sm text-texto-muted">DNI</dt><dd class="text-texto" x-text="ficha.cliente.dni || '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">CUIT</dt><dd class="text-texto" x-text="ficha.cliente.cuit || '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Condición IVA</dt><dd class="text-texto" x-text="condicionIvaTexto(ficha.cliente)"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Domicilio</dt><dd class="text-texto" x-text="ficha.cliente.domicilio || '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Localidad</dt><dd class="text-texto" x-text="[ficha.cliente.localidad, ficha.cliente.codigo_postal].filter(Boolean).join(' · ') || '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Teléfono</dt><dd class="text-texto" x-text="ficha.cliente.telefono || '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Email</dt><dd class="break-all text-texto" x-text="ficha.cliente.email || '—'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Estado</dt><dd x-html="celdaEstado(ficha.cliente)"></dd></div>
+    </dl>
+
+    <section class="flex flex-col gap-2 rounded-input border border-borde p-4">
+      <h3 class="font-semibold text-texto-header">Compras</h3>
+      <p class="text-texto"><span x-text="ficha.compras_cantidad"></span> compras confirmadas · Total <span class="font-semibold" x-text="pesos(ficha.compras_total)"></span></p>
+      <a class="text-sm text-primary hover:underline" :href="'/ventas/resumen-ventas?cliente_id=' + ficha.cliente.id">Ver compras</a>
+    </section>
+
+    <section class="flex flex-col gap-3">
+      <h3 class="font-semibold text-texto-header">Promociones exclusivas</h3>
+      <ul class="flex flex-col gap-2">
+        <template x-for="p in ficha.promociones" :key="p.id">
+          <li class="flex items-center justify-between gap-2 rounded-input border border-borde px-3 py-2">
+            <span class="text-texto" x-text="p.nombre"></span>
+            <div class="flex items-center gap-3">
+              <span class="text-sm font-semibold" :class="p.vigente ? 'text-success' : 'text-texto-muted'" x-text="p.vigente ? 'Vigente' : 'No vigente'"></span>
+              <button type="button" class="btn-accion hover:text-danger" x-show="puedeEditar && puedeVerPromociones" @click="quitarPromocion(p)" title="Quitar" aria-label="Quitar">{{ icono("borrar") }}</button>
+            </div>
+          </li>
+        </template>
+        <li x-show="!ficha.promociones.length" class="text-sm text-texto-muted">Sin promociones exclusivas asignadas.</li>
+      </ul>
+
+      <div class="flex flex-wrap items-end gap-2" x-show="puedeEditar && puedeVerPromociones" x-cloak>
+        <div class="flex grow flex-col gap-1">
+          <label for="cliente-promo-select" class="text-sm text-texto-muted">Asignar promoción exclusiva</label>
+          <select id="cliente-promo-select" class="campo" x-model="promocionElegida">
+            <option value="">Elegí una promoción</option>
+            <template x-for="p in promocionesDisponibles" :key="p.id">
+              <option :value="p.id" x-text="p.nombre"></option>
+            </template>
+          </select>
+        </div>
+        <button type="button" class="boton boton-secundario" :disabled="!promocionElegida || asignando"
+                @click="asignarPromocion()" x-text="asignando ? 'Asignando…' : 'Asignar'"></button>
+      </div>
+    </section>
+  </div>
+</template>
+{% endcall %}

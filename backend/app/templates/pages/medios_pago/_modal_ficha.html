@@ -1,0 +1,55 @@
+{% from "components/modal.html" import modal %}
+{% from "components/icons.html" import icono %}
+{% call modal("Medio de pago", "modal-medio-ficha", abierto="fichaAbierta", titulo_expr="ficha ? ficha.nombre : ''", ancho="max-w-3xl") %}
+<template x-if="ficha">
+  <div class="flex flex-col gap-6">
+    <dl class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div><dt class="text-sm text-texto-muted">Se cobra en cuotas</dt><dd class="text-texto" x-text="ficha.soporta_cuotas ? 'Sí' : 'No'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Efectivo de la caja</dt><dd class="text-texto" x-text="ficha.es_efectivo ? 'Sí' : 'No'"></dd></div>
+      <div><dt class="text-sm text-texto-muted">Estado</dt><dd x-html="celdaEstado(ficha)"></dd></div>
+    </dl>
+
+    <section class="flex flex-col gap-3" x-show="ficha.soporta_cuotas" x-cloak>
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="font-semibold text-texto-header">Planes de cuotas</h3>
+        <button type="button" class="boton boton-secundario" x-show="puedeEditar" @click="nuevoPlan()">
+          {{ icono("mas", "w-4 h-4") }}<span>Nuevo plan</span>
+        </button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th scope="col">Cuotas</th>
+              <th scope="col" class="text-right">Recargo al cliente</th>
+              <th scope="col" class="text-right">Costo del medio</th>
+              <th scope="col" class="text-right">Monto mínimo</th>
+              <th scope="col">Estado</th>
+              <th scope="col"><span class="sr-only">Acciones</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="p in ficha.planes" :key="p.id">
+              <tr>
+                <td x-text="p.cuotas"></td>
+                <td class="text-right" x-text="p.recargo_cliente + '%'"></td>
+                <td class="text-right" x-text="p.costo_medio + '%'"></td>
+                <td class="text-right" x-text="pesos(p.monto_minimo)"></td>
+                <td x-html="celdaEstado(p)"></td>
+                <td class="text-right">
+                  <div class="flex items-center justify-end gap-1">
+                    <button type="button" class="btn-accion hover:text-primary" x-show="puedeEditar" @click="editarPlan(p)" title="Editar" aria-label="Editar">{{ icono("editar") }}</button>
+                    <button type="button" class="btn-accion hover:text-danger" x-show="puedeEditar && p.activo" @click="cambiarEstadoPlan(p, false)" title="Desactivar" aria-label="Desactivar">{{ icono("borrar") }}</button>
+                    <button type="button" class="btn-accion hover:text-success" x-show="puedeEditar && !p.activo" @click="cambiarEstadoPlan(p, true)" title="Activar" aria-label="Activar">{{ icono("activar") }}</button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+            <tr x-show="!ficha.planes.length"><td colspan="6" class="py-6 text-center text-texto-muted">Sin planes cargados.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</template>
+{% endcall %}

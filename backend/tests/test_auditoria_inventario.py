@@ -7,7 +7,7 @@ from sqlalchemy import inspect, select
 
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio
 from app.models import (
-    Auditoria, EstadoAuditoriaInventario, MotivoBaja, MovimientoStock, TipoMovimientoStock,
+    Auditoria, EstadoAuditoriaInventario, MotivoBaja, MovimientoStock, TipoMovimientoStock, Venta,
 )
 from app.reports import auditoria_pdf
 from app.schemas.categorias import CategoriaCrear
@@ -289,9 +289,13 @@ def test_finalizar_con_faltante_no_aplica_nada_y_sigue_en_curso(db, base):
     auditoria = servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
     servicio.registrar_items(db, base["admin"], auditoria, [ItemContado(producto_id=p.id, cantidad_contada=8)], None)
     # Venta con permitir_faltante después de registrar el conteo: baja mucho más el stock real.
+    # referencia_venta_id es FK (sesión 06): no acepta un id inventado.
+    venta = Venta(numero="V-100004", usuario_id=base["admin"].id)
+    db.add(venta)
+    db.flush()
     servicio_stock.aplicar_movimiento(
         db, base["admin"], tipo=TipoMovimientoStock.VENTA, producto_id=p.id, cantidad=-9,
-        referencia_venta_id=1, permitir_faltante=True,
+        referencia_venta_id=venta.id, permitir_faltante=True,
     )
     assert p.stock == 1
     with pytest.raises(ReglaDeNegocio):

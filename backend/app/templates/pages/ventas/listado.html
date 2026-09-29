@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros, tabla %}
+{% from "components/paginacion.html" import paginacion %}
+{% from "components/combobox.html" import combobox %}
+{% from "components/botones.html" import accion, acciones %}
+{% from "components/modal.html" import modal %}
+{% from "components/icons.html" import icono %}
+{% block titulo %}Resumen de Ventas · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{# Tabla de alto volumen (Principio 5): filtros con botón "Buscar" explícito,
+   nada se recarga solo. `cliente_id` (si viene de la ficha del cliente) es un
+   chip quitable, no un campo de esta barra. #}
+<div x-data="ventasResumen({ puedeAnular: {{ puede_anular|js }}, clienteIdInicial: {{ cliente_id_inicial|js }}, hoyIso: {{ hoy_iso|js }} })">
+  {{ encabezado("Resumen de Ventas", "/ventas", "Ventas") }}
+
+  {% set chip_cliente %}
+  <span class="inline-flex items-center gap-2 rounded-pill bg-surface-alt px-3 py-1 text-sm text-texto" x-show="clienteChip" x-cloak>
+    <span>Cliente: <span class="font-semibold" x-text="clienteChip ? clienteChip.nombre : ''"></span></span>
+    <button type="button" class="btn-accion hover:text-danger" @click="quitarClienteChip()" title="Quitar filtro de cliente" aria-label="Quitar filtro de cliente">{{ icono("cerrar", "w-3 h-3") }}</button>
+  </span>
+  {% endset %}
+  {% call barra_filtros(etiqueta="ventas encontradas", buscar="cargar(1)", extras=chip_cliente) %}
+    <input type="search" class="campo" placeholder="Número (V-000123)" aria-label="Filtrar por número" x-model="filtros.numero">
+    <input type="search" class="campo uppercase" placeholder="Código de cambio" aria-label="Filtrar por código de cambio" x-model="filtros.codigo_cambio">
+    <select class="campo" aria-label="Estado" x-model="filtros.estado">
+      <option value="">Todos</option>
+      <option value="en_curso">En curso</option>
+      <option value="confirmada">Confirmada</option>
+      <option value="anulada">Anulada</option>
+    </select>
+    <div class="flex flex-col gap-1">
+      <label for="ventas-fecha-desde" class="text-lg font-medium text-texto">Fecha desde</label>
+      <input id="ventas-fecha-desde" type="date" class="campo" x-model="filtros.fecha_desde">
+    </div>
+    <div class="flex flex-col gap-1">
+      <label for="ventas-fecha-hasta" class="text-lg font-medium text-texto">Fecha hasta</label>
+      <input id="ventas-fecha-hasta" type="date" class="campo" x-model="filtros.fecha_hasta">
+    </div>
+    {{ combobox("filtro-vendedor", "vendedoresOpciones", "filtros.usuario_id", texto="nombre", vacio="Todos") }}
+  {% endcall %}
+
+  {% set columnas = [
+    {"titulo": "Número", "expr": "fila.numero"},
+    {"titulo": "Fecha", "expr": "fechaHora(fila.fecha)"},
+    {"titulo": "Vendedor", "expr": "fila.usuario.nombre"},
+    {"titulo": "Cliente", "expr": "fila.cliente ? fila.cliente.nombre : '—'"},
+    {"titulo": "Subtotal", "expr": "'$ ' + pesos(fila.subtotal)", "clase": "text-right"},
+    {"titulo": "Descuento", "expr": "'$ ' + pesos(fila.descuento_total)", "clase": "text-right"},
+    {"titulo": "Total", "expr": "totalTexto(fila)", "html": True, "clase": "text-right"},
+    {"titulo": "Medio de pago", "expr": "medioTexto(fila)"},
+    {"titulo": "Código de cambio", "expr": "fila.codigo_cambio || '—'"},
+    {"titulo": "Estado", "expr": "estadoTexto(fila)", "html": True},
+  ] %}
+  {% call tabla(columnas, cargando="cargando", vacio="No hay ventas con esos filtros.") %}
+    {% call acciones() %}
+      {{ accion("ver", atributos='@click="abrirDetalle(fila)"') }}
+    {% endcall %}
+  {% endcall %}
+  {{ paginacion() }}
+
+  {# ---------- Detalle ---------- #}
+  {% call modal("Venta", "modal-venta-detalle", abierto="detalleAbierto", titulo_expr="detalle ? detalle.numero : 'Venta'") %}
+  <div x-show="cargandoDetalle" x-cloak class="py-10 text-center text-texto-muted">Cargando…</div>
+  <template x-if="detalle && !cargandoDetalle">
+    <div class="flex flex-col gap-6">
+      <div class="flex items-center justify-between gap-2">
+        <span x-html="estadoTexto(detalle)"></span>
+        <span class="text-sm text-texto-muted" x-text="fechaHora(detalle.confirmada_en || detalle.created_at)"></span>
+      </div>
+
+      <section class="flex flex-col gap-2">
+        <h3 class="font-semibold text-texto-header">Productos</h3>
+        <div class="tarjeta overflow-hidden p-0">
+          <div class="overflow-x-auto">
+            <table class="tabla">
+              <thead><tr><th scope="col">Descripción</th><th scope="col" class="text-right">Final</th></tr></thead>
+              <tbody>
+                <template x-for="item in detalle.items" :key="item.id">
+                  <tr><td x-text="item.descripcion"></td><td class="text-right" x-text="'$ ' + pesos(item.precio_final)"></td></tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <dl class="flex flex-col gap-2 border-t border-borde pt-4 text-sm">
+        <div class="flex justify-between gap-4"><dt class="text-texto-muted">Subtotal (precios de lista)</dt><dd x-text="'$ ' + pesos(detalle.subtotal)"></dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-texto-muted">Descuentos y promociones</dt><dd x-text="'− $ ' + pesos(detalle.descuento_total)"></dd></div>
+        <div class="flex justify-between gap-4"><dt class="text-texto-muted">Recargo por cuotas</dt><dd x-text="'$ ' + pesos(detalle.recargo_total)"></dd></div>
+        <div class="flex items-baseline justify-between gap-4 border-t border-borde pt-2">
+          <dt class="text-lg font-bold text-texto-header">Total</dt>
+          <dd class="text-xl font-bold text-texto-header" x-text="'$ ' + pesos(detalle.total)"></dd>
+        </div>
+      </dl>
+
+      <section class="flex flex-col gap-2">
+        <h3 class="font-semibold text-texto-header">Medios de pago</h3>
+        <p class="text-sm text-texto-muted" x-show="!detalle.pagos.length">Todavía sin cobrar.</p>
+        <ul class="flex flex-col gap-1" x-show="detalle.pagos.length">
+          <template x-for="pago in detalle.pagos" :key="pago.id">
+            <li class="flex items-center justify-between gap-2 text-sm">
+              <span x-text="pago.medio.nombre + (pago.plan ? ' (' + pago.plan.cuotas + ' cuotas)' : '')"></span>
+              <span class="font-medium" x-text="'$ ' + pesos(pago.monto_total)"></span>
+            </li>
+          </template>
+        </ul>
+      </section>
+
+      <p class="rounded-input bg-danger/10 p-3 text-sm text-danger" x-show="detalle.estado === 'anulada'" x-cloak>
+        Anulada el <span x-text="fechaHora(detalle.anulada_en)"></span> por <span x-text="detalle.anulada_por ? detalle.anulada_por.nombre : ''"></span> — Motivo: <span x-text="detalle.motivo_anulacion"></span>
+      </p>
+
+      <section x-show="puedeAnularVenta() || anulando" x-cloak>
+        <template x-if="!anulando">
+          <button type="button" class="boton boton-peligro" @click="abrirAnular()">Anular venta</button>
+        </template>
+        <template x-if="anulando">
+          <div class="flex flex-col gap-2">
+            <label for="venta-motivo-anulacion" class="text-lg font-medium text-texto">Motivo <span class="text-danger">*</span></label>
+            <textarea id="venta-motivo-anulacion" rows="3" maxlength="500" class="campo" x-model="motivoAnulacion"></textarea>
+            <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" class="boton boton-secundario" @click="anulando = false">Cancelar</button>
+              <button type="button" class="boton boton-peligro" :disabled="!motivoAnulacion.trim() || anulandoEnCurso"
+                      @click="confirmarAnulacion()" x-text="anulandoEnCurso ? 'Anulando…' : 'Confirmar anulación'"></button>
+            </div>
+          </div>
+        </template>
+      </section>
+    </div>
+  </template>
+  {% endcall %}
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/ventas.js') }}"></script>{% endblock %}
