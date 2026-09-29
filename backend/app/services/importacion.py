@@ -10,9 +10,16 @@ Validar e importar recorren el mismo camino (un SAVEPOINT exterior con uno por
 fila) y solo difieren al final: validar siempre revierte; importar confirma si
 no hubo ningún error. Así la vista previa nunca promete algo que la
 importación después rechaza. Lo único que el rollback no deshace son las
-secuencias (ids y SKU): validar puede dejar huecos en la numeración."""
+secuencias (ids y SKU): validar puede dejar huecos en la numeración.
+
+Locks: mientras corre una importación o validación de productos (≈34 s con
+5000 filas) quedan tomados el árbol de categorías (exclusivo, desde antes de la
+primera fila) y los proveedores tocados, así que las altas y ediciones manuales
+de productos y categorías y los cambios de dólar esperan a que termine.
+Aceptable para una herramienta de puesta en marcha."""
 from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import InvalidOperation
 from typing import Callable
 
 from pydantic import ValidationError
@@ -22,7 +29,7 @@ from app.core.auditoria import registrar_auditoria
 from app.core.errores import MENSAJE_INTEGRIDAD, ErrorDeNegocio, ReglaDeNegocio
 from app.core.etiquetas import CONDICIONES_IVA, MONEDAS, TEMPORADAS
 from app.core.excel import celda_decimal, celda_entero, clave_columna, generar_plantilla as _plantilla, leer_tabla
-from app.core.utils import buscar_por_nombre
+from app.core.utils import buscar_por_nombre, redondear
 from app.models import Moneda, Proveedor
 from app.schemas.categorias import CategoriaCrear
 from app.schemas.clientes import ClienteCrear
@@ -75,7 +82,21 @@ def _decimal(valor):
         raise ValueError("Tiene que ser un número.") from None
 
 
+def _decimal_2(valor):
+    """Número redondeado a 2 decimales (decisión de producto: los costos que
+    salen de fórmulas de Excel o de sistemas con 3-4 decimales se redondean)."""
+    numero = _decimal(valor)
+    if numero is None:
+        return None
+    try:
+        return redondear(numero)
+    except InvalidOperation:
+        return numero       # enorme: el rango del schema lo informa como error de la columna
+
+
 def _entero_no_negativo(valor):
+    if isinstance(valor, float):
+        valor = round(valor, 9)     # limpia el ruido binario (12.000000000001 → 12.0)
     try:
         numero = celda_entero(valor)
     except ValueError:
@@ -129,6 +150,8 @@ class Definicion:
     # claves(valores) → [(columna, clave)]: dos filas con la misma clave en la
     # misma columna son un error ("Repetido en el archivo"). Clave None = no se compara.
     claves: Callable
+    # preparar(db): se llama una vez antes de recorrer las filas (locks de la transacción).
+    preparar: Callable | None = None
 
     @property
     def requeridas(self) -> list[str]:
@@ -182,7 +205,7 @@ def _categoria_por_camino(db, autor, camino: str, ip, nuevas: list[str]) -> int:
     crear_categoria (que valida los 5 niveles y el padre con productos). Los
     caminos creados se agregan a `nuevas` con los nombres guardados."""
     parent_id, recorrido = None, []
-    for nombre in _niveles(camino):
+    for nivel, nombre in enumerate(_niveles(camino), start=1):
         if not nombre:
             raise ErrorDeFila("El camino tiene un nivel vacío: separá los niveles con '>'.", "categoria")
         categoria = servicio_categorias.buscar_hija(db, nombre, parent_id)
@@ -191,8 +214,8 @@ def _categoria_por_camino(db, autor, camino: str, ip, nuevas: list[str]) -> int:
                 with _en_columna("categoria"):
                     categoria = servicio_categorias.crear_categoria(
                         db, autor, CategoriaCrear(nombre=nombre, parent_id=parent_id), ip)
-            except ValidationError:
-                raise ErrorDeFila(f"El nombre de categoría '{nombre}' no es válido (demasiado largo).",
+            except ValidationError as exc:
+                raise ErrorDeFila(f"Nivel {nivel} del camino: {_mensaje_pydantic(exc.errors()[0])}",
                                   "categoria") from None
             nuevas.append(" > ".join([*recorrido, categoria.nombre]))
         recorrido.append(categoria.nombre)
@@ -221,6 +244,14 @@ def _alta_producto(db, autor, valores, ip, nuevas):
     if valores["stock_minimo"] is not None:
         with _en_columna("stock_minimo"):
             servicio_stock.definir_minimo(db, autor, producto.id, valores["stock_minimo"], ip)
+
+
+def _preparar_productos(db):
+    """Toma el lock EXCLUSIVO del árbol antes de la primera fila. crear_producto
+    lo pide compartido y crear_categoria exclusivo: si cada fila los pidiera por
+    su cuenta, dos importaciones concurrentes quedarían ambas con el compartido
+    esperando el exclusivo (deadlock). La sesión no choca con sus propios locks."""
+    servicio_categorias.bloquear_arbol(db)
 
 
 def _clave_producto(valores):
@@ -274,14 +305,17 @@ DEFINICIONES: dict[TipoImportacion, Definicion] = {
         columnas=(
             Columna("descripcion", "Texto (hasta 500 caracteres)", "Remera lisa algodón", obligatoria=True),
             Columna("categoria", "Camino separado por '>' hasta el último nivel (hasta 5). "
-                    "Los niveles que no existan se crean.", "Ropa > Remeras > Lisas", obligatoria=True),
+                    "Los niveles que no existan se crean (los nombres no pueden contener '>').",
+                    "Ropa > Remeras > Lisas", obligatoria=True),
             Columna("proveedor", "Nombre de un proveedor ya cargado y activo", "Textil Norte", obligatoria=True),
-            Columna("costo", "Número mayor a 0, en la moneda del proveedor", "1500,50", obligatoria=True,
-                    parser=_decimal),
-            Columna("margen", "Porcentaje (vacío = margen por defecto)", "80", parser=_decimal),
+            Columna("costo", "Número mayor a 0, en la moneda del proveedor (se redondea a 2 decimales)",
+                    "1500,50", obligatoria=True, parser=_decimal_2),
+            Columna("margen", "Porcentaje (vacío = margen por defecto; se redondea a 2 decimales)", "80",
+                    parser=_decimal_2),
             Columna("sku_proveedor", "Texto. Si venís de otro sistema, poné acá el código que usabas.", "RL-001"),
-            Columna("descuento_producto", "Porcentaje (hasta el descuento máximo)", "10", parser=_decimal),
-            Columna("peso_gramos", "Número mayor a 0", "250", parser=_decimal),
+            Columna("descuento_producto", "Porcentaje (hasta el descuento máximo; se redondea a 2 decimales)", "10",
+                    parser=_decimal_2),
+            Columna("peso_gramos", "Número mayor a 0 (se redondea a 2 decimales)", "250", parser=_decimal_2),
             Columna("temporada", "Texto (vacío = Atemporal)", "Atemporal", valores=_TEMPORADA.posibles,
                     parser=_TEMPORADA),
             Columna("ubicacion_deposito", "Texto", "Estante A3"),
@@ -291,6 +325,7 @@ DEFINICIONES: dict[TipoImportacion, Definicion] = {
         ),
         alta=_alta_producto,
         claves=_clave_producto,
+        preparar=_preparar_productos,
     ),
 }
 
@@ -346,6 +381,8 @@ def _procesar(db, autor, tipo: TipoImportacion, contenido: bytes, archivo: str |
     def error(fila, columna, mensaje):
         errores.append({"fila": fila, "columna": columna, "error": mensaje})
 
+    if definicion.preparar is not None:
+        definicion.preparar(db)     # lock de transacción: lo libera el commit/rollback del router
     exterior = db.begin_nested()
     try:
         for numero, celdas in filas:

@@ -1,7 +1,6 @@
-import zipfile
 from decimal import Decimal
 from io import BytesIO
-from zipfile import ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -165,7 +164,7 @@ def test_leer_tabla_rechaza_archivo_que_descomprimido_es_enorme():
     # 60 MB de ceros comprimen a unos pocos KB: pasa el límite de 5 MB del
     # archivo, pero no el de lo descomprimido (zip bomb).
     salida = BytesIO()
-    with zipfile.ZipFile(salida, "w", zipfile.ZIP_DEFLATED) as zf:
+    with ZipFile(salida, "w", ZIP_DEFLATED) as zf:
         zf.writestr("xl/worksheets/sheet1.xml", b"\0" * (60 * 1024 * 1024))
     with pytest.raises(ReglaDeNegocio, match="descomprimido"):
         leer_tabla(salida.getvalue(), ["nombre"])

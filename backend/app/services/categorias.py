@@ -117,19 +117,22 @@ def tiene_productos(db, categoria_id: int) -> bool:
     return db.scalar(select(Producto.id).where(Producto.categoria_id == categoria_id).limit(1)) is not None
 
 
+def _condicion_padre(parent_id: int | None):
+    """Condición "hija de `parent_id`" (None = primer nivel)."""
+    return Categoria.parent_id.is_(None) if parent_id is None else Categoria.parent_id == parent_id
+
+
 def buscar_hija(db, nombre: str | None, parent_id: int | None) -> Categoria | None:
     """Categoría con ese nombre (sin mayúsculas ni tildes) entre las hijas de
     `parent_id` (None = primer nivel)."""
-    padre = Categoria.parent_id.is_(None) if parent_id is None else Categoria.parent_id == parent_id
-    return buscar_por_nombre(db, Categoria, nombre, padre)
+    return buscar_por_nombre(db, Categoria, nombre, _condicion_padre(parent_id))
 
 
 def _nombre_libre(db, nombre: str, parent_id: int | None, excepto_id: int | None = None) -> str:
     limpio = normalizar_texto(nombre)
     if not limpio:
         raise DatoInvalido("El nombre es obligatorio")
-    padre = Categoria.parent_id.is_(None) if parent_id is None else Categoria.parent_id == parent_id
-    condiciones = [padre] + ([Categoria.id != excepto_id] if excepto_id is not None else [])
+    condiciones = [_condicion_padre(parent_id)] + ([Categoria.id != excepto_id] if excepto_id is not None else [])
     existente = buscar_por_nombre(db, Categoria, limpio, *condiciones)
     if existente is not None:
         raise ReglaDeNegocio(f"Ya existe la categoría '{existente.nombre}' en ese nivel.")

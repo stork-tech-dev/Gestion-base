@@ -88,3 +88,63 @@ test('cambiar de pestaña limpia el archivo y el resultado', async () => {
   assert.equal(c.archivo, null);
   assert.equal(c.resultado, null);
 });
+
+const tick = () => new Promise((r) => setImmediate(r));
+
+// Pedido que queda pendiente hasta que el test lo resuelva.
+function pendiente(window) {
+  let resolver;
+  window.pedir = () => new Promise((r) => { resolver = r; });
+  return (valor) => resolver(valor);
+}
+
+test('ocupado indica qué acción está en curso', async () => {
+  const { window } = cargar();
+  const c = window.importacion(TIPOS);
+  c.elegirArchivo({ name: 'a.xlsx' });
+  let resolver = pendiente(window);
+  const validando = c.validar();
+  assert.equal(c.ocupado, 'validar');
+  resolver(OK);
+  await validando;
+  assert.equal(c.ocupado, null);
+  assert.equal(c.puedeImportar, true);
+  resolver = pendiente(window);
+  const importando = c.importar();
+  await tick();                                    // pasa el confirmar()
+  assert.equal(c.ocupado, 'importar');
+  assert.equal(c.puedeImportar, false);
+  resolver({ ...OK, creados: 3, aplicado: true });
+  await importando;
+  assert.equal(c.ocupado, null);
+});
+
+test('si cambian de pestaña durante el pedido, la respuesta se ignora', async () => {
+  const { window, toasts } = cargar([OK]);
+  const c = window.importacion(TIPOS);
+  c.elegirArchivo({ name: 'a.xlsx' });
+  await c.validar();
+  const resolver = pendiente(window);
+  const importando = c.importar();
+  await tick();
+  c.elegirTipo(TIPOS[1]);
+  resolver({ ...OK, filas_validas: 0, errores: [{ fila: 2, columna: 'nombre', error: 'x' }] });
+  await importando;
+  assert.equal(c.tipo, TIPOS[1]);
+  assert.equal(c.resultado, null);                 // los errores del tipo viejo no aparecen en la pestaña nueva
+  assert.equal(c.importado, null);
+  assert.equal(toasts.length, 0);
+  assert.equal(c.ocupado, null);
+});
+
+test('si importar devuelve errores vuelve a la primera página', async () => {
+  const errores = Array.from({ length: 12 }, (_, i) => ({ fila: i + 2, columna: 'nombre', error: 'x' }));
+  const { window } = cargar([OK, { ...OK, filas_validas: 0, errores }]);
+  const c = window.importacion(TIPOS);
+  c.elegirArchivo({ name: 'a.xlsx' });
+  await c.validar();
+  c.pagina = 2;
+  await c.importar();
+  assert.equal(c.pagina, 1);
+  assert.equal(c.erroresPagina.length, 10);
+});

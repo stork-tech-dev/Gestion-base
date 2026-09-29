@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 
 from app.core.excel import TIPO_XLSX
 from app.models import Auditoria, Categoria, Cliente, MovimientoStock, Producto, Proveedor
+from app.services.categorias import MENSAJE_PADRE_CON_PRODUCTOS
 from app.services.productos import calcular_precio_venta
 from tests.fabricas import catalogo
 
@@ -176,6 +177,14 @@ def test_importar_audita_la_importacion_y_cada_alta(client, db, crear_usuario, h
     assert db.scalar(select(func.count()).select_from(Auditoria).where(Auditoria.accion == "cliente.crear")) >= 2
 
 
+def test_nombre_de_archivo_largo_se_acota_en_la_auditoria(client, db, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    nombre = "x" * 300 + ".xlsx"
+    assert _subir(client, h, "clientes", "importar", [["nombre"], ["Largo"]], nombre=nombre).json()["aplicado"]
+    registro = db.scalar(select(Auditoria).where(Auditoria.accion == "importacion.clientes"))
+    assert registro.estado_nuevo["archivo"] == nombre[:255]
+
+
 def test_sin_permiso_403_y_tipo_invalido_422(client, crear_usuario, headers_de):
     h = headers_de(crear_usuario("vendedor"))
     assert client.get(f"{URL}/clientes/plantilla", headers=h).status_code == 403
@@ -264,7 +273,7 @@ def test_categoria_con_subcategorias_o_con_productos(client, db, crear_usuario, 
     errores = _subir(client, h, "productos", "validar", filas).json()["errores"]
     assert errores[0] == {"fila": 2, "columna": "categoria",
                           "error": f"La categoría '{madre}' tiene subcategorías: indicá el camino hasta el último nivel."}
-    assert errores[1]["fila"] == 3 and errores[1]["columna"] == "categoria"   # padre con productos (crear_categoria)
+    assert errores[1] == {"fila": 3, "columna": "categoria", "error": MENSAJE_PADRE_CON_PRODUCTOS}   # crear_categoria
 
 
 def test_proveedor_inexistente_o_inactivo(client, db, crear_usuario, headers_de):
@@ -357,3 +366,67 @@ def test_importar_productos_sin_permiso_de_stock_ni_productos(client, db, crear_
     r = _subir(client, h, "productos", "importar", filas)
     assert r.json()["aplicado"] is True, r.json()
     assert db.scalar(select(Producto).where(Producto.descripcion == "Solo import")).stock == 4
+
+
+def test_decimales_se_redondean_a_2_y_stock_float_sin_ruido(client, db, crear_usuario, headers_de):
+    """Decisión de producto: los decimales de productos se redondean a 2 (costos que
+    salen de fórmulas de Excel o de sistemas con 3-4 decimales)."""
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h)
+    filas = [["descripcion", "categoria", "proveedor", "costo", "margen", "stock_inicial"],
+             ["Formula", "Redondeo Imp", proveedor, 1500.1 * 3, 33.3333, 12.000000000001],
+             ["Texto", "Redondeo Imp", proveedor, "1234,5678", None, None]]
+    r = _subir(client, h, "productos", "importar", filas)
+    assert r.json()["errores"] == [] and r.json()["aplicado"] is True
+    formula = db.scalar(select(Producto).where(Producto.descripcion == "Formula"))
+    assert formula.costo == Decimal("4500.30") and formula.margen == Decimal("33.33") and formula.stock == 12
+    assert db.scalar(select(Producto).where(Producto.descripcion == "Texto")).costo == Decimal("1234.57")
+
+
+def test_costo_enorme_sigue_siendo_error_de_fila(client, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h)
+    filas = [["descripcion", "categoria", "proveedor", "costo"], ["Caro", "Enorme Imp", proveedor, "1e40"]]
+    r = _subir(client, h, "productos", "validar", filas)
+    assert r.status_code == 200 and r.json()["errores"][0]["columna"] == "costo"
+
+
+def test_productos_toma_el_lock_exclusivo_del_arbol_antes_de_las_filas(client, db, crear_usuario, headers_de,
+                                                                        monkeypatch):
+    """Evita el deadlock shared→exclusive entre dos importaciones concurrentes:
+    el primer pedido del lock del árbol tiene que ser el exclusivo."""
+    from app.schemas.importacion import TipoImportacion
+    from app.services import categorias as servicio_categorias
+    from app.services.importacion import DEFINICIONES
+    assert DEFINICIONES[TipoImportacion.PRODUCTOS].preparar is not None
+    h = _admin(crear_usuario, headers_de)
+    datos = catalogo(db, crear_usuario("admin"))
+    pedidos = []
+    original = servicio_categorias.bloquear_arbol
+
+    def espia(db, compartido=False):
+        pedidos.append(compartido)
+        original(db, compartido)
+
+    monkeypatch.setattr(servicio_categorias, "bloquear_arbol", espia)
+    camino = f"{datos['categoria'].nombre} > {datos['subcategoria'].nombre}"
+    filas = [["descripcion", "categoria", "proveedor", "costo"],
+             ["Existente", camino, datos["proveedor"].nombre, 100],
+             ["Nueva", "Lock Imp > Sub", datos["proveedor"].nombre, 100]]
+    assert _subir(client, h, "productos", "validar", filas).json()["errores"] == []
+    assert pedidos and pedidos[0] is False
+
+
+def test_camino_de_categorias_invalido(client, crear_usuario, headers_de):
+    from app.services.categorias import MENSAJE_NIVELES
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h)
+    filas = [["descripcion", "categoria", "proveedor", "costo"],
+             ["A", "Vacio Imp > > B", proveedor, 100],
+             ["B", "N1 > N2 > N3 > N4 > N5 > N6", proveedor, 100],
+             ["C", f"Largo Imp > {'x' * 151}", proveedor, 100]]
+    errores = _subir(client, h, "productos", "validar", filas).json()["errores"]
+    assert errores == [
+        {"fila": 2, "columna": "categoria", "error": "El camino tiene un nivel vacío: separá los niveles con '>'."},
+        {"fila": 3, "columna": "categoria", "error": MENSAJE_NIVELES},
+        {"fila": 4, "columna": "categoria", "error": "Nivel 2 del camino: Admite hasta 150 caracteres."}]

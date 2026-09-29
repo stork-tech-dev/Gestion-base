@@ -22,6 +22,11 @@ def _leer(archivo: UploadFile) -> bytes:
     return archivo.file.read(TAMANO_MAXIMO_BYTES + 1)   # leer_tabla rechaza lo que pase de 5 MB
 
 
+def _nombre(archivo: UploadFile) -> str | None:
+    """Nombre del archivo para la auditoría, acotado (lo manda el cliente)."""
+    return archivo.filename[:255] if archivo.filename else None
+
+
 @router.get(
     "/{tipo}/plantilla",
     response_class=Response,
@@ -37,7 +42,7 @@ def plantilla(tipo: TipoImportacion, _: Usuario = Depends(puede_importar)):
 @router.post("/{tipo}/validar", response_model=ResultadoImportacion)
 def validar(tipo: TipoImportacion, archivo: UploadFile = File(...), db: Session = Depends(get_db),
             autor: Usuario = Depends(puede_importar)):
-    resultado = servicio.validar(db, autor, tipo, _leer(archivo), archivo.filename)
+    resultado = servicio.validar(db, autor, tipo, _leer(archivo), _nombre(archivo))
     db.rollback()       # el service ya revirtió su savepoint; esto libera los locks tomados
     return resultado
 
@@ -45,7 +50,7 @@ def validar(tipo: TipoImportacion, archivo: UploadFile = File(...), db: Session 
 @router.post("/{tipo}/importar", response_model=ResultadoImportacion)
 def importar(tipo: TipoImportacion, request: Request, archivo: UploadFile = File(...),
              db: Session = Depends(get_db), autor: Usuario = Depends(puede_importar)):
-    resultado = servicio.importar(db, autor, tipo, _leer(archivo), archivo.filename, ip_de_request(request))
+    resultado = servicio.importar(db, autor, tipo, _leer(archivo), _nombre(archivo), ip_de_request(request))
     if resultado["aplicado"]:
         db.commit()
     else:

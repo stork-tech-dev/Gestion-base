@@ -26,7 +26,7 @@
       resultado: null,        // último ResultadoImportacion de /validar
       validado: null,         // archivo sobre el que se hizo esa validación
       importado: null,        // ResultadoImportacion de /importar (éxito)
-      ocupado: false,
+      ocupado: null,          // 'validar' | 'importar' mientras corre el pedido
       pagina: 1,
       tamano: TAMANO_PAGINA,
 
@@ -62,6 +62,7 @@
       },
       soltar(evento) {
         this.arrastrando = false;
+        if (this.ocupado) return;             // la zona de archivo no cambia mientras corre un pedido
         this.elegirArchivo(evento.dataTransfer.files[0]);
       },
 
@@ -70,21 +71,23 @@
         datos.append('archivo', this.archivo);
         return window.pedir(`${API}/${this.tipo.valor}/${accion}`, { method: 'POST', body: datos });
       },
+      // ¿Cambiaron de pestaña o de archivo mientras corría el pedido? Entonces la respuesta ya no aplica.
+      vigente(tipo, archivo) { return tipo === this.tipo && archivo === this.archivo; },
 
       async validar() {
         if (!this.archivo) return window.toast('Elegí un archivo .xlsx.', 'error');
-        const archivo = this.archivo;
-        this.ocupado = true;
+        const { tipo, archivo } = this;
+        this.ocupado = 'validar';
         try {
           const resultado = await this.enviar('validar');
-          if (archivo !== this.archivo) return;   // cambiaron el archivo mientras tanto
+          if (!this.vigente(tipo, archivo)) return;
           this.limpiar();
           this.resultado = resultado;
           this.validado = archivo;
         } catch (e) {
-          window.toast(e.message, 'error');
+          if (this.vigente(tipo, archivo)) window.toast(e.message, 'error');
         } finally {
-          this.ocupado = false;
+          this.ocupado = null;
         }
       },
 
@@ -96,24 +99,27 @@
           textoConfirmar: 'Importar',
         });
         if (!confirmado) return;
-        this.ocupado = true;
+        const { tipo, archivo } = this;
+        this.ocupado = 'importar';
         try {
           const resultado = await this.enviar('importar');
+          if (!this.vigente(tipo, archivo)) return;
           if (resultado.aplicado) {
             this.limpiar();
             this.importado = resultado;
             this.archivo = null;
             if (this.$refs && this.$refs.archivo) this.$refs.archivo.value = '';
-            window.toast(textos.exito(resultado, this.tipo.etiqueta));
+            window.toast(textos.exito(resultado, tipo.etiqueta));
           } else {
             // Algo cambió en la base desde que se validó: mostrar los errores nuevos.
             this.resultado = resultado;
+            this.pagina = 1;
             window.toast('No se importó nada: revisá los errores.', 'error');
           }
         } catch (e) {
-          window.toast(e.message, 'error');
+          if (this.vigente(tipo, archivo)) window.toast(e.message, 'error');
         } finally {
-          this.ocupado = false;
+          this.ocupado = null;
         }
       },
     };

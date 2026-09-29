@@ -9,7 +9,7 @@
 
   <div class="flex flex-wrap gap-2" role="tablist" aria-label="Qué importar">
     <template x-for="t in tipos" :key="t.valor">
-      <button type="button" role="tab" class="boton min-h-toque" :aria-selected="t === tipo"
+      <button type="button" role="tab" class="boton min-h-toque" :aria-selected="t === tipo" :disabled="!!ocupado"
               :class="t === tipo ? 'boton-primario' : 'boton-secundario'" @click="elegirTipo(t)" x-text="t.etiqueta"></button>
     </template>
   </div>
@@ -22,18 +22,21 @@
 
   <section class="tarjeta flex flex-col gap-4">
     <h2 class="text-xl font-bold text-texto-header">2. Subí el archivo completo</h2>
-    <label class="flex min-h-[8rem] cursor-pointer flex-col items-center justify-center gap-2 rounded-input border-2 border-dashed p-6 text-center"
-           :class="arrastrando ? 'border-accent bg-accent/5' : 'border-borde'"
-           @dragover.prevent="arrastrando = true" @dragleave.prevent="arrastrando = false" @drop.prevent="soltar($event)">
+    <label class="flex min-h-[8rem] flex-col items-center justify-center gap-2 rounded-input border-2 border-dashed p-6 text-center focus-within:ring-2 focus-within:ring-primary"
+           :class="[arrastrando ? 'border-accent bg-accent/5' : 'border-borde', ocupado ? 'cursor-not-allowed opacity-60' : 'cursor-pointer']"
+           @dragover.prevent="arrastrando = !ocupado" @dragleave.prevent="arrastrando = false" @drop.prevent="soltar($event)">
       <span class="text-texto" x-text="archivo ? archivo.name : 'Arrastrá el .xlsx acá o hacé clic para elegirlo'"></span>
-      <input type="file" x-ref="archivo" class="sr-only"
+      <input type="file" x-ref="archivo" class="sr-only" :disabled="!!ocupado"
              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
              @change="elegirArchivo($event.target.files[0])">
     </label>
     <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
-      <button type="button" class="boton boton-secundario" :disabled="!archivo || ocupado" @click="validar()">Validar</button>
-      <button type="button" class="boton boton-primario" :disabled="!puedeImportar" @click="importar()">Importar</button>
+      <button type="button" class="boton boton-secundario" :disabled="!archivo || ocupado" @click="validar()"
+              x-text="ocupado === 'validar' ? 'Validando…' : 'Validar'">Validar</button>
+      <button type="button" class="boton boton-primario" :disabled="!puedeImportar" @click="importar()"
+              x-text="ocupado === 'importar' ? 'Importando…' : 'Importar'">Importar</button>
     </div>
+    <p x-show="ocupado" x-cloak role="status" class="text-sm text-texto-muted sm:text-right">Los archivos grandes pueden tardar hasta un minuto.</p>
 
     <template x-if="resultado">
       <div class="flex flex-col gap-3">
