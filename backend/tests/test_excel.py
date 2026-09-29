@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -12,6 +13,7 @@ from app.core.excel import (
     celda_entero,
     clave_columna,
     generar_plantilla,
+    generar_reporte,
     leer_tabla,
 )
 
@@ -183,3 +185,36 @@ def test_leer_tabla_rechaza_zip_con_directorio_central_corrupto():
     with pytest.raises(ReglaDeNegocio) as error:
         leer_tabla(bytes(contenido), ["nombre"])
     assert "no es un Excel" in error.value.mensaje
+
+
+def test_generar_reporte_titulo_filtros_formatos_y_totales():
+    contenido = generar_reporte(
+        "Ventas por período",
+        [("Desde", "01/03/2025"), ("Hasta", "31/03/2025")],
+        [("Período", "DD/MM/YYYY"), ("Total", '"$" #,##0.00'), ("Nombre", None)],
+        [[date(2025, 3, 1), Decimal("10.50"), "=HYPERLINK(1)"]],
+        ["Total", Decimal("10.50"), None],
+    )
+    hoja = load_workbook(BytesIO(contenido)).active
+    assert hoja["A1"].value == "Ventas por período" and hoja["A1"].font.bold
+    assert hoja["A2"].value == "Desde: 01/03/2025" and hoja["A3"].value == "Hasta: 31/03/2025"
+    assert hoja["A4"].value is None                       # fila en blanco antes de la tabla
+    assert [c.value for c in hoja[5]] == ["Período", "Total", "Nombre"] and hoja["A5"].font.bold
+    assert hoja["A6"].number_format == "DD/MM/YYYY" and hoja["B6"].number_format == '"$" #,##0.00'
+    assert hoja["C6"].value == "=HYPERLINK(1)" and hoja["C6"].data_type == "s"   # nunca una fórmula
+    assert hoja["A7"].value == "Total" and hoja["A7"].font.bold and hoja["B7"].value == 10.5
+    assert hoja.freeze_panes == "A6"
+
+
+def test_generar_reporte_sin_filas_no_escribe_fila_de_totales():
+    """Sin filas, el Excel no escribe la fila de totales (igual que el PDF y
+    la pantalla, que la ocultan)."""
+    contenido = generar_reporte(
+        "Ventas por período",
+        [("Desde", "01/03/2025"), ("Hasta", "31/03/2025")],
+        [("Período", "DD/MM/YYYY"), ("Total", '"$" #,##0.00'), ("Nombre", None)],
+        [], ["Total", Decimal("0.00"), None],
+    )
+    hoja = load_workbook(BytesIO(contenido)).active
+    assert [c.value for c in hoja[5]] == ["Período", "Total", "Nombre"]   # encabezado en la fila 5
+    assert hoja.max_row == 5   # sin filas de datos ni fila de totales

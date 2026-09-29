@@ -1,7 +1,7 @@
 """Lectura y generación de planillas Excel (.xlsx) con openpyxl.
 
 Única vía para importar/exportar tablas simples: el dólar por proveedor
-(módulo 03) y la importación inicial (módulo 08)."""
+(módulo 03), la importación inicial (módulo 08) y los reportes (módulo 09)."""
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from zipfile import ZipFile
@@ -152,6 +152,49 @@ def generar_plantilla(hoja: str, columnas: list[str], instrucciones: list[list],
     for indice in range(1, max((len(f) for f in instrucciones), default=0) + 1):
         ayuda.column_dimensions[get_column_letter(indice)].width = 40
     _textos_como_texto(ayuda)
+
+    buffer = BytesIO()
+    libro.save(buffer)
+    return buffer.getvalue()
+
+
+def generar_reporte(titulo: str, filtros: list[tuple[str, str]], columnas: list[tuple[str, str | None]],
+                    filas: list[list], totales: list) -> bytes:
+    """Libro de un reporte (módulo 09): título, filtros aplicados, una fila en
+    blanco, encabezados en negrita, filas, fila de totales en negrita (solo si
+    hay filas: sin datos, ni el PDF ni la pantalla la muestran), formato
+    numérico por columna (`columnas` = [(título, formato de Excel o None)]),
+    anchos ajustados y panel congelado bajo el encabezado. Protegido contra
+    fórmulas con `_textos_como_texto`."""
+    libro = Workbook()
+    hoja = libro.active
+    hoja.title = "Reporte"
+    hoja.cell(row=1, column=1, value=titulo).font = Font(bold=True, size=14)
+    fila = 2
+    for etiqueta, valor in filtros:
+        hoja.cell(row=fila, column=1, value=f"{etiqueta}: {valor}")
+        fila += 1
+    encabezado = fila + 1   # una fila en blanco entre los filtros y la tabla
+    for indice, (nombre, _) in enumerate(columnas, start=1):
+        hoja.cell(row=encabezado, column=indice, value=nombre).font = Font(bold=True)
+    cuerpo = [*filas, totales] if filas else []
+    for desplazamiento, valores in enumerate(cuerpo, start=1):
+        for indice, valor in enumerate(valores, start=1):
+            celda = hoja.cell(row=encabezado + desplazamiento, column=indice, value=valor)
+            formato = columnas[indice - 1][1]
+            if formato:
+                celda.number_format = formato
+    if filas:
+        for celda in hoja[encabezado + len(filas) + 1]:
+            celda.font = Font(bold=True)
+    for indice, (nombre, _) in enumerate(columnas, start=1):
+        valores = [nombre, *(f[indice - 1] for f in filas)]
+        if filas:
+            valores.append(totales[indice - 1])
+        largo = max(len(str(v)) for v in valores if v is not None)
+        hoja.column_dimensions[get_column_letter(indice)].width = min(max(12, largo + 4), 60)
+    hoja.freeze_panes = f"A{encabezado + 1}"
+    _textos_como_texto(hoja)
 
     buffer = BytesIO()
     libro.save(buffer)

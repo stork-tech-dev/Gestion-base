@@ -38,6 +38,11 @@ class ReglaDeNegocio(ErrorDeNegocio):
     status_code = 409
 
 
+class NoProcesable(ErrorDeNegocio):
+    """Parámetros bien formados que no aplican (ej. un filtro que el reporte no admite)."""
+    status_code = 422
+
+
 async def _manejar_error_de_negocio(_request: Request, exc: ErrorDeNegocio) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.mensaje})
 

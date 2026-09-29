@@ -11,12 +11,13 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.errores import NoEncontrado, SinPermiso
-from app.core.etiquetas import CONDICIONES_IVA, TEMPORADAS
+from app.core.etiquetas import AGRUPACIONES, CONDICIONES_IVA, ORDENES, TEMPORADAS
 from app.core.permisos import Modulo, Recurso, ROL_ADMIN
 from app.core.seguridad import resolver_permiso, token_de_request, usuario_de_token
 from app.core.templates import templates
 from app.core.utils import ahora_db
 from app.models import NIVEL_MAXIMO, EstadoTurno, Usuario
+from app.reports.definiciones import REPORTES
 from app.services import auditoria_inventario as servicio_auditorias
 from app.services import descuentos as servicio_descuentos
 from app.services import proveedores as servicio_proveedores
@@ -114,6 +115,15 @@ PAGINA_CAJA = {"nombre": "Caja", "url": "/caja", "icono": "caja", "modulo": Modu
 # Página propia sin tarjeta en el hub: se entra desde /caja ("Cerrar turno").
 PAGINA_CERRAR_TURNO = {**PAGINA_CAJA, "accion": "crear", "recurso": Recurso.CAJA_ARQUEO}
 
+# Ítem del sidebar del módulo de reportes (sesión 09): hub "Reportes".
+PAGINA_REPORTES = {"nombre": "Reportes", "url": "/reportes", "icono": "reportes", "modulo": Modulo.REPORTES}
+# Tarjetas del hub: una por reporte del registro, con el mismo permiso que el ítem.
+SECCIONES_REPORTES: list[dict] = [
+    {"nombre": d.nombre, "descripcion": d.descripcion, "title": d.descripcion,
+     "url": f"/reportes/{d.clave}", "modulo": Modulo.REPORTES}
+    for d in REPORTES.values()
+]
+
 # Sidebar: nombre, url, icono y, opcionalmente, oculto / solo_admin /
 # hub_configuracion / modulo (+ accion, recurso). Cada módulo suma su ítem
 # ANTES de "Configuraciones".
@@ -124,6 +134,7 @@ MENU_SIDEBAR: list[dict] = [
     PAGINA_VENTAS_HUB,
     PAGINA_CLIENTES,
     PAGINA_CAJA,
+    PAGINA_REPORTES,
     {"nombre": "Configuraciones", "url": "/configuracion", "icono": "configuracion", "hub_configuracion": True},
     # Sin pantalla HTML de auditoría: el ítem existe pero está oculto.
     {"nombre": "Auditoría", "url": "/auditoria", "icono": "auditoria", "oculto": True},
@@ -582,3 +593,34 @@ def cerrar_turno(turno_id: int, request: Request, db: Session = Depends(get_db),
         raise Redireccion("/caja")
     return _pagina(request, "pages/caja/cerrar_turno.html", contexto_base(request, db, "/caja", usuario,
                                                                          turno_id=turno.id))
+
+
+# --- Reportes (sesión 09) --------------------------------------------------------
+
+@router.get("/reportes")
+def reportes_hub(request: Request, db: Session = Depends(get_db),
+                 usuario: Usuario = Depends(requiere_pagina(PAGINA_REPORTES, actual="/reportes"))):
+    return _pagina(request, "pages/reportes/hub.html",
+                   contexto_base(request, db, "/reportes", usuario, secciones=SECCIONES_REPORTES))
+
+
+@router.get("/reportes/{clave}")
+def reporte(clave: str, request: Request, db: Session = Depends(get_db),
+            usuario: Usuario = Depends(requiere_pagina(PAGINA_REPORTES, actual="/reportes"))):
+    """Pantalla genérica: los filtros que se muestran salen de la definición;
+    las columnas, de la respuesta de la API."""
+    definicion = REPORTES.get(clave)
+    if definicion is None:
+        raise PaginaNoEncontrada(contexto_base(request, db, "/reportes", usuario))
+    etiquetas = dict(AGRUPACIONES)
+    hoy = ahora_db().date()
+    return _pagina(request, "pages/reportes/reporte.html", contexto_base(
+        request, db, "/reportes", usuario,
+        reporte={"clave": definicion.clave, "nombre": definicion.nombre,
+                 "filtros_admitidos": list(definicion.filtros_admitidos),
+                 "agrupaciones": [a.value for a in definicion.agrupaciones]},
+        agrupaciones=[(a.value, etiquetas[a.value]) for a in definicion.agrupaciones],
+        ordenes=ORDENES,
+        hoy_iso=hoy.isoformat(),
+        inicio_mes_iso=hoy.replace(day=1).isoformat(),
+    ))
