@@ -10,6 +10,37 @@
   const NUMERICOS = ['entero', 'moneda', 'porcentaje'];
   const CATALOGOS = ['proveedor_id', 'categoria_id', 'usuario_id', 'medio_de_pago_id'];
   const MAX_BARRAS = 10;   // barras: el gráfico muestra las primeras N filas; la tabla, todas
+  const UN_DIA_MS = 24 * 60 * 60 * 1000;
+
+  // Fechas ISO ("AAAA-MM-DD") como texto/UTC, nunca con hora local (evita que
+  // un huso horario negativo corra el día al calcular la lista de períodos).
+  function diasEntre(desdeIso, hastaIso) {
+    const dias = [];
+    for (let t = Date.parse(`${desdeIso}T00:00:00Z`); t <= Date.parse(`${hastaIso}T00:00:00Z`); t += UN_DIA_MS) {
+      dias.push(new Date(t).toISOString().slice(0, 10));
+    }
+    return dias;
+  }
+
+  function mesesEntre(desdeIso, hastaIso) {
+    const meses = [];
+    const fin = Date.UTC(Number(hastaIso.slice(0, 4)), Number(hastaIso.slice(5, 7)) - 1, 1);
+    let cursor = Date.UTC(Number(desdeIso.slice(0, 4)), Number(desdeIso.slice(5, 7)) - 1, 1);
+    while (cursor <= fin) {
+      meses.push(new Date(cursor).toISOString().slice(0, 10));
+      cursor = Date.UTC(new Date(cursor).getUTCFullYear(), new Date(cursor).getUTCMonth() + 1, 1);
+    }
+    return meses;
+  }
+
+  // Todos los períodos (día o mes) entre filtros.desde y filtros.hasta, con
+  // las filas que no tienen dato en 0 (para que la línea no una dos puntos
+  // lejanos como si fuera una tendencia continua).
+  function completarPeriodos(filas, clave, valor, tipo, desde, hasta) {
+    const periodos = tipo === 'mes' ? mesesEntre(desde, hasta) : diasEntre(desde, hasta);
+    const porPeriodo = Object.fromEntries(filas.map((fila) => [fila[clave], fila]));
+    return periodos.map((periodo) => porPeriodo[periodo] || { [clave]: periodo, [valor]: 0 });
+  }
 
   // ---------- Lógica pura (testeada con node --test en tests_js/reporte.test.mjs) ----------
   window.reporteLogica = {
@@ -58,18 +89,28 @@
     alineacion: (tipo) => (NUMERICOS.includes(tipo) ? 'text-right whitespace-nowrap' : ''),
 
     // Datos del gráfico (una serie) a partir de la respuesta: barras = las
-    // primeras MAX_BARRAS filas en el orden del reporte; línea = todas.
+    // primeras MAX_BARRAS filas en el orden del reporte; línea = todas, y si
+    // la etiqueta es fecha o mes, con los períodos sin datos completados en 0
+    // entre filtros.desde y filtros.hasta (si no vienen, no completa).
     // Las etiquetas usan el mismo formato que la tabla. null = no se dibuja.
-    datosGrafico: (grafico, columnas, filas) => {
+    datosGrafico: (grafico, columnas, filas, filtros) => {
       if (!grafico || !filas.length) return null;
       const tipos = Object.fromEntries(columnas.map((c) => [c.clave, c.tipo]));
       const formatear = window.reporteLogica.formatear;
-      const visibles = grafico.tipo === 'barras' ? filas.slice(0, MAX_BARRAS) : filas;
+      const [claveEtiqueta] = grafico.etiquetas;
+      const tipoEtiqueta = tipos[claveEtiqueta];
+      const completar = grafico.tipo === 'linea' && (tipoEtiqueta === 'fecha' || tipoEtiqueta === 'mes')
+        && filtros && filtros.desde && filtros.hasta;
+      const completas = completar
+        ? completarPeriodos(filas, claveEtiqueta, grafico.valor, tipoEtiqueta, filtros.desde, filtros.hasta)
+        : filas;
+      const visibles = grafico.tipo === 'barras' ? completas.slice(0, MAX_BARRAS) : completas;
       return {
         tipo: grafico.tipo,
         titulo: grafico.titulo,
         tipoValor: tipos[grafico.valor],
-        recortado: visibles.length < filas.length,
+        recortado: visibles.length < completas.length,
+        maximo: MAX_BARRAS,
         etiquetas: visibles.map((fila) => grafico.etiquetas
           .map((clave) => formatear(fila[clave], tipos[clave])).filter(Boolean).join(' · ')),
         valores: visibles.map((fila) => Number(fila[grafico.valor]) || 0),
@@ -90,6 +131,7 @@
       filas: [],
       totales: {},
       grafico: null,   // datosGrafico de la última respuesta (null = sin gráfico)
+      hayGraficos: typeof window.Chart !== 'undefined',   // false si no cargó el CDN de Chart.js
       cargando: false,
       _ultima: window.ultimaRespuesta(),
 
@@ -125,7 +167,7 @@
           this.columnas = respuesta.columnas;
           this.filas = respuesta.filas;
           this.totales = respuesta.totales;
-          this.grafico = L.datosGrafico(respuesta.grafico, respuesta.columnas, respuesta.filas);
+          this.grafico = L.datosGrafico(respuesta.grafico, respuesta.columnas, respuesta.filas, respuesta.filtros);
           this.$nextTick(() => this._dibujar());
           this.aplicados = params;
           // Si el usuario borró Desde/Hasta, el backend completó el mes
@@ -155,20 +197,30 @@
         if (chart) { chart.destroy(); chart = null; }
         const lienzo = this.$refs.grafico;
         if (!this.grafico || !lienzo || typeof window.Chart === 'undefined') return;
+        // Datos planos, no el proxy reactivo de Alpine (Chart.js muta lo que le pasamos).
+        const g = window.Alpine ? window.Alpine.raw(this.grafico) : this.grafico;
         const estilo = getComputedStyle(document.documentElement);
         const color = (variable) => estilo.getPropertyValue(variable).trim();
-        const g = this.grafico;
         const barras = g.tipo === 'barras';
         const formatear = (valor) => L.formatear(valor, g.tipoValor);
         const ejeValor = { beginAtZero: true, grid: { color: color('--color-border') },
                            ticks: { color: color('--color-text-muted'), callback: (valor) => formatear(valor) } };
+        if (g.tipoValor === 'entero') ejeValor.ticks.precision = 0;
         const ejeGrupo = { grid: { display: false }, ticks: { color: color('--color-text-muted') } };
+        // Barras horizontales: etiquetas largas truncadas (el tooltip sigue
+        // mostrando el nombre completo, que es el título por defecto).
+        if (barras) {
+          ejeGrupo.ticks.callback = function (valor) {
+            const texto = this.getLabelForValue(valor);
+            return texto.length > 22 ? `${texto.slice(0, 22)}…` : texto;
+          };
+        }
         chart = new window.Chart(lienzo, {
           type: barras ? 'bar' : 'line',
           data: {
-            labels: g.etiquetas,
+            labels: [...g.etiquetas],
             datasets: [{
-              data: g.valores, backgroundColor: color('--color-primary'), borderColor: color('--color-primary'),
+              data: [...g.valores], backgroundColor: color('--color-primary'), borderColor: color('--color-primary'),
               borderWidth: 2, borderRadius: 4, maxBarThickness: 28, pointRadius: 3, pointHoverRadius: 5, tension: 0.2,
             }],
           },

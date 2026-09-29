@@ -107,6 +107,7 @@ test('datos del gráfico: barras con etiquetas compuestas, top 10 y números', (
   assert.equal(g.etiquetas[0], 'Tarjeta · 1 cuotas');
   assert.equal(g.valores[0], 1000.5);
   assert.equal(g.recortado, true);
+  assert.equal(g.maximo, 10);
   assert.equal(g.tipoValor, 'moneda');
   assert.equal(g.titulo, 'Total');
 });
@@ -124,4 +125,42 @@ test('sin gráfico o sin filas no se dibuja nada', () => {
   const columnas = [{ clave: 'total', tipo: 'moneda' }];
   assert.equal(L.datosGrafico(null, columnas, [{ total: '1' }]), null);
   assert.equal(L.datosGrafico({ tipo: 'barras', etiquetas: ['total'], valor: 'total', titulo: 'T' }, columnas, []), null);
+});
+
+test('datos del gráfico: línea con huecos completa los días entre desde y hasta', () => {
+  const columnas = [{ clave: 'periodo', tipo: 'fecha' }, { clave: 'total', tipo: 'moneda' }];
+  // Solo hay datos el 01, 02 y 05 de marzo; el rango pedido va del 01 al 05.
+  const filas = [
+    { periodo: '2025-03-01', total: '10.00' },
+    { periodo: '2025-03-02', total: '20.00' },
+    { periodo: '2025-03-05', total: '50.00' },
+  ];
+  const filtros = { desde: '2025-03-01', hasta: '2025-03-05' };
+  const g = L.datosGrafico({ tipo: 'linea', etiquetas: ['periodo'], valor: 'total', titulo: 'T' }, columnas, filas, filtros);
+  assert.equal(g.etiquetas.length, 5);
+  assert.deepEqual([...g.etiquetas], ['01/03/2025', '02/03/2025', '03/03/2025', '04/03/2025', '05/03/2025']);
+  assert.deepEqual([...g.valores], [10, 20, 0, 0, 50]);
+});
+
+test('datos del gráfico: línea agrupada por mes completa los meses entre desde y hasta', () => {
+  const columnas = [{ clave: 'periodo', tipo: 'mes' }, { clave: 'total', tipo: 'moneda' }];
+  // Rango de mediados de enero a mediados de marzo, con datos solo en marzo.
+  const filas = [{ periodo: '2025-03-01', total: '100.00' }];
+  const filtros = { desde: '2025-01-15', hasta: '2025-03-10' };
+  const g = L.datosGrafico({ tipo: 'linea', etiquetas: ['periodo'], valor: 'total', titulo: 'T' }, columnas, filas, filtros);
+  assert.equal(g.etiquetas.length, 3);
+  assert.deepEqual([...g.etiquetas], ['01/2025', '02/2025', '03/2025']);
+  assert.deepEqual([...g.valores], [0, 0, 100]);
+});
+
+test('datos del gráfico: las barras no completan huecos aunque la etiqueta sea fecha', () => {
+  const columnas = [{ clave: 'periodo', tipo: 'fecha' }, { clave: 'total', tipo: 'moneda' }];
+  const filas = [
+    { periodo: '2025-03-01', total: '10.00' },
+    { periodo: '2025-03-05', total: '50.00' },
+  ];
+  const filtros = { desde: '2025-03-01', hasta: '2025-03-05' };
+  const g = L.datosGrafico({ tipo: 'barras', etiquetas: ['periodo'], valor: 'total', titulo: 'T' }, columnas, filas, filtros);
+  assert.equal(g.etiquetas.length, 2);
+  assert.deepEqual([...g.valores], [10, 50]);
 });
