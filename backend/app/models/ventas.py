@@ -46,13 +46,11 @@ class Venta(Base):
     # La eligió quien vende: dura hasta el próximo cambio del carrito.
     promocion_a_mano: Mapped[bool] = mapped_column(Boolean, default=False)
     confirmada_en: Mapped[datetime | None] = mapped_column(DateTime)
-    # La FK a turnos se agrega en la sesión 07.
-    turno_id: Mapped[int | None] = mapped_column(BigInteger)
+    turno_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("turnos.id", ondelete="RESTRICT"))
     anulada_en: Mapped[datetime | None] = mapped_column(DateTime)
     anulada_por_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("usuarios.id", ondelete="RESTRICT"))
     motivo_anulacion: Mapped[str | None] = mapped_column(String(500))
-    # La FK a turnos se agrega en la sesión 07.
-    turno_anulacion_id: Mapped[int | None] = mapped_column(BigInteger)
+    turno_anulacion_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("turnos.id", ondelete="RESTRICT"))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
