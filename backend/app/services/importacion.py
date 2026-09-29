@@ -20,14 +20,20 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.auditoria import registrar_auditoria
 from app.core.errores import MENSAJE_INTEGRIDAD, ErrorDeNegocio, ReglaDeNegocio
-from app.core.etiquetas import CONDICIONES_IVA, MONEDAS
+from app.core.etiquetas import CONDICIONES_IVA, MONEDAS, TEMPORADAS
 from app.core.excel import celda_decimal, celda_entero, clave_columna, generar_plantilla as _plantilla, leer_tabla
-from app.models import Moneda
+from app.core.utils import buscar_por_nombre
+from app.models import Moneda, Proveedor
+from app.schemas.categorias import CategoriaCrear
 from app.schemas.clientes import ClienteCrear
 from app.schemas.importacion import TipoImportacion
+from app.schemas.productos import ProductoCrear
 from app.schemas.proveedores import ProveedorCrear
+from app.services import categorias as servicio_categorias
 from app.services import clientes as servicio_clientes
+from app.services import productos as servicio_productos
 from app.services import proveedores as servicio_proveedores
+from app.services import stock as servicio_stock
 
 # Mismo tope que ProductoCrear.stock_inicial y StockMinimo.stock_minimo.
 ENTERO_MAXIMO = 1_000_000
@@ -153,8 +159,79 @@ def _alta_cliente(db, autor, valores, ip, nuevas):
     servicio_clientes.crear_cliente(db, autor, ClienteCrear(**_sin_vacios(valores)), ip)
 
 
+NOTA_STOCK_INICIAL = "Importación inicial"
+SEPARADOR_CAMINO = ">"
+
+
+def _niveles(camino: str) -> list[str]:
+    return [nivel.strip() for nivel in camino.split(SEPARADOR_CAMINO)]
+
+
+def _proveedor_por_nombre(db, nombre: str) -> Proveedor:
+    """Proveedor existente (sin tildes ni mayúsculas). Que esté activo lo
+    valida crear_producto (no se duplica la regla)."""
+    proveedor = buscar_por_nombre(db, Proveedor, nombre)
+    if proveedor is None:
+        raise ErrorDeFila(f"No existe el proveedor '{nombre}'.", "proveedor")
+    return proveedor
+
+
+def _categoria_por_camino(db, autor, camino: str, ip, nuevas: list[str]) -> int:
+    """Id de la última categoría del camino "Ropa > Remeras > Lisas". Cada
+    nivel se busca entre los hermanos y, si no existe, se crea con
+    crear_categoria (que valida los 5 niveles y el padre con productos). Los
+    caminos creados se agregan a `nuevas` con los nombres guardados."""
+    parent_id, recorrido = None, []
+    for nombre in _niveles(camino):
+        if not nombre:
+            raise ErrorDeFila("El camino tiene un nivel vacío: separá los niveles con '>'.", "categoria")
+        categoria = servicio_categorias.buscar_hija(db, nombre, parent_id)
+        if categoria is None:
+            try:
+                with _en_columna("categoria"):
+                    categoria = servicio_categorias.crear_categoria(
+                        db, autor, CategoriaCrear(nombre=nombre, parent_id=parent_id), ip)
+            except ValidationError:
+                raise ErrorDeFila(f"El nombre de categoría '{nombre}' no es válido (demasiado largo).",
+                                  "categoria") from None
+            nuevas.append(" > ".join([*recorrido, categoria.nombre]))
+        recorrido.append(categoria.nombre)
+        parent_id = categoria.id
+    if not servicio_categorias.es_hoja(db, parent_id):
+        # Chequeo previo solo por el mensaje del spec; la garantía es la de crear_producto.
+        raise ErrorDeFila(f"La categoría '{' > '.join(recorrido)}' tiene subcategorías: "
+                          "indicá el camino hasta el último nivel.", "categoria")
+    return parent_id
+
+
+def _alta_producto(db, autor, valores, ip, nuevas):
+    # Primero el schema (con ids provisorios): así una fila con datos inválidos
+    # informa todos sus errores y no llega a crear categorías.
+    campos = _sin_vacios(valores, "categoria", "proveedor", "stock_inicial", "stock_minimo")
+    datos = ProductoCrear(**campos, categoria_id=0, proveedor_id=0)
+    proveedor = _proveedor_por_nombre(db, valores["proveedor"])
+    categoria_id = _categoria_por_camino(db, autor, valores["categoria"], ip, nuevas)
+    # stock_inicial NO va a crear_producto (exigiría STOCK crear): decisión de
+    # producto, alcanza con IMPORTACION crear. El ingreso se registra aparte.
+    producto = servicio_productos.crear_producto(
+        db, autor, datos.model_copy(update={"categoria_id": categoria_id, "proveedor_id": proveedor.id}), ip)
+    if valores["stock_inicial"]:
+        with _en_columna("stock_inicial"):
+            servicio_stock.registrar_ingreso(db, autor, producto.id, valores["stock_inicial"], NOTA_STOCK_INICIAL, ip)
+    if valores["stock_minimo"] is not None:
+        with _en_columna("stock_minimo"):
+            servicio_stock.definir_minimo(db, autor, producto.id, valores["stock_minimo"], ip)
+
+
+def _clave_producto(valores):
+    """Misma descripción, categoría y proveedor = el mismo producto."""
+    camino = tuple(clave_columna(nivel) for nivel in _niveles(valores["categoria"]))
+    return [("descripcion", (clave_columna(valores["descripcion"]), camino, clave_columna(valores["proveedor"])))]
+
+
 _MONEDA = _opcion(MONEDAS)
 _CONDICION_IVA = _opcion(CONDICIONES_IVA)
+_TEMPORADA = _opcion(TEMPORADAS)
 
 DEFINICIONES: dict[TipoImportacion, Definicion] = {
     TipoImportacion.PROVEEDORES: Definicion(
@@ -191,6 +268,29 @@ DEFINICIONES: dict[TipoImportacion, Definicion] = {
         alta=_alta_cliente,
         claves=lambda v: [("dni", servicio_clientes.solo_digitos(v["dni"])),
                           ("cuit", servicio_clientes.solo_digitos(v["cuit"]))],
+    ),
+    TipoImportacion.PRODUCTOS: Definicion(
+        hoja="Productos",
+        columnas=(
+            Columna("descripcion", "Texto (hasta 500 caracteres)", "Remera lisa algodón", obligatoria=True),
+            Columna("categoria", "Camino separado por '>' hasta el último nivel (hasta 5). "
+                    "Los niveles que no existan se crean.", "Ropa > Remeras > Lisas", obligatoria=True),
+            Columna("proveedor", "Nombre de un proveedor ya cargado y activo", "Textil Norte", obligatoria=True),
+            Columna("costo", "Número mayor a 0, en la moneda del proveedor", "1500,50", obligatoria=True,
+                    parser=_decimal),
+            Columna("margen", "Porcentaje (vacío = margen por defecto)", "80", parser=_decimal),
+            Columna("sku_proveedor", "Texto. Si venís de otro sistema, poné acá el código que usabas.", "RL-001"),
+            Columna("descuento_producto", "Porcentaje (hasta el descuento máximo)", "10", parser=_decimal),
+            Columna("peso_gramos", "Número mayor a 0", "250", parser=_decimal),
+            Columna("temporada", "Texto (vacío = Atemporal)", "Atemporal", valores=_TEMPORADA.posibles,
+                    parser=_TEMPORADA),
+            Columna("ubicacion_deposito", "Texto", "Estante A3"),
+            Columna("stock_inicial", "Entero de 0 a 1.000.000 (genera un ingreso de stock)", "10",
+                    parser=_entero_no_negativo),
+            Columna("stock_minimo", "Entero de 0 a 1.000.000", "2", parser=_entero_no_negativo),
+        ),
+        alta=_alta_producto,
+        claves=_clave_producto,
     ),
 }
 

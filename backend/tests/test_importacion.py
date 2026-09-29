@@ -1,12 +1,15 @@
 """Importación inicial desde Excel (sesión 08): motor, proveedores y clientes.
 Los productos se prueban en la segunda mitad del archivo (Task 2)."""
+from decimal import Decimal
 from io import BytesIO
 
 from openpyxl import Workbook, load_workbook
 from sqlalchemy import func, select
 
 from app.core.excel import TIPO_XLSX
-from app.models import Auditoria, Cliente, Proveedor
+from app.models import Auditoria, Categoria, Cliente, MovimientoStock, Producto, Proveedor
+from app.services.productos import calcular_precio_venta
+from tests.fabricas import catalogo
 
 URL = "/api/v1/importacion"
 ENCABEZADO_PROVEEDORES = ["nombre", "moneda", "dolar_actual", "pais", "provincia", "telefono", "email", "notas"]
@@ -188,3 +191,169 @@ def test_archivo_invalido_409(client, crear_usuario, headers_de):
     assert r.status_code == 409
     r = _subir(client, h, "clientes", "validar", [["dni"], ["1"]])
     assert r.status_code == 409 and r.json()["detail"] == "Faltan columnas: nombre"
+
+
+# ---------- Productos ----------
+
+ENCABEZADO_PRODUCTOS = ["descripcion", "categoria", "proveedor", "costo", "margen", "sku_proveedor",
+                        "descuento_producto", "peso_gramos", "temporada", "ubicacion_deposito",
+                        "stock_inicial", "stock_minimo"]
+
+
+def _proveedor(client, h, nombre="Prov Import", moneda="Pesos", dolar=None):
+    r = _subir(client, h, "proveedores", "importar", [["nombre", "moneda", "dolar_actual"], [nombre, moneda, dolar]])
+    assert r.json()["aplicado"], r.json()
+    return nombre
+
+
+def _categoria(db, camino):
+    """Categoría final del camino (None si no existe)."""
+    parent = None
+    for nombre in camino.split(" > "):
+        condicion = Categoria.parent_id.is_(None) if parent is None else Categoria.parent_id == parent.id
+        parent = db.scalar(select(Categoria).where(Categoria.nombre == nombre, condicion))
+        if parent is None:
+            return None
+    return parent
+
+
+def test_producto_crea_categorias_del_camino_y_calcula_precio(client, db, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h, "Dolarizado", "Dólares", "1000")
+    filas = [["descripcion", "categoria", "proveedor", "costo", "margen", "temporada", "sku_proveedor"],
+             ["Remera lisa", "Ropa Imp > Remeras > Lisas", "dolarizado", "10,5", "50", "Otoño-Invierno", "ABC-1"],
+             ["Remera rayada", "ropa imp > REMERAS > Rayadas", proveedor, 12, None, "primavera_verano", None]]
+    r = _subir(client, h, "productos", "validar", filas)
+    assert r.json()["errores"] == []
+    # Los caminos se informan con los nombres guardados, no con el texto de la celda.
+    assert r.json()["categorias_nuevas"] == ["Ropa Imp", "Ropa Imp > Remeras", "Ropa Imp > Remeras > Lisas",
+                                             "Ropa Imp > Remeras > Rayadas"]
+    assert _categoria(db, "Ropa Imp") is None                    # validar no deja categorías
+
+    r = _subir(client, h, "productos", "importar", filas)
+    assert r.json()["aplicado"] is True and r.json()["creados"] == 2
+    lisa = db.scalar(select(Producto).where(Producto.descripcion == "Remera lisa"))
+    assert lisa.categoria_id == _categoria(db, "Ropa Imp > Remeras > Lisas").id
+    assert lisa.sku_proveedor == "ABC-1" and lisa.temporada.value == "otoño_invierno"
+    # Mismo precio que el alta manual: lo calcula el service de productos.
+    assert lisa.precio_venta == calcular_precio_venta(db, Decimal("10.5"), Decimal("50"), lisa.proveedor)
+    rayada = db.scalar(select(Producto).where(Producto.descripcion == "Remera rayada"))
+    assert rayada.categoria_id == _categoria(db, "Ropa Imp > Remeras > Rayadas").id   # reusó "Ropa Imp > Remeras"
+
+
+def test_categorias_nuevas_informa_cada_nivel_una_vez(client, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h)
+    filas = [["descripcion", "categoria", "proveedor", "costo"],
+             ["A", "Hogar Imp > Mantas", proveedor, 100],
+             ["B", "Hogar Imp > Mantas", proveedor, 100],
+             ["C", "Hogar Imp > Almohadas", proveedor, 100]]
+    assert _subir(client, h, "productos", "validar", filas).json()["categorias_nuevas"] == [
+        "Hogar Imp", "Hogar Imp > Mantas", "Hogar Imp > Almohadas"]
+
+
+def test_categoria_con_subcategorias_o_con_productos(client, db, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    admin = crear_usuario("admin")
+    datos = catalogo(db, admin)             # "Ropa fab N" > "Remeras fab N", con proveedor "Prov fab N"
+    datos["alta"]("Existente")               # la subcategoría ya tiene productos
+    madre, hija = datos["categoria"].nombre, datos["subcategoria"].nombre
+    filas = [["descripcion", "categoria", "proveedor", "costo"],
+             ["X", madre, datos["proveedor"].nombre, 100],
+             ["Y", f"{madre} > {hija} > Nueva", datos["proveedor"].nombre, 100]]
+    errores = _subir(client, h, "productos", "validar", filas).json()["errores"]
+    assert errores[0] == {"fila": 2, "columna": "categoria",
+                          "error": f"La categoría '{madre}' tiene subcategorías: indicá el camino hasta el último nivel."}
+    assert errores[1]["fila"] == 3 and errores[1]["columna"] == "categoria"   # padre con productos (crear_categoria)
+
+
+def test_proveedor_inexistente_o_inactivo(client, db, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    admin = crear_usuario("admin")
+    datos = catalogo(db, admin)
+    inactivo = datos["proveedor"]
+    from app.models import EstadoProveedor
+    inactivo.estado = EstadoProveedor.DESACTIVADO
+    db.flush()
+    camino = f"{datos['categoria'].nombre} > {datos['subcategoria'].nombre}"
+    filas = [["descripcion", "categoria", "proveedor", "costo"],
+             ["X", camino, "No existe SA", 100],
+             ["Y", camino, inactivo.nombre, 100]]
+    errores = _subir(client, h, "productos", "validar", filas).json()["errores"]
+    assert errores[0] == {"fila": 2, "columna": "proveedor", "error": "No existe el proveedor 'No existe SA'."}
+    assert errores[1]["fila"] == 3 and "no está activo" in errores[1]["error"]
+
+
+def test_stock_inicial_genera_ingreso_y_minimo(client, db, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h)
+    filas = [["descripcion", "categoria", "proveedor", "costo", "stock_inicial", "stock_minimo"],
+             ["Con stock", "Stock Imp", proveedor, 100, 12, 3],
+             ["Sin stock", "Stock Imp", proveedor, 100, 0, None]]
+    assert _subir(client, h, "productos", "importar", filas).json()["aplicado"] is True
+    con = db.scalar(select(Producto).where(Producto.descripcion == "Con stock"))
+    assert con.stock == 12 and con.stock_minimo == 3
+    movimiento = db.scalar(select(MovimientoStock).where(MovimientoStock.producto_id == con.id))
+    assert movimiento.tipo.value == "ingreso_proveedor" and movimiento.cantidad == 12
+    assert movimiento.notas == "Importación inicial"
+    sin = db.scalar(select(Producto).where(Producto.descripcion == "Sin stock"))
+    assert sin.stock == 0 and db.scalar(select(MovimientoStock).where(MovimientoStock.producto_id == sin.id)) is None
+
+
+def test_stock_invalido_es_error_de_columna(client, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h)
+    filas = [["descripcion", "categoria", "proveedor", "costo", "stock_inicial", "stock_minimo"],
+             ["A", "Stock Mal", proveedor, 100, -1, "2,5"]]
+    errores = _subir(client, h, "productos", "validar", filas).json()["errores"]
+    assert errores == [
+        {"fila": 2, "columna": "stock_inicial", "error": "Tiene que ser un número entero entre 0 y 1.000.000."},
+        {"fila": 2, "columna": "stock_minimo", "error": "Tiene que ser un número entero."}]
+
+
+def test_producto_reglas_del_alta_manual(client, db, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h)
+    filas = [["descripcion", "categoria", "proveedor", "costo", "descuento_producto"],
+             ["Taza", "Bazar Imp", proveedor, 0, None],             # costo > 0 (schema)
+             ["Plato", "Bazar Imp", proveedor, 100, 99],            # descuento > descuento_maximo (service)
+             ["Vaso", "Bazar Imp", proveedor, 100, None],
+             ["vaso", "bazar imp", proveedor.upper(), 100, None]]   # repetido en el archivo
+    errores = _subir(client, h, "productos", "validar", filas).json()["errores"]
+    assert errores[0] == {"fila": 2, "columna": "costo", "error": "Tiene que ser mayor a 0."}
+    assert errores[1]["fila"] == 3 and "descuento" in errores[1]["error"]
+    assert errores[2] == {"fila": 5, "columna": "descripcion", "error": "Repetido en el archivo (fila 4)."}
+
+
+def test_producto_todo_o_nada_ni_categorias(client, db, crear_usuario, headers_de):
+    h = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h)
+    productos = _contar(db, Producto)
+    filas = [["descripcion", "categoria", "proveedor", "costo", "stock_inicial"],
+             ["Bien", "Todo O Nada > Sub", proveedor, 100, 5],
+             ["Mal", "Todo O Nada > Sub", "Inexistente", 100, 5]]
+    r = _subir(client, h, "productos", "importar", filas)
+    assert r.json()["aplicado"] is False and r.json()["creados"] == 0
+    assert _contar(db, Producto) == productos
+    assert _categoria(db, "Todo O Nada") is None
+    assert db.scalar(select(Auditoria).where(Auditoria.accion == "importacion.productos")) is None
+
+
+def test_importar_productos_sin_permiso_de_stock_ni_productos(client, db, crear_usuario, headers_de):
+    """Decisión de producto: alcanza con IMPORTACION crear (rol a medida sin stock ni productos)."""
+    from app.models import Rol, UsuarioPermiso
+    h_admin = _admin(crear_usuario, headers_de)
+    proveedor = _proveedor(client, h_admin)
+    rol = Rol(nombre="solo importa", es_sistema=False)
+    db.add(rol)
+    db.flush()
+    usuario = crear_usuario(rol)
+    # Mismo patrón que tests/test_paginas_stock.py (permiso puntual por usuario).
+    db.add(UsuarioPermiso(usuario_id=usuario.id, modulo="importacion", puede_crear=True))
+    db.flush()
+    h = headers_de(usuario)
+    filas = [["descripcion", "categoria", "proveedor", "costo", "stock_inicial"],
+             ["Solo import", "Perm Imp", proveedor, 100, 4]]
+    r = _subir(client, h, "productos", "importar", filas)
+    assert r.json()["aplicado"] is True, r.json()
+    assert db.scalar(select(Producto).where(Producto.descripcion == "Solo import")).stock == 4
