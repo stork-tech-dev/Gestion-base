@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% from "components/encabezado.html" import encabezado %}
+{% from "components/table.html" import barra_filtros %}
+{% from "components/combobox.html" import combobox %}
+{% block titulo %}{{ reporte.nombre }} · {{ APP_NAME }}{% endblock %}
+{% block contenido %}
+{# Pantalla genérica de los seis reportes: los filtros salen de la definición
+   (solo se muestran los que el reporte admite) y las columnas de la respuesta
+   de la API. Tabla agregada: sin paginación, con fila de totales al pie.
+   Filtros con "Buscar" explícito (Principio 5, alto volumen). Excel y PDF
+   usan los filtros de la última búsqueda, es decir, lo que se ve. #}
+{% set admite = reporte.filtros_admitidos %}
+<div x-data="reporte({ clave: {{ reporte.clave|js }}, admitidos: {{ admite|js }}, agrupaciones: {{ reporte.agrupaciones|js }}, hoyIso: {{ hoy_iso|js }}, inicioMesIso: {{ inicio_mes_iso|js }} })">
+  {% call encabezado(reporte.nombre, "/reportes", "Reportes") %}
+    <a class="boton boton-secundario" :href="urlExportar('excel')" :class="aplicados ? '' : 'pointer-events-none opacity-50'"
+       :aria-disabled="!aplicados" target="_blank" rel="noopener">Excel</a>
+    <button type="button" class="boton boton-secundario" :disabled="!aplicados" @click="abrirPdf()">PDF</button>
+  {% endcall %}
+
+  {% call barra_filtros(total="filas.length", etiqueta="filas", buscar="buscar()") %}
+    {% if "desde" in admite %}
+    <div class="flex flex-col gap-1">
+      <label for="reporte-desde" class="text-lg font-medium text-texto">Desde</label>
+      <input id="reporte-desde" type="date" class="campo" x-model="filtros.desde">
+    </div>
+    <div class="flex flex-col gap-1">
+      <label for="reporte-hasta" class="text-lg font-medium text-texto">Hasta</label>
+      <input id="reporte-hasta" type="date" class="campo" x-model="filtros.hasta">
+    </div>
+    {% endif %}
+    {% if agrupaciones %}
+    <div class="flex flex-col gap-1">
+      <label for="reporte-agrupar" class="text-lg font-medium text-texto">Agrupar por</label>
+      <select id="reporte-agrupar" class="campo" x-model="filtros.agrupar">
+        {% for valor, texto in agrupaciones %}<option value="{{ valor }}">{{ texto }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    {% if "nivel" in admite %}
+    <div class="flex flex-col gap-1" x-show="filtros.agrupar === 'categoria'">
+      <label for="reporte-nivel" class="text-lg font-medium text-texto">Nivel de categoría</label>
+      <select id="reporte-nivel" class="campo" x-model="filtros.nivel">
+        {% for n in range(1, 6) %}<option value="{{ n }}">Nivel {{ n }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    {% if "orden" in admite %}
+    <div class="flex flex-col gap-1">
+      <label for="reporte-orden" class="text-lg font-medium text-texto">Ordenar por</label>
+      <select id="reporte-orden" class="campo" x-model="filtros.orden">
+        {% for valor, texto in ordenes %}<option value="{{ valor }}">{{ texto }}</option>{% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    {% if "limite" in admite %}
+    <div class="flex flex-col gap-1">
+      <label for="reporte-limite" class="text-lg font-medium text-texto">Límite</label>
+      <input id="reporte-limite" type="number" min="1" max="500" step="1" inputmode="numeric" class="campo" x-model="filtros.limite">
+    </div>
+    {% endif %}
+    {% if "proveedor_id" in admite %}{{ combobox("reporte-proveedor", "opciones.proveedores", "filtros.proveedor_id", texto="nombre", etiqueta="Proveedor") }}{% endif %}
+    {% if "categoria_id" in admite %}{{ combobox("reporte-categoria", "opciones.categorias", "filtros.categoria_id", texto="nombre", etiqueta="Categoría") }}{% endif %}
+    {% if "usuario_id" in admite %}{{ combobox("reporte-vendedor", "opciones.vendedores", "filtros.usuario_id", texto="nombre", etiqueta="Vendedor") }}{% endif %}
+    {% if "medio_de_pago_id" in admite %}{{ combobox("reporte-medio", "opciones.medios_de_pago", "filtros.medio_de_pago_id", texto="nombre", etiqueta="Medio de pago") }}{% endif %}
+  {% endcall %}
+
+  <div class="tarjeta overflow-hidden p-0">
+    <div class="overflow-x-auto">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <template x-for="columna in columnas" :key="columna.clave">
+              <th scope="col" :class="alineacion(columna)" x-text="columna.titulo"></th>
+            </template>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(fila, indice) in filas" :key="indice">
+            <tr>
+              <template x-for="columna in columnas" :key="columna.clave">
+                <td :class="alineacion(columna)" x-text="celda(fila, columna)"></td>
+              </template>
+            </tr>
+          </template>
+          <tr x-show="cargando"><td :colspan="columnas.length || 1" class="py-10 text-center text-texto-muted">Cargando…</td></tr>
+          <tr x-show="!cargando && !filas.length"><td :colspan="columnas.length || 1" class="py-10 text-center text-texto-muted">No hay datos para los filtros elegidos.</td></tr>
+        </tbody>
+        <tfoot x-show="!cargando && filas.length" x-cloak class="border-t-2 border-borde font-semibold text-texto-header">
+          <tr>
+            <template x-for="(columna, indice) in columnas" :key="columna.clave">
+              <td :class="alineacion(columna)" x-text="celdaTotal(columna, indice)"></td>
+            </template>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ estatico('/js/reporte.js') }}"></script>{% endblock %}
