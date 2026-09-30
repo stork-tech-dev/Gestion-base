@@ -30,9 +30,12 @@ SIGNO_POR_TIPO = {
 
 
 def aplicar_movimiento(db, autor, *, tipo, producto_id, cantidad, motivo_baja_id=None, auditoria_id=None,
-                       referencia_venta_id=None, permitir_faltante=False, notas=None, ip_origen=None):
+                       referencia_venta_id=None, notas=None, ip_origen=None):
     """ÚNICO camino por el que cambia productos.stock. Bloquea la fila del
     producto, valida, guarda el stock resultante y audita. Sin commit.
+
+    Ningún movimiento puede dejar el stock negativo (decisión del usuario:
+    tampoco una venta): si no alcanza, 409.
 
     Si una operación mueve varios productos, llamar en orden de producto_id
     ascendente (evita deadlocks): dos operaciones que tocan los mismos
@@ -40,13 +43,11 @@ def aplicar_movimiento(db, autor, *, tipo, producto_id, cantidad, motivo_baja_id
     signo = SIGNO_POR_TIPO[tipo]
     if cantidad == 0 or (signo and (cantidad > 0) != (signo > 0)):
         raise DatoInvalido("La cantidad no corresponde al tipo de movimiento.")
-    if permitir_faltante and tipo is not TipoMovimientoStock.VENTA:
-        raise DatoInvalido("Solo una venta puede dejar el stock en negativo.")
     producto = bloquear_producto(db, producto_id)
     antes = producto.stock
     resultante = antes if producto.stock_infinito else antes + cantidad
     if not producto.stock_infinito:
-        if cantidad < 0 and resultante < 0 and not permitir_faltante:
+        if cantidad < 0 and resultante < 0:
             raise ReglaDeNegocio(
                 f"No hay stock suficiente de '{producto.descripcion}': hay {antes} y se piden {-cantidad}")
         if abs(resultante) > STOCK_MAXIMO:

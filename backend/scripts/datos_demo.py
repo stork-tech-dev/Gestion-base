@@ -115,8 +115,8 @@ def _una_venta(db, vendedor, catalogo, config, clientes_):
     venta = ventas.iniciar_venta(db, vendedor, None)
     for producto in azar.sample(catalogo["productos"], azar.randint(1, 3)):
         for _ in range(azar.choice((1, 1, 1, 2, 3))):
-            # El tope de stock ahora bloquea (Task 1): se controla acá para no
-            # pedirle a agregar_item más de lo que queda.
+            # El tope de stock bloquea: se controla acá para no pedirle a
+            # agregar_item más de lo que queda.
             cargadas = sum(1 for i in venta.items if i.producto_id == producto.id)
             if producto.stock - cargadas > 0:
                 venta = ventas.agregar_item(db, vendedor, venta.id, producto_id=producto.id)

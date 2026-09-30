@@ -148,6 +148,7 @@ textarea.campo { padding-block: 0.5rem; }
   color: var(--color-text-muted);
 }
 .btn-accion:hover { background: var(--color-surface-alt); }
+.btn-accion:disabled { opacity: .4; cursor: not-allowed; }
 
 /* ----- Tarjetas ----- */
 .tarjeta {

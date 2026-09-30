@@ -88,14 +88,15 @@
                   <td class="whitespace-nowrap">
                     <div class="inline-flex items-center gap-1">
                       <button type="button" class="btn-accion min-h-toque" aria-label="Restar uno"
-                              @click="sumar(linea, -1)">−</button>
-                      <input type="number" inputmode="numeric" min="0" max="999" step="1" class="campo w-16 text-center"
+                              :disabled="lineaOcupada(linea)" @click="sumar(linea, -1)">−</button>
+                      <input type="number" inputmode="numeric" min="0" max="999" step="1" class="campo w-20 text-center"
                              :value="linea.cantidad" :aria-label="'Cantidad de ' + linea.descripcion"
+                             :disabled="lineaOcupada(linea)"
                              @change="cambiarCantidad(linea, $event.target)"
                              @keydown.enter.prevent="$event.target.blur()">
                       <button type="button" class="btn-accion min-h-toque" aria-label="Sumar uno"
-                              :disabled="!ventaLogica.puedeSumar(linea)"
-                              :title="!ventaLogica.puedeSumar(linea) ? 'Sin más stock' : null"
+                              :disabled="!ventaLogica.puedeSumar(linea, venta) || lineaOcupada(linea)"
+                              :title="!ventaLogica.puedeSumar(linea, venta) ? 'Sin más stock' : null"
                               @click="sumar(linea, 1)">+</button>
                     </div>
                   </td>
@@ -187,7 +188,7 @@
         <h2 class="text-lg font-semibold text-texto-header">Descuento general</h2>
         <div class="flex items-center justify-between gap-2" x-show="venta && Number(venta.descuento_general) > 0" x-cloak>
           <p class="text-sm font-semibold text-success"
-             x-text="venta ? '− ' + plata(venta.descuento_general) + ' (' + pesos(ventaLogica.porcentajeDescuentoGeneral(venta)) + ' %)' : ''"></p>
+             x-text="venta ? '− ' + plata(venta.descuento_general) + ' (' + ventaLogica.porcentajeDescuentoGeneral(venta).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %)' : ''"></p>
           <button type="button" class="min-h-toque text-sm font-semibold text-primary hover:underline"
                   @click="quitarDescuentoGeneral()">Quitar</button>
         </div>
@@ -195,7 +196,7 @@
           <div class="flex flex-col gap-1">
             <label for="venta-descgeneral-modo" class="sr-only">Tipo de descuento general</label>
             <select id="venta-descgeneral-modo" class="campo" x-model="descuentoGeneral.modo">
-              <option value="total">Total final ($)</option>
+              <option value="total">Total final sin recargo ($)</option>
               <option value="porcentaje">Porcentaje (%)</option>
             </select>
           </div>
@@ -206,6 +207,9 @@
           </div>
           <button type="submit" class="boton boton-secundario min-h-toque">Aplicar</button>
         </form>
+        <p class="text-sm text-texto-muted" x-show="descuentoGeneral.modo === 'total' && venta && Number(venta.recargo_total) > 0" x-cloak>
+          El recargo por cuotas se suma después.
+        </p>
       </section>
       {% endif %}
 

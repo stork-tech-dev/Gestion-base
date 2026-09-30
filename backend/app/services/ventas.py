@@ -300,13 +300,19 @@ def agregar_item(db, autor, venta_id: int, *, codigo: str | None = None, product
 
 def cambiar_cantidad(db, autor, venta_id: int, item_id: int, cantidad: int, ip=None) -> Venta:
     """Fija la cantidad de la línea del ítem: sube con el mismo descuento de la
-    línea, baja quitando las últimas unidades, 0 quita la línea."""
+    línea (409 si el producto está inactivo o no hay stock), baja quitando las
+    últimas unidades, 0 quita la línea. La misma cantidad que ya tiene la línea
+    no toca nada (ni siquiera resetea la promoción o el descuento general)."""
     _validar_cantidad(cantidad, permite_cero=True)
     venta = _venta_propia_en_curso(db, autor, venta_id)
     item = _item_de(venta, item_id)
     linea = [i for i in venta.items if _clave_linea(i) == _clave_linea(item)]
     diferencia = cantidad - len(linea)
+    if diferencia == 0:
+        return venta
     if diferencia > 0:
+        if not item.producto.activo:
+            raise ReglaDeNegocio(f"'{item.producto.descripcion}' está inactivo")
         _validar_stock(venta, item.producto, diferencia)
         for _ in range(diferencia):
             _nueva_unidad(venta, item.producto, descuento=item.descuento_item, motivo=item.motivo_descuento,

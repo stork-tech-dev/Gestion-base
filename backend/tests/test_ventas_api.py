@@ -130,6 +130,20 @@ def test_put_cantidad_y_lineas_en_la_respuesta(client, crear_usuario, headers_de
                       headers=h).status_code == 422
 
 
+def test_put_cantidad_venta_ajena_403(client, crear_usuario, headers_de, db):
+    """`_venta_propia_en_curso` levanta SinPermiso (403), no NoEncontrado: la
+    venta existe, pero es de otro usuario."""
+    admin = crear_usuario("admin")
+    producto = _producto_con_stock(db, admin, "Vaso ajeno", cantidad=5)
+    h1 = headers_de(crear_usuario("vendedor"))
+    h2 = headers_de(crear_usuario("vendedor"))
+    venta_id = client.post(URL, headers=h1).json()["id"]
+    r = client.post(f"{URL}/{venta_id}/items", json={"producto_id": producto.id}, headers=h1)
+    item_id = r.json()["items"][0]["id"]
+    r = client.put(f"{URL}/{venta_id}/items/{item_id}/cantidad", json={"cantidad": 2}, headers=h2)
+    assert r.status_code == 403
+
+
 def test_costo_unitario_nunca_aparece(client, crear_usuario, headers_de, db):
     admin = crear_usuario("admin")
     producto = _producto_con_stock(db, admin, "Remera costo oculto")

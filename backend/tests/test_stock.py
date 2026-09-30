@@ -57,18 +57,15 @@ def test_salida_sin_stock_suficiente(db, base):
     assert db.scalar(select(MovimientoStock).where(MovimientoStock.tipo == TipoMovimientoStock.BAJA)) is None
 
 
-def test_venta_con_faltante_deja_negativo(db, base):
+def test_venta_sin_stock_suficiente_se_rechaza(db, base):
+    """Decisión del usuario: la venta tampoco puede dejar el stock negativo
+    (`permitir_faltante` ya no existe): mismo rechazo que cualquier otro tipo."""
     p = base["alta"]("Remera venta")
-    m = servicio.aplicar_movimiento(db, base["admin"], tipo=TipoMovimientoStock.VENTA, producto_id=p.id, cantidad=-2,
-                                    referencia_venta_id=base["venta_id"], permitir_faltante=True)
-    assert m.stock_resultante == -2 and p.stock == -2
-
-
-def test_permitir_faltante_solo_ventas(db, base):
-    p = base["alta"]("Remera sin faltante")
-    with pytest.raises(DatoInvalido):
-        servicio.aplicar_movimiento(db, base["admin"], tipo=TipoMovimientoStock.BAJA, producto_id=p.id, cantidad=-1,
-                                    motivo_baja_id=base["motivo"].id, permitir_faltante=True)
+    with pytest.raises(ReglaDeNegocio) as error:
+        servicio.aplicar_movimiento(db, base["admin"], tipo=TipoMovimientoStock.VENTA, producto_id=p.id, cantidad=-2,
+                                    referencia_venta_id=base["venta_id"])
+    assert error.value.mensaje == "No hay stock suficiente de 'Remera venta': hay 0 y se piden 2"
+    assert p.stock == 0
 
 
 @pytest.mark.parametrize("tipo, cantidad", [
