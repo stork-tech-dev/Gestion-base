@@ -200,6 +200,36 @@ def test_permisos_del_carrito_descuento_y_anulacion(client, crear_usuario, heade
     assert r.status_code == 403
 
 
+def test_descuento_general_api(client, crear_usuario, headers_de, db):
+    admin = crear_usuario("admin")
+    h_admin = headers_de(admin)
+    producto = _producto_con_stock(db, admin, "Remera descuento general", cantidad=10)
+
+    vendedor = crear_usuario("vendedor")
+    h = headers_de(vendedor)
+
+    venta_id = client.post(URL, headers=h).json()["id"]
+    r = client.post(f"{URL}/{venta_id}/items", json={"codigo": producto.codigo_con_verificador}, headers=h)
+    total = r.json()["total"]
+
+    # Los dos a la vez: 400.
+    r = client.post(f"{URL}/{venta_id}/descuento-general", json={"porcentaje": "10", "total": "100"}, headers=h)
+    assert r.status_code == 400
+
+    # Por total final: 200 y descuento_general en la respuesta.
+    objetivo = str(Decimal(total) - Decimal("100"))
+    r = client.post(f"{URL}/{venta_id}/descuento-general", json={"total": objetivo}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["descuento_general"] == "100.00"
+
+    # Sin "ventas crear" (donde se hereda venta.descuento): 403.
+    rol_sin_descuento = _rol_sin_descuento(client, h_admin)
+    otro = crear_usuario(rol=rol_sin_descuento)
+    h_otro = headers_de(otro)
+    r = client.post(f"{URL}/{venta_id}/descuento-general", json={"total": objetivo}, headers=h_otro)
+    assert r.status_code == 403
+
+
 def test_auditoria_de_anulacion(client, crear_usuario, headers_de, db):
     admin = crear_usuario("admin")
     h_admin = headers_de(admin)

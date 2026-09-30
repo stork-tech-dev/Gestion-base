@@ -24,6 +24,7 @@ from app.schemas.ventas import (
     ClienteAsociar,
     ConfirmarVenta,
     DescuentoAplicar,
+    DescuentoGeneral,
     ItemAgregar,
     MedioParaVenta,
     MONTO_MAXIMO,
@@ -172,6 +173,16 @@ def aplicar_descuento(venta_id: int, datos: DescuentoAplicar, request: Request, 
                       autor: Usuario = Depends(puede_vender), _descuento: Usuario = Depends(puede_descontar)):
     venta = servicio.aplicar_descuento_item(db, autor, venta_id, datos.item_id, datos.motivo_id, datos.porcentaje,
                                             ip_de_request(request))
+    db.commit()
+    return servicio.a_respuesta(db, venta)
+
+
+@router.post("/{venta_id}/descuento-general", response_model=VentaResponse)
+def aplicar_descuento_general(venta_id: int, datos: DescuentoGeneral, request: Request,
+                              db: Session = Depends(get_db), autor: Usuario = Depends(puede_vender),
+                              _descuento: Usuario = Depends(puede_descontar)):
+    venta = servicio.aplicar_descuento_general(db, autor, venta_id, porcentaje=datos.porcentaje, total=datos.total,
+                                               ip=ip_de_request(request))
     db.commit()
     return servicio.a_respuesta(db, venta)
 

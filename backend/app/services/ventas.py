@@ -8,21 +8,21 @@ confirmar/anular, cada producto en orden de producto_id ascendente (lo hace
 `aplicar_movimiento`). Nunca al revés, para no cruzarse en un deadlock."""
 import secrets
 from collections import Counter
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import lazyload
 
 from app.core.auditoria import registrar_auditoria, snapshot
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
-from app.core.utils import ahora_db, filtro_texto, paginar, rango_fechas
+from app.core.utils import ahora_db, filtro_texto, paginar, rango_fechas, redondear
 from app.models import EstadoVenta, TipoMovimientoStock, Usuario, Venta, VentaItem, VentaPago
 from app.schemas.ventas import MONTO_MAXIMO, ProductoVenta, VentaResponse
 from app.services import categorias as servicio_categorias
 from app.services import clientes as servicio_clientes
 from app.services import medios_pago as servicio_medios
 from app.services import turnos as servicio_turnos
-from app.services.descuentos import aplicar_descuentos, resolver_porcentaje, validar_tope
+from app.services.descuentos import aplicar_descuentos, resolver_porcentaje, tope, validar_tope
 from app.services.productos import buscar_por_codigo, obtener_producto
 from app.services.promociones import mejor_promocion, promociones_aplicables, simular
 from app.services.stock import aplicar_movimiento
@@ -147,6 +147,27 @@ def _normalizar_pagos(db, venta: Venta, cobrable: Decimal, *, estricto: bool) ->
     return False
 
 
+CENTAVO = Decimal("0.01")
+
+
+def _repartir_descuento_general(items, monto: Decimal) -> None:
+    """Resta `monto` de los precio_final en proporción a cada uno, al centavo:
+    primero la parte truncada y después los centavos que sobran, de a uno, a
+    las unidades con mayor fracción descartada (Σ descuentos == monto exacto)."""
+    base = sum((i.precio_final for i in items), Decimal("0"))
+    if not monto or base <= 0:
+        return
+    partes = [(i, i.precio_final * monto / base) for i in items]
+    truncadas = {i.id: parte.quantize(CENTAVO, rounding=ROUND_DOWN) for i, parte in partes}
+    sobrante = int((monto - sum(truncadas.values())) / CENTAVO)
+    candidatas = sorted((p for p in partes if p[0].precio_final > truncadas[p[0].id]),
+                        key=lambda p: (p[1] - truncadas[p[0].id], -p[0].orden), reverse=True)
+    for item, _ in candidatas[:sobrante]:
+        truncadas[item.id] += CENTAVO
+    for item in items:
+        item.precio_final -= truncadas[item.id]
+
+
 def _recalcular(db, venta: Venta, *, estricto: bool = False) -> None:
     """ÚNICO lugar donde se calculan los importes de una venta en curso."""
     # 1. Precio vivo: relee cada producto (decisión 3) y recalcula sin
@@ -177,6 +198,13 @@ def _recalcular(db, venta: Venta, *, estricto: bool = False) -> None:
         for item in elegibles:
             if item.id in en_promo:
                 item.precio_final, item.en_promocion = finales[item.id], True
+    # 2b. Descuento general: monto fijo repartido entre las unidades. Red de
+    #     seguridad: si ya no entra (cambió una promo por medio de pago), se borra.
+    base = sum((i.precio_final for i in venta.items), Decimal("0"))
+    if venta.descuento_general and (venta.descuento_general >= base
+                                    or venta.descuento_general > redondear(base * tope(db) / 100)):
+        venta.descuento_general = Decimal("0")
+    _repartir_descuento_general(venta.items, venta.descuento_general)
     # 3. Totales sin recargo.
     venta.subtotal = sum((i.precio_lista for i in venta.items), Decimal("0"))
     cobrable = sum((i.precio_final for i in venta.items), Decimal("0"))
@@ -244,9 +272,10 @@ def _nueva_unidad(venta: Venta, producto, *, descuento=Decimal("0"), motivo=None
 
 
 def _carrito_cambio(venta: Venta) -> None:
-    """Cambió el carrito: la promoción elegida a mano deja de valer (se elige
-    la mejor de nuevo). La Task 2 suma acá el reset del descuento general."""
+    """Cambió el carrito: la promoción elegida a mano y el descuento general
+    dejan de valer (se vuelven a elegir sobre el carrito nuevo)."""
     venta.promocion_a_mano = False
+    venta.descuento_general = Decimal("0")
 
 
 def agregar_item(db, autor, venta_id: int, *, codigo: str | None = None, producto_id: int | None = None,
@@ -356,8 +385,45 @@ def elegir_promocion(db, autor, venta_id: int, promocion_id: int | None) -> Vent
         if not any(p.id == promocion_id for p in aplicables):
             raise ReglaDeNegocio("Esa promoción no aplica a esta venta")
     venta.promocion_id = promocion_id
+    _carrito_cambio(venta)
     venta.promocion_a_mano = True
     _recalcular(db, venta)
+    return venta
+
+
+def aplicar_descuento_general(db, autor, venta_id: int, *, porcentaje: Decimal | None = None,
+                              total: Decimal | None = None, ip=None) -> Venta:
+    """Descuento sobre toda la venta, por % o por total final (ninguno = quitar).
+    El permiso `venta.descuento` lo chequea el router. Sin motivo (decisión del usuario)."""
+    if porcentaje is not None and total is not None:
+        raise DatoInvalido("Indicá el porcentaje o el total final, no los dos")
+    venta = _venta_propia_en_curso(db, autor, venta_id)
+    anterior = venta.descuento_general
+    venta.descuento_general = Decimal("0")
+    _recalcular(db, venta)
+    base = venta.cobrable
+    if porcentaje is not None:
+        monto = redondear(base * Decimal(porcentaje) / 100)
+    elif total is not None:
+        total = redondear(total)
+        if total <= 0:
+            raise DatoInvalido("El total final tiene que ser mayor a 0")
+        if total > base:
+            raise DatoInvalido("El total final no puede ser mayor al total actual")
+        monto = base - total
+    else:
+        monto = Decimal("0")
+    limite = tope(db)
+    if monto >= base and monto > 0:
+        raise DatoInvalido("El descuento no puede cubrir todo el total")
+    if monto > redondear(base * limite / 100):
+        raise DatoInvalido(f"El descuento general no puede superar el {int(limite)}% del total")
+    venta.descuento_general = monto
+    _recalcular(db, venta)
+    registrar_auditoria(db, accion="venta.descuento_general", entidad="venta", entidad_id=venta.id,
+                        usuario_id=autor.id, estado_anterior={"descuento_general": anterior},
+                        estado_nuevo={"descuento_general": monto, "porcentaje": porcentaje, "total": total},
+                        ip_origen=ip)
     return venta
 
 

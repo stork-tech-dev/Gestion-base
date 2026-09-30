@@ -42,6 +42,12 @@ class PromocionElegir(BaseModel):
     promocion_id: int | None = None
 
 
+class DescuentoGeneral(BaseModel):
+    """Uno de los dos (o ninguno = quitar el descuento general)."""
+    porcentaje: Decimal | None = Field(default=None, gt=0, le=100, decimal_places=2)
+    total: Decimal | None = Field(default=None, gt=0, le=MONTO_MAXIMO, decimal_places=2)
+
+
 class PagoDatos(BaseModel):
     medio_de_pago_id: int
     # Solo cuenta el del primero de dos pagos: el del único pago y el del
@@ -182,6 +188,7 @@ class VentaResponse(BaseModel):
     pagos: list[VentaPagoResponse]
     subtotal: Decimal
     descuento_total: Decimal
+    descuento_general: Decimal
     recargo_total: Decimal
     total: Decimal
     cobrable: Decimal
@@ -208,7 +215,8 @@ class VentaResponse(BaseModel):
             items=[VentaItemResponse.desde(i, caminos.get(i.producto.categoria_id, "")) for i in venta.items],
             lineas=[VentaLineaResponse.desde(u) for u in lineas],
             pagos=[VentaPagoResponse.desde(p) for p in venta.pagos],
-            subtotal=venta.subtotal, descuento_total=venta.descuento_total, recargo_total=venta.recargo_total,
+            subtotal=venta.subtotal, descuento_total=venta.descuento_total,
+            descuento_general=venta.descuento_general, recargo_total=venta.recargo_total,
             total=venta.total, cobrable=venta.cobrable, promocion=Referencia.de(venta.promocion),
             promocion_a_mano=venta.promocion_a_mano, codigo_cambio=venta.codigo_cambio,
             confirmada_en=venta.confirmada_en, created_at=venta.created_at, anulada_en=venta.anulada_en,

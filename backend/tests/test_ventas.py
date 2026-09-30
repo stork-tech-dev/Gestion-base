@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
-from app.core.utils import ahora_db
+from app.core.utils import ahora_db, redondear
 from app.models import (
     Auditoria, EstadoTurno, EstadoVenta, MedioDePago, MotivoBaja, MovimientoStock, TipoAlcancePromocion,
     TipoMovimientoStock, TipoPromocion, Venta, VentaItem, VentaPago,
@@ -103,6 +103,16 @@ def _editar_producto(db, autor, producto, **cambios):
 
 def _auditorias(db, accion, venta_id):
     return db.scalars(select(Auditoria).where(Auditoria.accion == accion, Auditoria.entidad_id == venta_id)).all()
+
+
+def _venta_de(db, e, *precios):
+    """Venta en curso con una unidad por precio (productos con stock, margen 0 y redondeo del test)."""
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    for n, costo in enumerate(precios):
+        producto = e.cat["alta"](f"Desc general {n} {costo}", costo=costo, margen="0")
+        registrar_ingreso(db, e.admin, producto.id, 5, None, None)
+        venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=producto.id)
+    return venta
 
 
 # --- Iniciar / dueño ------------------------------------------------------------
@@ -382,6 +392,74 @@ def test_descuento_item_inexistente_404(db, e):
     venta = _venta(db, e.vendedor, e.p10)
     with pytest.raises(NoEncontrado):
         servicio.aplicar_descuento_item(db, e.vendedor, venta.id, 999_999_999, motivo.id, 10, None)
+
+
+# --- Descuento general ------------------------------------------------------------------------
+
+def test_descuento_por_total_final_reparte_al_centavo(db, e):
+    venta = _venta_de(db, e, "3000", "5300")
+    base = venta.cobrable
+    objetivo = base - Decimal("300")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, total=objetivo, ip=None)
+    assert venta.descuento_general == Decimal("300.00")
+    assert venta.cobrable == objetivo
+    assert sum(i.precio_final for i in venta.items) == objetivo
+    assert venta.descuento_total == venta.subtotal - objetivo
+
+
+def test_descuento_por_porcentaje(db, e):
+    venta = _venta_de(db, e, "3000", "5000")
+    base = venta.cobrable
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("10"), ip=None)
+    assert venta.descuento_general == redondear(base * Decimal("0.10"))
+
+
+def test_descuento_general_respeta_el_tope(db, e):
+    venta = _venta_de(db, e, "10000")
+    tope = servicio_descuentos.tope(db)
+    with pytest.raises(DatoInvalido, match="no puede superar"):
+        servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=tope + 1, ip=None)
+
+
+def test_total_final_invalido(db, e):
+    venta = _venta_de(db, e, "10000")
+    for total in (venta.cobrable + 1, Decimal("0")):
+        with pytest.raises(DatoInvalido):
+            servicio.aplicar_descuento_general(db, e.vendedor, venta.id, total=total, ip=None)
+
+
+def test_cambiar_el_carrito_borra_el_descuento_general(db, e):
+    venta = _venta_de(db, e, "3000", "5000")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("5"), ip=None)
+    venta = servicio.cambiar_cantidad(db, e.vendedor, venta.id, venta.items[0].id, 2)
+    assert venta.descuento_general == 0
+    assert venta.cobrable == sum(i.precio_final for i in venta.items)
+
+
+def test_quitar_el_descuento_general(db, e):
+    venta = _venta_de(db, e, "3000")
+    base = venta.cobrable
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("5"), ip=None)
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, ip=None)
+    assert venta.descuento_general == 0 and venta.cobrable == base
+
+
+def test_descuento_general_se_audita_y_llega_confirmado(db, e):
+    # Confirmar con descuento general: los precio_final guardados suman el total cobrado.
+    venta = _venta_de(db, e, "3000", "5300")
+    base = venta.cobrable
+    objetivo = base - Decimal("300")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, total=objetivo, ip=None)
+    efectivo = _medio(db, "Efectivo")
+    venta = servicio.registrar_pagos(
+        db, e.vendedor, venta.id,
+        [{"medio_de_pago_id": efectivo.id, "monto": venta.cobrable, "plan_cuotas_id": None}])
+    venta = servicio.confirmar_venta(db, e.vendedor, venta.id, venta.total, None)
+    assert venta.estado is EstadoVenta.CONFIRMADA
+    assert sum(i.precio_final for i in venta.items) == venta.total - venta.recargo_total
+    audit = _auditorias(db, "venta.descuento_general", venta.id)
+    assert len(audit) == 1
+    assert audit[0].estado_nuevo["descuento_general"] == "300.00"
 
 
 # --- Promociones ------------------------------------------------------------------------
