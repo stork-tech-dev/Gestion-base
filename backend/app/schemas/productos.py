@@ -2,12 +2,14 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models import Moneda, TemporadaProducto
 
 # Topes = columnas NUMERIC: un valor enorme es 422, nunca un 500 de la base.
 Costo = Field(gt=0, lt=Decimal("100000000"), decimal_places=2)
+# Mismo tope que el costo (misma columna NUMERIC(10, 2) en productos.precio_venta).
+PrecioVenta = Field(default=None, gt=0, lt=Decimal("100000000"), decimal_places=2)
 
 
 class ProductoDatos(BaseModel):
@@ -25,15 +27,33 @@ class ProductoDatos(BaseModel):
 class ProductoCrear(ProductoDatos):
     proveedor_id: int
     margen: Decimal | None = Field(default=None, ge=0, le=1000, decimal_places=2)   # None → margen_default
+    # Alternativa a margen: el precio de venta cargado a mano (exacto, sin
+    # redondeo). Ninguno de los dos = margen por defecto; los dos a la vez, 422.
+    precio_venta: Decimal | None = PrecioVenta
     # Con stock_infinito=True se ignora (no genera movimiento de stock).
     stock_inicial: int = Field(0, ge=0, le=1_000_000)
 
+    @model_validator(mode="after")
+    def _margen_o_precio(self) -> "ProductoCrear":
+        if self.margen is not None and self.precio_venta is not None:
+            raise ValueError("Mandá margen o precio de venta, no los dos.")
+        return self
+
 
 class ProductoEditar(ProductoDatos):
-    # SKU, verificador y proveedor no se editan.
-    margen: Decimal = Field(ge=0, le=1000, decimal_places=2)
+    # SKU, verificador y proveedor no se editan. Exactamente uno de margen o
+    # precio_venta (a diferencia del alta, acá no hay default posible: la
+    # edición siempre recalcula o fija un precio).
+    margen: Decimal | None = Field(default=None, ge=0, le=1000, decimal_places=2)
+    precio_venta: Decimal | None = PrecioVenta
     # None = no cambia (un cliente que omite el campo no apaga el stock infinito).
     stock_infinito: bool | None = None
+
+    @model_validator(mode="after")
+    def _margen_o_precio(self) -> "ProductoEditar":
+        if (self.margen is None) == (self.precio_venta is None):
+            raise ValueError("Mandá exactamente uno: margen o precio de venta.")
+        return self
 
 
 class ProductoEstado(BaseModel):
@@ -133,6 +153,10 @@ class PrecioPreview(BaseModel):
     moneda: Moneda
     dolar_proveedor: Decimal | None
     precio_venta: Decimal
+    margen: Decimal
+    redondeo: Decimal
+    # False con precio de venta manual (se respeta exacto, sin redondeo).
+    redondeado: bool
 
 
 class Similar(BaseModel):

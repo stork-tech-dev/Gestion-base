@@ -291,6 +291,110 @@ test('cuerpo: el alta manda stock_inicial truncado (Math.trunc, ≥0); la edici�
   assert.equal('proveedor_id' in cuerpoEdicion, false);
 });
 
+// ---------- Margen ↔ precio de venta manual (Task 4) ----------
+
+// window.productoFormLogica.* corre DENTRO del contexto vm: los objetos que
+// devuelve tienen el Object.prototype de ESE realm, no el de este archivo.
+// Se envuelven en un spread propio antes de comparar (mismo motivo que el
+// spread de arrays documentado arriba, en el test de nivelesDeCategoria).
+test('paramsPreview: manda margen en modo margen, precio_venta en modo precio (nunca los dos)', () => {
+  const window = cargarComponente();
+  const form = { proveedor_id: 9, costo: '100', margen: '40', precio_venta: '140' };
+  assert.deepEqual({ ...window.productoFormLogica.paramsPreview(form, 'margen') }, { proveedor_id: 9, costo: '100', margen: '40' });
+  assert.deepEqual({ ...window.productoFormLogica.paramsPreview(form, 'precio') }, { proveedor_id: 9, costo: '100', precio_venta: '140' });
+});
+
+test('cuerpoPrecio: manda el campo del modo vigente y el otro en null', () => {
+  const window = cargarComponente();
+  const form = { margen: '40', precio_venta: '140' };
+  assert.deepEqual({ ...window.productoFormLogica.cuerpoPrecio(form, 'margen') }, { margen: '40', precio_venta: null });
+  assert.deepEqual({ ...window.productoFormLogica.cuerpoPrecio(form, 'precio') }, { margen: null, precio_venta: '140' });
+  assert.deepEqual({ ...window.productoFormLogica.cuerpoPrecio({ margen: '', precio_venta: '' }, 'margen') },
+                   { margen: null, precio_venta: null });
+});
+
+test('textoRedondeo: vacío sin redondeo configurado o con precio manual; si no, el monto formateado', () => {
+  const window = cargarComponente();
+  const { textoRedondeo } = window.productoFormLogica;
+  assert.equal(textoRedondeo('1000.00', true), 'Redondeado hacia arriba a múltiplos de $ 1.000');
+  assert.equal(textoRedondeo('1000.00', false), '');   // precio manual: no pasó por la fórmula
+  assert.equal(textoRedondeo('0', true), '');           // sin redondeo configurado
+  assert.equal(textoRedondeo(null, true), '');
+});
+
+test('alEditarMargen/alEditarPrecio: fijan el modo vigente antes de pedir el preview', () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crearComponente(window);
+  c.form.proveedor_id = 9;
+  c.form.costo = '100';
+  c.form.margen = '40';
+  c.form.precio_venta = '150';
+
+  c.alEditarPrecio();
+  assert.equal(c.modoPrecio, 'precio');
+  assert.match(pendientes[pendientes.length - 1].url, /precio_venta=150/);
+
+  c.alEditarMargen();
+  assert.equal(c.modoPrecio, 'margen');
+  assert.match(pendientes[pendientes.length - 1].url, /margen=40/);
+});
+
+test('pedirPreview en modo precio: la respuesta llena form.margen y no pisa el precio cargado', async () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crearComponente(window);
+  c.form.proveedor_id = 9;
+  c.form.costo = '100';
+  c.modoPrecio = 'precio';
+  c.form.precio_venta = '150';
+
+  const promesa = c.pedirPreview();
+  assert.equal(pendientes.length, 1);
+  assert.match(pendientes[0].url, /precio_venta=150/);
+  assert.doesNotMatch(pendientes[0].url, /[?&]margen=/);
+  pendientes[0].resolver({ moneda: 'ars', dolar_proveedor: null, precio_venta: '150', margen: '50.00', redondeo: '0', redondeado: false });
+  await promesa;
+
+  assert.equal(c.form.margen, '50.00');
+  assert.equal(c.form.precio_venta, '150');   // no se pisa a sí mismo
+  assert.equal(c.redondeado, false);
+  assert.equal(c.redondeoTexto, '');          // precio manual: sin leyenda
+});
+
+test('cambiar el costo respeta el modo vigente (precio): repregunta con precio_venta, no con margen', () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crearComponente(window);
+  c.form.proveedor_id = 9;
+  c.form.precio_venta = '150';
+  c.modoPrecio = 'precio';   // el usuario ya había tocado el precio
+
+  c.form.costo = '100';
+  c.pedirPreview();          // disparado por @input.debounce.300ms del costo
+  assert.equal(pendientes.length, 1);
+  assert.match(pendientes[0].url, /precio_venta=150/);
+});
+
+test('redondeoTexto: con margen y redondeo > 0 muestra la leyenda con el múltiplo', async () => {
+  const window = cargarComponente();
+  const { pedir, pendientes } = pedirDiferido();
+  window.pedir = pedir;
+  const c = crearComponente(window);
+  c.form.proveedor_id = 9;
+  c.form.costo = '100';
+  c.form.margen = '40';
+
+  const promesa = c.pedirPreview();
+  pendientes[0].resolver({ moneda: 'ars', dolar_proveedor: null, precio_venta: '140', margen: '40.00', redondeo: '100.00', redondeado: true });
+  await promesa;
+
+  assert.equal(c.redondeoTexto, 'Redondeado hacia arriba a múltiplos de $ 100');
+});
+
 test('cuerpo: stock_inicial negativo o inválido en el alta queda en 0', () => {
   const window = cargarComponente();
   const c = crearComponente(window);

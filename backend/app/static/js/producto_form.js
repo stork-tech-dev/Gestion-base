@@ -64,6 +64,7 @@
       descripcion: '',
       costo: '',
       margen: margenDefault,
+      precio_venta: '',
       peso_gramos: '',
       descuento_producto: '0',
       temporada: 'atemporal',
@@ -83,11 +84,13 @@
       descripcion: p.descripcion,
       costo: String(p.costo),
       margen: String(p.margen),
+      precio_venta: String(p.precio_venta),
       peso_gramos: p.peso_gramos === null || p.peso_gramos === undefined ? '' : String(p.peso_gramos),
       descuento_producto: String(p.descuento_producto),
       temporada: p.temporada,
       ubicacion_deposito: p.ubicacion_deposito || '',
       stock_infinito: !!p.stock_infinito,
+      fotos: p.fotos || [],
     };
   }
 
@@ -97,6 +100,40 @@
     if (Number.isNaN(n)) return false;
     return permiteCero ? n >= 0 : n > 0;
   }
+
+  // ---------- Margen ↔ precio de venta (funciones puras, testeables) ----------
+
+  // Valor null/'' → null (así lo manda el body; el otro modo siempre va en null).
+  function _oNulo(valor) {
+    return valor === '' || valor === null || valor === undefined ? null : String(valor);
+  }
+
+  // Parámetros del GET /precio-preview: costo siempre; margen O precio_venta
+  // según el modo vigente (el campo del otro modo no se manda).
+  function paramsPreview(form, modo) {
+    const params = { proveedor_id: form.proveedor_id, costo: form.costo };
+    if (modo === 'precio') params.precio_venta = form.precio_venta;
+    else params.margen = form.margen;
+    return params;
+  }
+
+  // Mitad del body que manda el precio: margen O precio_venta, el otro en
+  // null (el service los trata como "no vino" y usa el que corresponda).
+  function cuerpoPrecio(form, modo) {
+    return modo === 'precio'
+      ? { precio_venta: _oNulo(form.precio_venta), margen: null }
+      : { margen: _oNulo(form.margen), precio_venta: null };
+  }
+
+  // Leyenda debajo del precio calculado. Vacía sin redondeo configurado
+  // (multiplo <= 0) o con el precio cargado a mano (no pasa por la fórmula).
+  function textoRedondeo(redondeo, redondeado) {
+    const multiplo = Number(redondeo);
+    if (!redondeado || !Number.isFinite(multiplo) || multiplo <= 0) return '';
+    return 'Redondeado hacia arriba a múltiplos de $ ' + window.pesos(redondeo);
+  }
+
+  window.productoFormLogica = { paramsPreview, cuerpoPrecio, textoRedondeo };
 
   // ---------- Componente Alpine ----------
 
@@ -117,6 +154,12 @@
       guardando: false,
       precioPreview: null,
       dolarProveedor: null,
+      // Último campo que tocó el usuario entre margen y precio de venta: el
+      // que manda al guardar y el que se usa al recalcular por un cambio de
+      // costo. 'margen' al abrir (alta y edición).
+      modoPrecio: 'margen',
+      redondeo: null,
+      redondeado: false,
       similares: [],
       similarActivo: 0,
       fotoInicial: null,
@@ -134,6 +177,9 @@
         this.guardando = false;
         this.precioPreview = null;
         this.dolarProveedor = null;
+        this.modoPrecio = 'margen';
+        this.redondeo = null;
+        this.redondeado = false;
         this.similares = [];
         this.similarActivo = 0;
         this.fotoInicial = null;
@@ -184,7 +230,7 @@
       // Va por el mismo secuenciador que pedirPreview: si el usuario ya cambió
       // costo o margen, gana esa respuesta.
       async _cargarDolar(apertura) {
-        const params = new URLSearchParams({ proveedor_id: this.form.proveedor_id, costo: this.form.costo, margen: this.form.margen });
+        const params = new URLSearchParams(paramsPreview(this.form, 'margen'));
         try {
           const datos = await this._ultimaPreview(window.pedir(`${API}/precio-preview?${params}`));
           if (datos === undefined || apertura !== this._apertura) return;
@@ -244,29 +290,58 @@
         this.pedirPreview();
       },
 
-      // Se llama con @input.debounce.300ms desde costo y margen.
+      // Último campo tocado por el usuario: gana ese modo y se recalcula el
+      // otro campo con la respuesta.
+      alEditarMargen() {
+        this.modoPrecio = 'margen';
+        this.pedirPreview();
+      },
+
+      alEditarPrecio() {
+        this.modoPrecio = 'precio';
+        this.pedirPreview();
+      },
+
+      get redondeoTexto() {
+        return textoRedondeo(this.redondeo, this.redondeado);
+      },
+
+      // Se llama con @input.debounce.300ms desde costo, margen y precio de
+      // venta (los dos últimos, a través de alEditarMargen/alEditarPrecio).
+      // Según `modoPrecio`: con margen, recalcula el precio; con precio
+      // manual, recalcula el margen (el precio se respeta exacto).
       async pedirPreview() {
         const proveedorId = this.form.proveedor_id;
         const costoValido = numeroValido(this.form.costo, { permiteCero: false });
-        const margenValido = numeroValido(this.form.margen);
+        const valorValido = this.modoPrecio === 'precio'
+          ? numeroValido(this.form.precio_venta, { permiteCero: false })
+          : numeroValido(this.form.margen);
         const apertura = this._apertura;
-        if (!proveedorId || !costoValido || !margenValido) {
+        if (!proveedorId || !costoValido || !valorValido) {
           // Invalida también un pedido en vuelo: su respuesta ya no corresponde.
           this._ultimaPreview(Promise.resolve(null));
           this.precioPreview = null;
           this.dolarProveedor = null;
+          this.redondeo = null;
+          this.redondeado = false;
           return;
         }
         try {
-          const params = new URLSearchParams({ proveedor_id: proveedorId, costo: this.form.costo, margen: this.form.margen });
+          const params = new URLSearchParams(paramsPreview(this.form, this.modoPrecio));
           const datos = await this._ultimaPreview(window.pedir(`${API}/precio-preview?${params}`));
           // Respuesta vieja: llegó otra más nueva o se abrió otro producto mientras tanto.
           if (datos === undefined || apertura !== this._apertura) return;
           this.precioPreview = datos.precio_venta;
           this.dolarProveedor = datos.dolar_proveedor;
+          this.redondeo = datos.redondeo;
+          this.redondeado = datos.redondeado;
+          if (this.modoPrecio === 'precio') this.form.margen = String(datos.margen);
+          else this.form.precio_venta = String(datos.precio_venta);
         } catch (e) {
           this.precioPreview = null;
           this.dolarProveedor = null;
+          this.redondeo = null;
+          this.redondeado = false;
         }
       },
 
@@ -319,8 +394,7 @@
           categoria_id: this.categoriaId,
           descripcion: this.form.descripcion,
           costo: String(this.form.costo),
-          margen: this.form.margen === '' || this.form.margen === null || this.form.margen === undefined
-            ? null : String(this.form.margen),
+          ...cuerpoPrecio(this.form, this.modoPrecio),
           sku_proveedor: (this.form.sku_proveedor || '').trim() || null,
           descuento_producto: String(this.form.descuento_producto || 0),
           peso_gramos: this.form.peso_gramos === '' || this.form.peso_gramos === null || this.form.peso_gramos === undefined

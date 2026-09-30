@@ -1,6 +1,7 @@
 {% from "components/modal.html" import modal %}
 {% from "components/form_field.html" import campo, campo_select, campo_booleano %}
 {% from "components/combobox.html" import combobox %}
+{% from "components/fotos_producto.html" import fotos_producto %}
 {# Formulario de producto (alta y edición), componente Alpine en
    static/js/producto_form.js. Se abre con el evento de ventana
    `abrir-producto-form` (detail: {producto: null|ProductoDetalle}) y al
@@ -83,14 +84,13 @@
       </div>
 
       {{ campo("pf-margen", "Margen %", tipo="number", modelo="form.margen", requerido=True, error="errores.margen",
-               atributos=':disabled="!form.proveedor_id" min="0" step="0.01" inputmode="decimal" @input.debounce.300ms="pedirPreview()"') }}
+               atributos=':disabled="!form.proveedor_id" min="0" step="0.01" inputmode="decimal" @input.debounce.300ms="alEditarMargen()"') }}
 
       <div class="flex flex-col gap-1 sm:col-span-2">
-        <span class="text-lg font-medium text-texto">Precio de venta</span>
-        <p class="text-texto">
-          <span x-text="precioPreview !== null ? pesos(precioPreview) : '—'"></span>
-          <template x-if="dolarProveedor"><span class="text-texto-muted" x-text="'· dólar $ ' + pesos(dolarProveedor)"></span></template>
-        </p>
+        {{ campo("pf-precio", "Precio de venta", tipo="number", modelo="form.precio_venta", error="errores.precio_venta",
+                 atributos=':disabled="!form.proveedor_id" min="0.01" step="0.01" inputmode="decimal" @input.debounce.300ms="alEditarPrecio()"') }}
+        <p class="text-sm text-texto-muted" x-show="redondeoTexto" x-text="redondeoTexto"></p>
+        <template x-if="dolarProveedor"><p class="text-sm text-texto-muted" x-text="'· dólar $ ' + pesos(dolarProveedor)"></p></template>
       </div>
     </div>
 
@@ -134,6 +134,17 @@
           <button type="button" class="boton boton-secundario" x-show="activa" @click="detener()">Cancelar</button>
         </div>
         <p class="text-sm text-texto-muted" x-show="!activa && fotoInicial">Foto lista para subir.</p>
+      </div>
+    </template>
+
+    {# Edición: agregar, tomar, marcar principal y borrar fotos sin salir del
+       formulario. Los cambios se guardan al instante (no esperan a "Finalizar"),
+       a diferencia del resto del form: por eso la aclaración de abajo. #}
+    <template x-if="form.id">
+      <div class="flex flex-col gap-2">
+        <span class="text-lg font-medium text-texto">Fotos</span>
+        {{ fotos_producto("form.id", "form.fotos", "true", "abierto ? _apertura : null", al_cambiar="cargar(pagina)", vigilar_producto_expr="form.id") }}
+        <p class="text-sm text-texto-muted">Las fotos se guardan al instante.</p>
       </div>
     </template>
     {% endif %}

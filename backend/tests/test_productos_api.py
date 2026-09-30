@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from sqlalchemy import select
 
@@ -50,7 +52,8 @@ def test_rutas_fijas(client, crear_usuario, headers_de, db):
     p = _alta(client, h, hoja, prov, descripcion="Remera lisa roja grande").json()
     vista = client.get(f"{URL}/precio-preview", params={"proveedor_id": prov["id"], "costo": "10.01", "margen": "10"},
                        headers=h).json()
-    assert vista == {"moneda": "usd", "dolar_proveedor": "1000.00", "precio_venta": "11100.00"}
+    assert vista["moneda"] == "usd" and vista["dolar_proveedor"] == "1000.00" and vista["precio_venta"] == "11100.00"
+    assert vista["margen"] == "10.00" and vista["redondeado"] is True and Decimal(vista["redondeo"]) == Decimal("100")
     similares = client.get(f"{URL}/similares", params={"descripcion": "remera lisa roja", "proveedor_id": prov["id"]},
                            headers=h).json()
     assert similares[0]["id"] == p["id"]
@@ -58,6 +61,50 @@ def test_rutas_fijas(client, crear_usuario, headers_de, db):
     assert client.get(f"{URL}/por-codigo", params={"codigo": "ZZ999"}, headers=h).status_code == 404
     r = client.get(f"{URL}/{p['id']}/barcode", headers=h)
     assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+
+
+def test_precio_preview_con_precio_venta_manual(client, crear_usuario, headers_de, db):
+    h = headers_de(crear_usuario("admin"))
+    hoja, prov = _base(client, h, db)                       # redondeo 100, prov en dólares (1000)
+    vista = client.get(f"{URL}/precio-preview",
+                       params={"proveedor_id": prov["id"], "costo": "1000", "precio_venta": "1500000"},
+                       headers=h).json()
+    # costo en pesos = 1000 × 1000 = 1.000.000; precio 1.500.000 → margen 50 %.
+    assert vista["precio_venta"] == "1500000.00" and vista["margen"] == "50.00" and vista["redondeado"] is False
+
+
+def test_precio_preview_exige_exactamente_uno_de_margen_o_precio(client, crear_usuario, headers_de, db):
+    h = headers_de(crear_usuario("admin"))
+    hoja, prov = _base(client, h, db)
+    params_base = {"proveedor_id": prov["id"], "costo": "1000"}
+    assert client.get(f"{URL}/precio-preview", params=params_base, headers=h).status_code == 422
+    assert client.get(f"{URL}/precio-preview", params={**params_base, "margen": "10", "precio_venta": "1500"},
+                      headers=h).status_code == 422
+
+
+def test_alta_y_edicion_rechazan_margen_y_precio_venta_juntos(client, crear_usuario, headers_de, db):
+    h = headers_de(crear_usuario("admin"))
+    hoja, prov = _base(client, h, db)
+    r = _alta(client, h, hoja, prov, margen="10", precio_venta="1500")
+    assert r.status_code == 422
+    p = _alta(client, h, hoja, prov).json()
+    r = client.put(f"{URL}/{p['id']}", json={"categoria_id": hoja["id"], "costo": "10", "margen": "10",
+                                             "precio_venta": "15", "descripcion": p["descripcion"]}, headers=h)
+    assert r.status_code == 422
+    # La edición exige uno de los dos: ninguno también es 422.
+    r = client.put(f"{URL}/{p['id']}", json={"categoria_id": hoja["id"], "costo": "10",
+                                             "descripcion": p["descripcion"]}, headers=h)
+    assert r.status_code == 422
+
+
+def test_edicion_con_precio_venta_manual_por_api(client, crear_usuario, headers_de, db):
+    h = headers_de(crear_usuario("admin"))
+    hoja, prov = _base(client, h, db)
+    p = _alta(client, h, hoja, prov, costo="10", margen="0").json()    # precio 10000.00 (10 US$ × 1000)
+    r = client.put(f"{URL}/{p['id']}", json={"categoria_id": hoja["id"], "costo": "10", "precio_venta": "12000",
+                                             "descripcion": p["descripcion"]}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["precio_venta"] == "12000.00" and r.json()["margen"] == "20.00"
 
 
 def test_fotos_y_etiquetas(client, crear_usuario, headers_de, db):

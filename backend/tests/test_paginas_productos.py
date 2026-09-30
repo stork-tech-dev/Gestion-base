@@ -71,3 +71,13 @@ def test_ficha_muestra_link_a_stock_con_permiso(crear_usuario, iniciar_sesion):
     # Admin y Vendedor (seed.sql) tienen STOCK ver: ven el link "Ver en Stock".
     assert "Ver en Stock" in iniciar_sesion(crear_usuario("admin")).get("/productos").text
     assert "Ver en Stock" in iniciar_sesion(crear_usuario("vendedor")).get("/productos").text
+
+
+# --- Task 4: precio manual, redondeo visible y fotos al editar ---------
+
+def test_listado_carga_fotos_producto_js_y_precio_manual(crear_usuario, iniciar_sesion):
+    html = iniciar_sesion(crear_usuario("admin")).get("/productos").text
+    assert "/static/js/fotos_producto.js?v=" in html
+    assert 'id="pf-precio"' in html
+    # fotos_producto.js va ANTES que productos.js (usa window.fotosProducto).
+    assert html.index("fotos_producto.js") < html.index("productos.js")
