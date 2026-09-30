@@ -21,10 +21,35 @@
     esCodigo: (texto) => /^[A-Za-z]{2}[0-9]{3}[0-9A-Za-z]?$/.test(String(texto || '').trim()),
     // En el desplegable: sin stock y sin stock infinito → deshabilitado.
     puedeAgregar: (p) => p.stock_infinito || p.stock > 0,
-    // Texto de la columna Descuento.
-    textoDescuento: (item) => item.en_promocion ? 'Promo'
-      : (Number(item.descuento_item) > 0 ? `${Number(item.descuento_item)}% · ${item.motivo?.nombre ?? ''}` : ''),
-    puedeDescontar: (item, permiso) => permiso && !item.en_promocion,
+    // Cantidad tipeada en una línea → entero válido o null (vacío, decimal,
+    // negativo, > 999: se ignora y la fila vuelve a la cantidad de la API).
+    cantidadValida: (valor) => {
+      const texto = String(valor ?? '').trim();
+      if (!/^\d+$/.test(texto)) return null;
+      const n = Number(texto);
+      return n <= 999 ? n : null;
+    },
+    // El + de una línea: deshabilitado si ya se llegó al stock (null = infinito).
+    puedeSumar: (linea) => linea.stock === null || linea.cantidad < linea.stock,
+    // Columna Descuento de una línea.
+    textoDescuentoLinea: (linea) => {
+      if (linea.unidades_en_promocion) return linea.unidades_en_promocion === linea.cantidad
+        ? 'Promo' : `Promo (${linea.unidades_en_promocion} de ${linea.cantidad})`;
+      return Number(linea.descuento_item) > 0 ? `${Number(linea.descuento_item)}% · ${linea.motivo?.nombre ?? ''}` : '';
+    },
+    puedeDescontarLinea: (linea, permiso) => permiso && !linea.unidades_en_promocion,
+    // % que representa el descuento general sobre el total antes de aplicarlo (1 decimal, para mostrar).
+    porcentajeDescuentoGeneral: (venta) => {
+      const monto = Number(venta?.descuento_general || 0);
+      const base = Number(venta?.cobrable || 0) + monto;
+      return monto > 0 && base > 0 ? Math.round((monto / base) * 1000) / 10 : 0;
+    },
+    // Cuerpo de POST /descuento-general según el modo elegido ('porcentaje' | 'total').
+    cuerpoDescuentoGeneral: (modo, valor) => {
+      const texto = String(valor ?? '').trim().replace(',', '.');
+      if (!texto) return null;
+      return modo === 'total' ? { total: texto, porcentaje: null } : { porcentaje: texto, total: null };
+    },
     // Índice del desplegable con flechas (circular, -1 = ninguno).
     moverIndice: (actual, total, delta) => total === 0 ? -1 : (actual + delta + total) % total,
     // Pagos que se mandan al backend: el monto del primero solo importa si hay dos.
@@ -125,10 +150,11 @@
       opcionesPago: [[], []],
       confirmando: false,
       descartando: false,
+      descuentoGeneral: { modo: 'total', valor: '' },
 
-      // Popover (modal) de descuento de un ítem.
+      // Popover (modal) de descuento de una línea.
       descuentoAbierto: false,
-      descuento: { item: null, motivo_id: '', porcentaje: '' },
+      descuento: { linea: null, motivo_id: '', porcentaje: '' },
       // Alta rápida de cliente.
       clienteAbierto: false,
       clienteForm: window.clienteFormulario.vacio(),
@@ -162,6 +188,8 @@
 
       // ---------- Estado derivado (solo presentación) ----------
       get items() { return this.venta ? this.venta.items : []; },
+      // Carrito que muestra la tabla: unidades agrupadas por producto + descuento (Task 3).
+      get lineas() { return this.venta ? this.venta.lineas : []; },
       get hayModalAbierto() {
         return this.descuentoAbierto || this.clienteAbierto || this.confirmadaAbierta || this._pidiendoConfirmacion;
       },
@@ -171,8 +199,6 @@
       },
       // Importe con signo de pesos (formato es-AR de app.js).
       plata: (valor) => '$ ' + window.pesos(valor),
-      textoDescuento: (item) => L.textoDescuento(item),
-      puedeDescontarItem(item) { return L.puedeDescontar(item, this.puedeDescontar); },
       montoEditable(indice) { return L.montoEditable(indice, this.pagos); },
       planesDe(indice) {
         const fila = this.pagos[indice];
@@ -240,6 +266,7 @@
         this._clavesOpcionesPago = [null, null];
         this.promociones = [];
         this.promocionElegida = '';
+        this.descuentoGeneral = { modo: 'total', valor: '' };
         this.productos.limpiar();
         this.clientes.limpiar();
       },
@@ -301,11 +328,21 @@
         await this.accion(pedido);
       },
 
-      async quitarItem(item) {
-        await this.accion(window.pedir(`${API}/${this.venta.id}/items/${item.id}`, { method: 'DELETE' }));
+      // ---------- Cantidad por línea (Task 3) ----------
+      async cambiarCantidad(linea, campo) {
+        const cantidad = L.cantidadValida(campo.value);
+        if (cantidad === null || cantidad === linea.cantidad) { campo.value = linea.cantidad; return; }
+        const ok = await this._fijarCantidad(linea, cantidad);
+        if (!ok) campo.value = linea.cantidad;   // rechazada (ej. stock): vuelve a la de la API
+      },
+      sumar(linea, delta) { return this._fijarCantidad(linea, linea.cantidad + delta); },
+      quitarLinea(linea) { return this._fijarCantidad(linea, 0); },
+      _fijarCantidad(linea, cantidad) {
+        return this.accion(window.pedir(`${API}/${this.venta.id}/items/${linea.item_id}/cantidad`,
+                                        { method: 'PUT', body: { cantidad } }));
       },
 
-      // ---------- Descuento por ítem ----------
+      // ---------- Descuento por línea ----------
       async cargarOpcionesDescuento() {
         if (!this.puedeDescontar) return;
         try {
@@ -315,11 +352,11 @@
         }
       },
 
-      abrirDescuento(item) {
+      abrirDescuento(linea) {
         this.descuento = {
-          item,
-          motivo_id: item.motivo ? String(item.motivo.id) : '',
-          porcentaje: Number(item.descuento_item) > 0 ? String(Number(item.descuento_item)) : '',
+          linea,
+          motivo_id: linea.motivo ? String(linea.motivo.id) : '',
+          porcentaje: Number(linea.descuento_item) > 0 ? String(Number(linea.descuento_item)) : '',
         };
         this.descuentoAbierto = true;
       },
@@ -335,9 +372,21 @@
         }
         const ok = await this.accion(window.pedir(`${API}/${this.venta.id}/descuento`, {
           method: 'POST',
-          body: { item_id: this.descuento.item.id, motivo_id: motivo ? motivo.id : null, porcentaje },
+          body: { item_id: this.descuento.linea.item_id, motivo_id: motivo ? motivo.id : null, porcentaje },
         }));
         if (ok) this.descuentoAbierto = false;
+      },
+
+      // ---------- Descuento general de la venta ----------
+      async aplicarDescuentoGeneral() {
+        const cuerpo = L.cuerpoDescuentoGeneral(this.descuentoGeneral.modo, this.descuentoGeneral.valor);
+        if (!cuerpo) { window.toast('Escribí el total final o el porcentaje.', 'error'); return; }
+        const ok = await this.accion(window.pedir(`${API}/${this.venta.id}/descuento-general`, { method: 'POST', body: cuerpo }));
+        if (ok) this.descuentoGeneral.valor = '';
+      },
+      quitarDescuentoGeneral() {
+        return this.accion(window.pedir(`${API}/${this.venta.id}/descuento-general`,
+                                        { method: 'POST', body: { porcentaje: null, total: null } }));
       },
 
       // ---------- Cliente ----------

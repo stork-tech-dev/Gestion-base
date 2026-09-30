@@ -68,17 +68,49 @@ test('puedeAgregar: con stock o stock infinito', () => {
   assert.equal(L.puedeAgregar({ stock: -2, stock_infinito: false }), false);
 });
 
-test('textoDescuento: Promo, "X% · Motivo" o vacío', () => {
-  assert.equal(L.textoDescuento({ en_promocion: true, descuento_item: '0.00', motivo: null }), 'Promo');
-  assert.equal(L.textoDescuento({ en_promocion: false, descuento_item: '15.00', motivo: { id: 1, nombre: 'Fallado' } }),
-    '15% · Fallado');
-  assert.equal(L.textoDescuento({ en_promocion: false, descuento_item: '0.00', motivo: null }), '');
+test('cantidadValida: entero 0-999 o null', () => {
+  assert.equal(L.cantidadValida('3'), 3);
+  assert.equal(L.cantidadValida(''), null);
+  assert.equal(L.cantidadValida('2.5'), null);
+  assert.equal(L.cantidadValida('-1'), null);
+  assert.equal(L.cantidadValida('1000'), null);
+  assert.equal(L.cantidadValida('0'), 0);
 });
 
-test('puedeDescontar: con permiso y fuera de promoción', () => {
-  assert.equal(L.puedeDescontar({ en_promocion: false }, true), true);
-  assert.equal(L.puedeDescontar({ en_promocion: true }, true), false);
-  assert.equal(L.puedeDescontar({ en_promocion: false }, false), false);
+test('puedeSumar: tope de stock (null = infinito)', () => {
+  assert.equal(L.puedeSumar({ stock: 3, cantidad: 3 }), false);
+  assert.equal(L.puedeSumar({ stock: 3, cantidad: 2 }), true);
+  assert.equal(L.puedeSumar({ stock: null, cantidad: 999 }), true);
+});
+
+test('textoDescuentoLinea: Promo, Promo parcial, "X% · Motivo" o vacío', () => {
+  assert.equal(L.textoDescuentoLinea({ unidades_en_promocion: 3, cantidad: 3, descuento_item: '0.00', motivo: null }),
+    'Promo');
+  assert.equal(L.textoDescuentoLinea({ unidades_en_promocion: 1, cantidad: 3, descuento_item: '0.00', motivo: null }),
+    'Promo (1 de 3)');
+  assert.equal(L.textoDescuentoLinea({ unidades_en_promocion: 0, cantidad: 2, descuento_item: '15.00',
+    motivo: { id: 1, nombre: 'Fallado' } }), '15% · Fallado');
+  assert.equal(L.textoDescuentoLinea({ unidades_en_promocion: 0, cantidad: 1, descuento_item: '0.00', motivo: null }),
+    '');
+});
+
+test('puedeDescontarLinea: con permiso y fuera de promoción', () => {
+  assert.equal(L.puedeDescontarLinea({ unidades_en_promocion: 0 }, true), true);
+  assert.equal(L.puedeDescontarLinea({ unidades_en_promocion: 2 }, true), false);
+  assert.equal(L.puedeDescontarLinea({ unidades_en_promocion: 0 }, false), false);
+});
+
+test('porcentajeDescuentoGeneral: % sobre el total antes de aplicarlo', () => {
+  assert.equal(L.porcentajeDescuentoGeneral({ descuento_general: '3.00', cobrable: '80.00' }), 3.6);
+  assert.equal(L.porcentajeDescuentoGeneral({ descuento_general: '0.00', cobrable: '80.00' }), 0);
+  assert.equal(L.porcentajeDescuentoGeneral(null), 0);
+});
+
+test('cuerpoDescuentoGeneral: cuerpo de POST /descuento-general', () => {
+  assert.deepEqual(plano(L.cuerpoDescuentoGeneral('total', '80')), { total: '80', porcentaje: null });
+  assert.deepEqual(plano(L.cuerpoDescuentoGeneral('porcentaje', '10,5')), { porcentaje: '10.5', total: null });
+  assert.equal(L.cuerpoDescuentoGeneral('total', ''), null);
+  assert.equal(L.cuerpoDescuentoGeneral('total', '   '), null);
 });
 
 test('moverIndice: circular y -1 sin resultados', () => {
