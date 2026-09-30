@@ -300,9 +300,10 @@ reintento ante colisión (se anota en el ticket para identificar la venta);
    (`services.turnos.turno_para_operar()`, sesión 07: 409 con el mensaje del
    bloqueo o "No hay un turno de caja abierto."; si el módulo todavía no
    existe, se omite), exige ítems y pagos que cubran; movimiento `venta` por
-   producto (cantidad negativa, `permitir_faltante=True`); genera
-   `codigo_cambio`; sella `confirmada_en` y `turno_id`; estado `confirmada`.
-   Todo en una transacción. Audita `venta.confirmada`.
+   producto (cantidad negativa; el producto queda bloqueado mientras se
+   aplica y 409 si el stock ya no alcanza — la venta nunca lo deja negativo);
+   genera `codigo_cambio`; sella `confirmada_en` y `turno_id`; estado
+   `confirmada`. Todo en una transacción. Audita `venta.confirmada`.
 8. `descartar_venta(venta)`: borra una venta `en_curso`. Audita `venta.descartar`.
 9. `anular_venta(autor, venta_id, motivo)`: solo ventas `confirmada` (409 si
    está en curso o ya anulada); motivo obligatorio (1-500); **exige turno
@@ -519,8 +520,9 @@ Promociones asignadas (asignar/quitar).
   del mismo usuario.
 - La pantalla de venta funciona igual para Admin, Supervisor y Vendedor (solo
   cambian los permisos, p. ej. descontar).
-- Agregar un producto sin stock devuelve aviso (no bloquea en la API); la
-  pantalla no ofrece agregarlo desde el buscador.
+- Agregar un producto o subir su cantidad nunca puede superar el stock
+  (bloqueante, 409 en la API); la pantalla no ofrece agregarlo desde el
+  buscador si ya no queda stock.
 - Descuentos: solo de la lista (5 en 5 hasta el tope), con motivo; tope
   (`tope_descuento_venta`) sumando el del producto; cálculo encadenado con
   redondeo hacia abajo; `porcentaje_modificado` registrado; nunca sobre ítems
@@ -529,9 +531,9 @@ Promociones asignadas (asignar/quitar).
   aplica sola la promoción de mayor ahorro; las exclusivas solo para sus clientes.
 - Recargo solo sobre la parte financiada; `costo_medio` nunca afecta el precio.
 - Los pagos deben sumar exactamente lo cobrable; máximo 2 medios.
-- Confirmar exige turno abierto de hoy, descuenta stock (puede quedar negativo),
-  congela el costo de cada unidad y genera un código de cambio único de 4
-  caracteres sin I/O/0/1, todo atómico.
+- Confirmar exige turno abierto de hoy, descuenta stock (nunca lo deja
+  negativo: 409 si otro vendió en el medio), congela el costo de cada unidad
+  y genera un código de cambio único de 4 caracteres sin I/O/0/1, todo atómico.
 - Anular devuelve el stock, deja la venta `anulada` con motivo y usuario, y su
   importe se resta en la caja del turno en que se anuló; los arqueos cerrados
   no cambian.
