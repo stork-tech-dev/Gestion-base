@@ -297,7 +297,7 @@
           return;
         }
         const pedido = window.pedir(`${API}/${ventaId}/items`, { method: 'POST', body: { producto_id: productoId } })
-          .then((r) => { if (r.aviso) window.toast(r.aviso, 'error'); return r.venta; });
+          .then((venta) => venta);
         await this.accion(pedido);
       },
 

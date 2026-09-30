@@ -32,6 +32,7 @@ ALFABETO_CODIGO = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   # A-Z0-9 sin I, O, 0, 1
 LARGO_CODIGO = 4
 INTENTOS_CODIGO = 20
 TAMANO_MAXIMO = 100
+CANTIDAD_MAXIMA = 999   # por pedido: tope de sanidad (el tope real es el stock)
 
 
 # --- Lectura y locks ------------------------------------------------------------
@@ -74,6 +75,19 @@ def _item_de(venta: Venta, item_id: int) -> VentaItem:
     if item is None:
         raise NoEncontrado("Ítem no encontrado en esta venta")
     return item
+
+
+def _clave_linea(item: VentaItem) -> tuple:
+    """Unidades del mismo producto con el mismo descuento = una línea del carrito."""
+    return (item.producto_id, item.descuento_item, item.motivo_descuento_id)
+
+
+def lineas(venta: Venta) -> list[list[VentaItem]]:
+    """Unidades agrupadas en líneas, en el orden de su primera unidad."""
+    grupos: dict[tuple, list[VentaItem]] = {}
+    for item in sorted(venta.items, key=lambda i: i.orden):
+        grupos.setdefault(_clave_linea(item), []).append(item)
+    return list(grupos.values())
 
 
 def _turno_para_operar(db, autor, ip) -> int:
@@ -198,32 +212,83 @@ def iniciar_venta(db, autor, ip) -> Venta:
     return venta
 
 
+def _validar_cantidad(cantidad: int, *, permite_cero: bool) -> None:
+    minimo = 0 if permite_cero else 1
+    if not isinstance(cantidad, int) or not minimo <= cantidad <= CANTIDAD_MAXIMA:
+        raise DatoInvalido(f"La cantidad tiene que estar entre {minimo} y {CANTIDAD_MAXIMA}")
+
+
+def _validar_stock(venta: Venta, producto, agregar: int) -> None:
+    """Decisión del usuario: la venta nunca supera el stock (stock infinito: sin tope)."""
+    if producto.stock_infinito:
+        return
+    cargadas = sum(1 for i in venta.items if i.producto_id == producto.id)
+    if cargadas + agregar > producto.stock:
+        if producto.stock <= 0:
+            raise ReglaDeNegocio(f"No hay stock de '{producto.descripcion}'.")
+        raise ReglaDeNegocio(f"Solo quedan {producto.stock} unidades de '{producto.descripcion}'.")
+
+
+def _nueva_unidad(venta: Venta, producto, *, descuento=Decimal("0"), motivo=None, modificado=False) -> VentaItem:
+    orden = max((i.orden for i in venta.items), default=0) + 1
+    # Los precios los completa _recalcular; acá solo para no violar NOT NULL.
+    item = VentaItem(
+        producto_id=producto.id, producto=producto, orden=orden,
+        precio_lista=producto.precio_venta, precio_unitario=producto.precio_venta,
+        precio_final=producto.precio_venta, costo_unitario=producto.costo_en_pesos,
+        descuento_item=descuento, motivo_descuento_id=motivo.id if motivo else None, motivo_descuento=motivo,
+        porcentaje_modificado=modificado, en_promocion=False,
+    )
+    venta.items.append(item)
+    return item
+
+
+def _carrito_cambio(venta: Venta) -> None:
+    """Cambió el carrito: la promoción elegida a mano deja de valer (se elige
+    la mejor de nuevo). La Task 2 suma acá el reset del descuento general."""
+    venta.promocion_a_mano = False
+
+
 def agregar_item(db, autor, venta_id: int, *, codigo: str | None = None, producto_id: int | None = None,
-                 ip=None) -> tuple[Venta, str | None]:
-    """Agrega UNA unidad. Devuelve (venta, aviso): el aviso de "sin stock" no
-    bloquea (la venta puede dejar el stock en negativo). Sin auditoría por ítem."""
+                 cantidad: int = 1, ip=None) -> Venta:
+    """Agrega `cantidad` unidades sin descuento (caen en la línea sin
+    descuento del producto). 409 si superan el stock. Sin auditoría por ítem."""
     if (codigo is None) == (producto_id is None):
         raise DatoInvalido("Indicá el código o el producto (uno de los dos)")
+    _validar_cantidad(cantidad, permite_cero=False)
     venta = _venta_propia_en_curso(db, autor, venta_id)
     producto = buscar_por_codigo(db, codigo) if codigo is not None else obtener_producto(db, producto_id)
     if not producto.activo:
         raise ReglaDeNegocio(f"'{producto.descripcion}' está inactivo")
-    ya_cargadas = sum(1 for i in venta.items if i.producto_id == producto.id)
-    aviso = None
-    if not producto.stock_infinito and producto.stock - ya_cargadas <= 0:
-        aviso = f"Sin stock de '{producto.descripcion}': controlá bien el código antes de continuar."
-    orden = max((i.orden for i in venta.items), default=0) + 1
-    # Los precios los completa _recalcular; acá solo para no violar NOT NULL.
-    venta.items.append(VentaItem(
-        producto_id=producto.id, producto=producto, orden=orden,
-        precio_lista=producto.precio_venta, precio_unitario=producto.precio_venta,
-        precio_final=producto.precio_venta, costo_unitario=producto.costo_en_pesos,
-        descuento_item=Decimal("0"), porcentaje_modificado=False, en_promocion=False,
-    ))
-    db.flush()   # el ítem necesita id: promociones.simular indexa por item.id
-    venta.promocion_a_mano = False
+    _validar_stock(venta, producto, cantidad)
+    for _ in range(cantidad):
+        _nueva_unidad(venta, producto)
+    db.flush()   # los ítems necesitan id: promociones.simular indexa por item.id
+    _carrito_cambio(venta)
     _recalcular(db, venta)
-    return venta, aviso
+    return venta
+
+
+def cambiar_cantidad(db, autor, venta_id: int, item_id: int, cantidad: int, ip=None) -> Venta:
+    """Fija la cantidad de la línea del ítem: sube con el mismo descuento de la
+    línea, baja quitando las últimas unidades, 0 quita la línea."""
+    _validar_cantidad(cantidad, permite_cero=True)
+    venta = _venta_propia_en_curso(db, autor, venta_id)
+    item = _item_de(venta, item_id)
+    linea = [i for i in venta.items if _clave_linea(i) == _clave_linea(item)]
+    diferencia = cantidad - len(linea)
+    if diferencia > 0:
+        _validar_stock(venta, item.producto, diferencia)
+        for _ in range(diferencia):
+            _nueva_unidad(venta, item.producto, descuento=item.descuento_item, motivo=item.motivo_descuento,
+                          modificado=item.porcentaje_modificado)
+    else:
+        for sobrante in sorted(linea, key=lambda i: i.orden, reverse=True)[:-diferencia]:
+            venta.items.remove(sobrante)
+    db.flush()
+    _carrito_cambio(venta)
+    _recalcular(db, venta)
+    return venta
 
 
 def quitar_item(db, autor, venta_id: int, item_id: int) -> Venta:
@@ -231,7 +296,7 @@ def quitar_item(db, autor, venta_id: int, item_id: int) -> Venta:
     item = _item_de(venta, item_id)
     venta.items.remove(item)
     db.flush()
-    venta.promocion_a_mano = False
+    _carrito_cambio(venta)
     _recalcular(db, venta)
     return venta
 
@@ -247,34 +312,38 @@ def asociar_cliente(db, autor, venta_id: int, cliente_id: int | None) -> Venta:
     # respuesta lee la relación.
     venta.cliente_id = cliente.id if cliente else None
     venta.cliente = cliente
-    venta.promocion_a_mano = False
+    _carrito_cambio(venta)
     _recalcular(db, venta)
     return venta
 
 
 def aplicar_descuento_item(db, autor, venta_id: int, item_id: int, motivo_id: int | None, porcentaje,
                            ip) -> Venta:
-    """El permiso `venta.descuento` lo chequea el router."""
+    """El permiso `venta.descuento` lo chequea el router. Aplica a toda la
+    línea del ítem (mismo producto y mismo descuento): las unidades que
+    queden con el mismo descuento se vuelven a unir solas en una línea."""
     venta = _venta_propia_en_curso(db, autor, venta_id)
     item = _item_de(venta, item_id)
-    if item.en_promocion:
+    linea = [i for i in venta.items if _clave_linea(i) == _clave_linea(item)]
+    if any(i.en_promocion for i in linea):
         raise ReglaDeNegocio("Este producto está en una promoción: no admite otro descuento")
     motivo, valor, modificado = None, Decimal("0"), False
     if motivo_id is not None:
         motivo, valor, modificado = resolver_porcentaje(db, motivo_id, porcentaje)
         validar_tope(db, item.producto.descuento_producto, valor, item.producto.descripcion)
-    antes = {"item_id": item.id, "descuento_item": item.descuento_item,
+    antes = {"item_ids": [i.id for i in linea], "descuento_item": item.descuento_item,
              "motivo_descuento_id": item.motivo_descuento_id}
-    item.descuento_item = valor
-    item.motivo_descuento_id = motivo.id if motivo else None
-    item.motivo_descuento = motivo
-    item.porcentaje_modificado = modificado
-    venta.promocion_a_mano = False
+    for unidad in linea:
+        unidad.descuento_item = valor
+        unidad.motivo_descuento_id = motivo.id if motivo else None
+        unidad.motivo_descuento = motivo
+        unidad.porcentaje_modificado = modificado
+    _carrito_cambio(venta)
     _recalcular(db, venta)
     registrar_auditoria(db, accion="venta.descuento", entidad="venta", entidad_id=venta.id, usuario_id=autor.id,
                         estado_anterior=antes,
-                        estado_nuevo={"item_id": item.id, "descuento_item": item.descuento_item,
-                                      "motivo_descuento_id": item.motivo_descuento_id},
+                        estado_nuevo={"item_ids": [i.id for i in linea], "descuento_item": valor,
+                                      "motivo_descuento_id": motivo.id if motivo else None},
                         ip_origen=ip)
     return venta
 
@@ -361,9 +430,12 @@ def confirmar_venta(db, autor, venta_id: int, total_esperado: Decimal, ip) -> Ve
         raise ReglaDeNegocio("Cargá los medios de pago para cubrir el total")
     if venta.total != total_esperado:
         raise ReglaDeNegocio("Los precios cambiaron mientras cargabas la venta: revisá el total y volvé a confirmar.")
+    # Decisión del usuario: la venta nunca deja el stock en negativo. El
+    # producto queda bloqueado (aplicar_movimiento) mientras se aplica el
+    # movimiento: si otra venta se llevó stock en el medio, 409 acá.
     for producto_id, unidades in _movimientos_por_producto(venta):
         aplicar_movimiento(db, autor, tipo=TipoMovimientoStock.VENTA, producto_id=producto_id, cantidad=-unidades,
-                           referencia_venta_id=venta.id, permitir_faltante=True, ip_origen=ip)
+                           referencia_venta_id=venta.id, ip_origen=ip)
     venta.codigo_cambio = _generar_codigo(db)
     venta.confirmada_en = ahora_db()
     venta.turno_id = turno_id
@@ -481,7 +553,7 @@ def vendedores(db) -> list[Usuario]:
 # --- Respuestas ------------------------------------------------------------------------
 
 def a_respuesta(db, venta: Venta) -> VentaResponse:
-    return VentaResponse.desde(venta, servicio_categorias.caminos(db))
+    return VentaResponse.desde(venta, servicio_categorias.caminos(db), lineas(venta))
 
 
 def a_productos_venta(db, productos) -> list[ProductoVenta]:

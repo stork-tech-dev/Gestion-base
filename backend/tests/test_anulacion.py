@@ -31,7 +31,7 @@ def _confirmada(db, e):
     autor = e["vendedor"]
     venta = servicio.iniciar_venta(db, autor, None)
     for p in (e["p10"], e["p10"], e["p8"]):
-        venta, _ = servicio.agregar_item(db, autor, venta.id, producto_id=p.id)
+        venta = servicio.agregar_item(db, autor, venta.id, producto_id=p.id)
     efectivo = db.scalar(select(MedioDePago).where(MedioDePago.es_efectivo.is_(True)))
     venta = servicio.registrar_pagos(db, autor, venta.id,
                                      [{"medio_de_pago_id": efectivo.id, "monto": Decimal("1"), "plan_cuotas_id": None}])

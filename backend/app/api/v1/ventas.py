@@ -19,8 +19,8 @@ from app.core.utils import ip_de_request
 from app.models import EstadoVenta, Usuario
 from app.schemas.comunes import RespuestaPaginada
 from app.schemas.ventas import (
-    AgregarItemResponse,
     AnularVenta,
+    CantidadLinea,
     ClienteAsociar,
     ConfirmarVenta,
     DescuentoAplicar,
@@ -135,18 +135,26 @@ def iniciar(request: Request, db: Session = Depends(get_db), autor: Usuario = De
     return servicio.a_respuesta(db, venta)
 
 
-@router.post("/{venta_id}/items", response_model=AgregarItemResponse)
+@router.post("/{venta_id}/items", response_model=VentaResponse)
 def agregar_item(venta_id: int, datos: ItemAgregar, request: Request, db: Session = Depends(get_db),
                  autor: Usuario = Depends(puede_vender)):
-    venta, aviso = servicio.agregar_item(db, autor, venta_id, codigo=datos.codigo, producto_id=datos.producto_id,
-                                         ip=ip_de_request(request))
+    venta = servicio.agregar_item(db, autor, venta_id, codigo=datos.codigo, producto_id=datos.producto_id,
+                                  cantidad=datos.cantidad, ip=ip_de_request(request))
     db.commit()
-    return AgregarItemResponse(venta=servicio.a_respuesta(db, venta), aviso=aviso)
+    return servicio.a_respuesta(db, venta)
 
 
 @router.delete("/{venta_id}/items/{item_id}", response_model=VentaResponse)
 def quitar_item(venta_id: int, item_id: int, db: Session = Depends(get_db), autor: Usuario = Depends(puede_vender)):
     venta = servicio.quitar_item(db, autor, venta_id, item_id)
+    db.commit()
+    return servicio.a_respuesta(db, venta)
+
+
+@router.put("/{venta_id}/items/{item_id}/cantidad", response_model=VentaResponse)
+def cambiar_cantidad(venta_id: int, item_id: int, datos: CantidadLinea, request: Request,
+                     db: Session = Depends(get_db), autor: Usuario = Depends(puede_vender)):
+    venta = servicio.cambiar_cantidad(db, autor, venta_id, item_id, datos.cantidad, ip=ip_de_request(request))
     db.commit()
     return servicio.a_respuesta(db, venta)
 

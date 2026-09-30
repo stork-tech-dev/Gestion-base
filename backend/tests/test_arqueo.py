@@ -35,7 +35,7 @@ def e(db, crear_usuario):
 
 def _vender(db, e, medio_nombre):
     venta = servicio_ventas.iniciar_venta(db, e.vendedor, None)
-    venta, _ = servicio_ventas.agregar_item(db, e.vendedor, venta.id, producto_id=e.producto.id)
+    venta = servicio_ventas.agregar_item(db, e.vendedor, venta.id, producto_id=e.producto.id)
     venta = servicio_ventas.registrar_pagos(db, e.vendedor, venta.id, [
         {"medio_de_pago_id": _medio(db, medio_nombre).id, "monto": venta.cobrable, "plan_cuotas_id": None}])
     return servicio_ventas.confirmar_venta(db, e.vendedor, venta.id, venta.total, None)
