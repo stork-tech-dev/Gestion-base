@@ -51,7 +51,11 @@ class Producto(Base):
     margen: Mapped[Decimal] = mapped_column(Numeric(6, 2))
     # Desnormalizado (en pesos): CEIL(costo × dólar (o 1) × (1 + margen/100), redondeo).
     # Se guarda para listar/filtrar/vender sin recalcular; se recalcula en cascada
-    # al cambiar el dólar del proveedor y al editar costo o margen.
+    # al cambiar el dólar del proveedor y al editar costo o margen. Excepción:
+    # si se cargó a mano (precio_venta en vez de margen), se guarda EXACTO, sin
+    # el CEIL al redondeo; el margen se deriva de ese precio (margen_desde_precio).
+    # Un cambio posterior de dólar o costo igual recalcula con la fórmula y el
+    # redondeo de siempre, a partir de ese margen derivado (deja de ser "exacto").
     precio_venta: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     descuento_producto: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("0"))
     peso_gramos: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))

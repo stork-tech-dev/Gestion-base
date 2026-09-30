@@ -145,15 +145,17 @@ test('preview: dos cambios de costo seguidos, la respuesta vieja no pisa la del 
   pedidoUno.resolver({ moneda: 'usd', dolar_proveedor: '1000', precio_venta: '140000' });
   await promesaUno;
 
-  assert.equal(c.precioPreview, '280000');
+  assert.equal(c.form.precio_venta, '280000');
 });
 
-test('preview: sin proveedor, costo o margen válidos no hay pedido y el precio queda en null', async () => {
+test('preview: sin proveedor, costo o margen válidos no hay pedido y el dólar/redondeo quedan en null', async () => {
   const window = cargarComponente();
   const { pedir, pendientes } = pedirDiferido();
   window.pedir = pedir;
   const c = crearComponente(window);
-  c.precioPreview = '999';
+  c.dolarProveedor = '999';
+  c.redondeo = '1000';
+  c.redondeado = true;
 
   c.form.proveedor_id = null;
   c.form.costo = '100';
@@ -161,7 +163,9 @@ test('preview: sin proveedor, costo o margen válidos no hay pedido y el precio 
   await c.pedirPreview();
 
   assert.equal(pendientes.length, 0);
-  assert.equal(c.precioPreview, null);
+  assert.equal(c.dolarProveedor, null);
+  assert.equal(c.redondeo, null);
+  assert.equal(c.redondeado, false);
 });
 
 test('similares: al abrir otro producto no se pisan los parecidos con una respuesta vieja', async () => {
@@ -233,14 +237,14 @@ test('edición: muestra el precio guardado y, en dólares, el dólar vigente (si
   window.pedir = pedir;
   const c = crearComponente(window);
   const abriendo = c.abrir(producto({ id: 1, categoriaId: 3, moneda: 'usd' }));
-  assert.equal(c.precioPreview, '140');
+  assert.equal(c.form.precio_venta, '140');
   const preview = pendientes.find((p) => /precio-preview\?/.test(p.url));
   assert.ok(preview && /proveedor_id=9/.test(preview.url));
   pendientes.find((p) => p.url === '/api/v1/categorias/arbol').resolver(ARBOL);
   preview.resolver({ moneda: 'usd', dolar_proveedor: '1000', precio_venta: '999999' });
   await abriendo;
   assert.equal(c.dolarProveedor, '1000');
-  assert.equal(c.precioPreview, '140');
+  assert.equal(c.form.precio_venta, '140');   // _cargarDolar solo toca el dólar, no el precio
   assert.deepEqual([...c.elegidos], [1, 2, 3]);
 });
 
@@ -407,4 +411,24 @@ test('cuerpo: stock_inicial negativo o inválido en el alta queda en 0', () => {
 
   c.form.stock_inicial = 'no-es-numero';
   assert.equal(c.cuerpo().stock_inicial, 0);
+});
+
+test('guardar: en modo precio, el precio vacío no manda nada y marca el error como los demás obligatorios', async () => {
+  const window = cargarComponente();
+  let llamado = false;
+  window.pedir = () => { llamado = true; return Promise.resolve({}); };
+  window.toast = () => {};
+  window.dispatchEvent = () => {};
+  const c = crearComponente(window);
+  c.arbol = ARBOL;
+  c.elegidos = [1, 2, 3];   // categoriaId válido: no se corta antes por eso
+  c.form.proveedor_id = 9;
+  c.modoPrecio = 'precio';
+  c.form.precio_venta = '';
+
+  await c.guardar();
+
+  assert.equal(llamado, false);
+  assert.equal(c.errores.precio_venta, 'El precio de venta es obligatorio.');
+  assert.equal(c.guardando, false);
 });

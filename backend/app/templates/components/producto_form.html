@@ -14,6 +14,7 @@
    inicial es, en los hechos, un ingreso de stock (STOCK crear); sin ese
    permiso el campo no se muestra. `temporadas`: [(valor, texto)] de pages.py. #}
 {% macro producto_form_modal(es_admin, nivel_maximo, margen_default, descuento_maximo, puede_editar, temporadas, puede_stock_inicial) -%}
+{%- set precio_obligatorio = "modoPrecio === 'precio'" -%}
 <div x-data="productoForm({ esAdmin: {{ es_admin|js }}, nivelMaximo: {{ nivel_maximo|js }}, margenDefault: {{ margen_default|js }}, descuentoMaximo: {{ descuento_maximo|js }}, puedeStockInicial: {{ puede_stock_inicial|js }} })"
      @abrir-producto-form.window="abrir($event.detail.producto)">
   {% call modal("Producto", "modal-producto-form", abierto="abierto", titulo_expr="form.id ? 'Editar producto' : 'Nuevo producto'") %}
@@ -88,7 +89,8 @@
 
       <div class="flex flex-col gap-1 sm:col-span-2">
         {{ campo("pf-precio", "Precio de venta", tipo="number", modelo="form.precio_venta", error="errores.precio_venta",
-                 atributos=':disabled="!form.proveedor_id" min="0.01" step="0.01" inputmode="decimal" @input.debounce.300ms="alEditarPrecio()"') }}
+                 requerido_si=precio_obligatorio,
+                 atributos=':disabled="!form.proveedor_id" min="0.01" step="0.01" inputmode="decimal" @input.debounce.300ms="alEditarPrecio()" :required="' ~ precio_obligatorio ~ '"') }}
         <p class="text-sm text-texto-muted" x-show="redondeoTexto" x-text="redondeoTexto"></p>
         <template x-if="dolarProveedor"><p class="text-sm text-texto-muted" x-text="'· dólar $ ' + pesos(dolarProveedor)"></p></template>
       </div>

@@ -152,7 +152,6 @@
       proveedores: [],
       errores: {},
       guardando: false,
-      precioPreview: null,
       dolarProveedor: null,
       // Último campo que tocó el usuario entre margen y precio de venta: el
       // que manda al guardar y el que se usa al recalcular por un cambio de
@@ -175,7 +174,6 @@
         this.abierto = true;
         this.errores = {};
         this.guardando = false;
-        this.precioPreview = null;
         this.dolarProveedor = null;
         this.modoPrecio = 'margen';
         this.redondeo = null;
@@ -188,8 +186,8 @@
 
         if (producto) {
           this.form = formDesdeProducto(producto);
-          // En la edición se ve el precio actual (y el dólar si corresponde) sin tocar nada.
-          this.precioPreview = producto.precio_venta;
+          // En la edición se ve el precio actual (form.precio_venta) y, si
+          // corresponde, el dólar vigente: ninguno de los dos se toca acá.
           const pedidos = [this._cargarArbol(apertura, producto.categoria.id)];
           if (producto.proveedor.moneda === 'usd') pedidos.push(this._cargarDolar(apertura));
           await Promise.all(pedidos);
@@ -320,7 +318,6 @@
         if (!proveedorId || !costoValido || !valorValido) {
           // Invalida también un pedido en vuelo: su respuesta ya no corresponde.
           this._ultimaPreview(Promise.resolve(null));
-          this.precioPreview = null;
           this.dolarProveedor = null;
           this.redondeo = null;
           this.redondeado = false;
@@ -331,14 +328,12 @@
           const datos = await this._ultimaPreview(window.pedir(`${API}/precio-preview?${params}`));
           // Respuesta vieja: llegó otra más nueva o se abrió otro producto mientras tanto.
           if (datos === undefined || apertura !== this._apertura) return;
-          this.precioPreview = datos.precio_venta;
           this.dolarProveedor = datos.dolar_proveedor;
           this.redondeo = datos.redondeo;
           this.redondeado = datos.redondeado;
           if (this.modoPrecio === 'precio') this.form.margen = String(datos.margen);
           else this.form.precio_venta = String(datos.precio_venta);
         } catch (e) {
-          this.precioPreview = null;
           this.dolarProveedor = null;
           this.redondeo = null;
           this.redondeado = false;
@@ -414,6 +409,13 @@
         this.errores = {};
         if (this.categoriaId === null) {
           this.errores.categoria_id = 'Elegí hasta el último nivel: la categoría del producto es la del final de la rama.';
+          return;
+        }
+        // Modo 'precio': el precio es obligatorio (si no, cuerpoPrecio manda
+        // {margen: null, precio_venta: null} y el alta caería en el margen
+        // por defecto en silencio).
+        if (this.modoPrecio === 'precio' && !numeroValido(this.form.precio_venta, { permiteCero: false })) {
+          this.errores.precio_venta = 'El precio de venta es obligatorio.';
           return;
         }
         this.guardando = true;
