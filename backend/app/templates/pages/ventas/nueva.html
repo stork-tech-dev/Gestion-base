@@ -63,7 +63,7 @@
         </ul>
       </div>
 
-      {# Carrito: una fila por unidad. #}
+      {# Carrito: una fila por línea (unidades del mismo producto con el mismo descuento). #}
       <div class="tarjeta overflow-hidden p-0">
         <div class="overflow-x-auto">
           <table class="tabla">
@@ -72,6 +72,7 @@
                 <th scope="col"><span class="sr-only">Foto</span></th>
                 <th scope="col">Código</th>
                 <th scope="col">Descripción</th>
+                <th scope="col">Cantidad</th>
                 <th scope="col" class="text-right">Precio</th>
                 <th scope="col">Descuento</th>
                 <th scope="col" class="text-right">Final</th>
@@ -79,27 +80,43 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="item in items" :key="item.id">
+              <template x-for="linea in lineas" :key="linea.item_id">
                 <tr>
-                  <td>{{ miniatura("item.foto_url", "sm") }}</td>
-                  <td class="whitespace-nowrap font-mono" x-text="item.codigo"></td>
-                  <td class="min-w-[10rem]" x-text="item.descripcion"></td>
-                  <td class="whitespace-nowrap text-right">
-                    <s class="mr-1 text-texto-muted" x-show="item.precio_lista !== item.precio_unitario" x-text="plata(item.precio_lista)"></s>
-                    <span x-text="plata(item.precio_unitario)"></span>
+                  <td>{{ miniatura("linea.foto_url", "sm") }}</td>
+                  <td class="whitespace-nowrap font-mono" x-text="linea.codigo"></td>
+                  <td class="min-w-[10rem]" x-text="linea.descripcion"></td>
+                  <td class="whitespace-nowrap">
+                    <div class="inline-flex items-center gap-1">
+                      <button type="button" class="btn-accion min-h-toque" aria-label="Restar uno"
+                              :disabled="lineaOcupada(linea)" @click="sumar(linea, -1)">−</button>
+                      <input type="number" inputmode="numeric" min="0" max="999" step="1" class="campo w-20 text-center"
+                             :value="linea.cantidad" :aria-label="'Cantidad de ' + linea.descripcion"
+                             :disabled="lineaOcupada(linea)"
+                             @change="cambiarCantidad(linea, $event.target)"
+                             @keydown.enter.prevent="$event.target.blur()">
+                      <button type="button" class="btn-accion min-h-toque" aria-label="Sumar uno"
+                              :disabled="!ventaLogica.puedeSumar(linea, venta) || lineaOcupada(linea)"
+                              :title="!ventaLogica.puedeSumar(linea, venta) ? 'Sin más stock' : null"
+                              @click="sumar(linea, 1)">+</button>
+                    </div>
                   </td>
-                  <td class="whitespace-nowrap" :class="item.en_promocion ? 'font-semibold text-success' : ''" x-text="textoDescuento(item)"></td>
-                  <td class="whitespace-nowrap text-right font-semibold" x-text="plata(item.precio_final)"></td>
+                  <td class="whitespace-nowrap text-right">
+                    <s class="mr-1 text-texto-muted" x-show="linea.precio_lista !== linea.precio_unitario" x-text="plata(linea.precio_lista)"></s>
+                    <span x-text="plata(linea.precio_unitario)"></span>
+                  </td>
+                  <td class="whitespace-nowrap" :class="linea.unidades_en_promocion ? 'font-semibold text-success' : ''"
+                      x-text="ventaLogica.textoDescuentoLinea(linea)"></td>
+                  <td class="whitespace-nowrap text-right font-semibold" x-text="plata(linea.precio_final)"></td>
                   <td class="text-right">
                     {% call acciones() %}
-                      {{ accion("descuento", texto="Descuento", icono_nombre="porcentaje", atributos='x-show="puedeDescontarItem(item)" @click="abrirDescuento(item)"') }}
-                      {{ accion("borrar", texto="Quitar", atributos='@click="quitarItem(item)"') }}
+                      {{ accion("descuento", texto="Descuento", icono_nombre="porcentaje", atributos='x-show="ventaLogica.puedeDescontarLinea(linea, puedeDescontar)" @click="abrirDescuento(linea)"') }}
+                      {{ accion("borrar", texto="Quitar", atributos='@click="quitarLinea(linea)"') }}
                     {% endcall %}
                   </td>
                 </tr>
               </template>
-              <tr x-show="cargando"><td colspan="7" class="py-10 text-center text-texto-muted">Cargando…</td></tr>
-              <tr x-show="!cargando && !items.length"><td colspan="7" class="py-10 text-center text-texto-muted">Escaneá o buscá un producto para empezar.</td></tr>
+              <tr x-show="cargando"><td colspan="8" class="py-10 text-center text-texto-muted">Cargando…</td></tr>
+              <tr x-show="!cargando && !items.length"><td colspan="8" class="py-10 text-center text-texto-muted">Escaneá o buscá un producto para empezar.</td></tr>
             </tbody>
           </table>
         </div>
@@ -164,6 +181,38 @@
         </select>
       </section>
 
+      {# ----- Descuento general (gateada en Jinja: sin venta.descuento, ni el
+           HTML se manda, así el test de página puede confirmarlo). ----- #}
+      {% if puede_descontar %}
+      <section class="flex flex-col gap-2" x-show="items.length && puedeDescontar" x-cloak>
+        <h2 class="text-lg font-semibold text-texto-header">Descuento general</h2>
+        <div class="flex items-center justify-between gap-2" x-show="venta && Number(venta.descuento_general) > 0" x-cloak>
+          <p class="text-sm font-semibold text-success"
+             x-text="venta ? '− ' + plata(venta.descuento_general) + ' (' + ventaLogica.porcentajeDescuentoGeneral(venta).toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %)' : ''"></p>
+          <button type="button" class="min-h-toque text-sm font-semibold text-primary hover:underline"
+                  @click="quitarDescuentoGeneral()">Quitar</button>
+        </div>
+        <form @submit.prevent="aplicarDescuentoGeneral()" class="flex flex-wrap items-end gap-2">
+          <div class="flex flex-col gap-1">
+            <label for="venta-descgeneral-modo" class="sr-only">Tipo de descuento general</label>
+            <select id="venta-descgeneral-modo" class="campo" x-model="descuentoGeneral.modo">
+              <option value="total">Total final sin recargo ($)</option>
+              <option value="porcentaje">Porcentaje (%)</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label for="venta-descgeneral-valor" class="sr-only">Valor del descuento general</label>
+            <input id="venta-descgeneral-valor" type="number" min="0" step="0.01" inputmode="decimal" class="campo w-32"
+                   :placeholder="descuentoGeneral.modo === 'total' ? 'Ej. 80' : 'Ej. 10'" x-model="descuentoGeneral.valor">
+          </div>
+          <button type="submit" class="boton boton-secundario min-h-toque">Aplicar</button>
+        </form>
+        <p class="text-sm text-texto-muted" x-show="descuentoGeneral.modo === 'total' && venta && Number(venta.recargo_total) > 0" x-cloak>
+          El recargo por cuotas se suma después.
+        </p>
+      </section>
+      {% endif %}
+
       {# ----- Medios de pago (hasta 2) ----- #}
       <section class="flex flex-col gap-3" x-show="items.length" x-cloak>
         <h2 class="text-lg font-semibold text-texto-header">Medios de pago</h2>
@@ -214,6 +263,11 @@
       <dl class="flex flex-col gap-2 border-t border-borde pt-4 text-sm">
         <div class="flex justify-between gap-4"><dt class="text-texto-muted">Subtotal</dt><dd x-text="plata(venta ? venta.subtotal : 0)"></dd></div>
         <div class="flex justify-between gap-4"><dt class="text-texto-muted">Descuentos y promociones</dt><dd x-text="'− ' + plata(venta ? venta.descuento_total : 0)"></dd></div>
+        {# El descuento general YA está dentro de descuento_total (services._recalcular lo reparte entre
+           las unidades): esta fila es solo informativa, nunca se resta de nuevo. #}
+        <div class="flex justify-between gap-4 pl-3 text-sm text-texto-muted" x-show="venta && Number(venta.descuento_general) > 0" x-cloak>
+          <dt>de los cuales, descuento general</dt><dd x-text="'− ' + plata(venta ? venta.descuento_general : 0)"></dd>
+        </div>
         <div class="flex justify-between gap-4"><dt class="text-texto-muted">Recargo por cuotas</dt><dd x-text="plata(venta ? venta.recargo_total : 0)"></dd></div>
         <div class="flex items-baseline justify-between gap-4 border-t border-borde pt-2">
           <dt class="text-lg font-bold text-texto-header">Total</dt>
@@ -232,7 +286,7 @@
   {# ----- Descuento de un ítem ----- #}
   {% call modal("Descuento", "modal-venta-descuento", abierto="descuentoAbierto", ancho="max-w-md") %}
   <form @submit.prevent="aplicarDescuento()" class="flex flex-col gap-4" novalidate>
-    <p class="text-sm text-texto-muted" x-text="descuento.item ? descuento.item.descripcion : ''"></p>
+    <p class="text-sm text-texto-muted" x-text="descuento.linea ? descuento.linea.descripcion : ''"></p>
     <div class="flex flex-col gap-1">
       <label for="venta-descuento-motivo" class="text-lg font-medium text-texto">Motivo <span class="text-danger">*</span></label>
       <select id="venta-descuento-motivo" class="campo" x-model="descuento.motivo_id">
@@ -256,7 +310,7 @@
     <p class="text-sm text-texto-muted" x-show="opcionesDescuento.tope !== null"
        x-text="'Tope de descuento: ' + Number(opcionesDescuento.tope) + '%'"></p>
     <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-      <button type="button" class="boton boton-secundario min-h-toque" x-show="descuento.item && Number(descuento.item.descuento_item) > 0"
+      <button type="button" class="boton boton-secundario min-h-toque" x-show="descuento.linea && Number(descuento.linea.descuento_item) > 0"
               @click="aplicarDescuento(true)">Quitar descuento</button>
       <button type="submit" class="boton boton-primario min-h-toque">Aplicar</button>
     </div>

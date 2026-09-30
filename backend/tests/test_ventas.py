@@ -8,10 +8,10 @@ import pytest
 from sqlalchemy import select
 
 from app.core.errores import DatoInvalido, NoEncontrado, ReglaDeNegocio, SinPermiso
-from app.core.utils import ahora_db
+from app.core.utils import ahora_db, redondear
 from app.models import (
-    Auditoria, EstadoTurno, EstadoVenta, MedioDePago, MovimientoStock, TipoAlcancePromocion, TipoMovimientoStock,
-    TipoPromocion, Venta, VentaItem, VentaPago,
+    Auditoria, EstadoTurno, EstadoVenta, MedioDePago, MotivoBaja, MovimientoStock, TipoAlcancePromocion,
+    TipoMovimientoStock, TipoPromocion, Venta, VentaItem, VentaPago,
 )
 from app.schemas.clientes import ClienteCrear
 from app.schemas.descuentos import MotivoDescuentoCrear
@@ -19,6 +19,7 @@ from app.schemas.medios_pago import PlanCuotasCrear
 from app.schemas.productos import ProductoEditar
 from app.schemas.promociones import PromocionAlcanceDatos, PromocionCrear
 from app.schemas.ventas import VentaResponse
+from app.services import bajas_stock as servicio_bajas
 from app.services import categorias as servicio_categorias
 from app.services import clientes as servicio_clientes
 from app.services import descuentos as servicio_descuentos
@@ -56,8 +57,15 @@ def _medio(db, nombre) -> MedioDePago:
 def _venta(db, autor, *productos):
     venta = servicio.iniciar_venta(db, autor, None)
     for p in productos:
-        venta, _ = servicio.agregar_item(db, autor, venta.id, producto_id=p.id)
+        venta = servicio.agregar_item(db, autor, venta.id, producto_id=p.id)
     return venta
+
+
+def _con_stock(db, e, descripcion, stock, costo="1000"):
+    producto = e.cat["alta"](descripcion, costo=costo)
+    if stock:
+        registrar_ingreso(db, e.admin, producto.id, stock, None, None)
+    return producto
 
 
 def _pagar(db, autor, venta, *pagos):
@@ -97,6 +105,16 @@ def _auditorias(db, accion, venta_id):
     return db.scalars(select(Auditoria).where(Auditoria.accion == accion, Auditoria.entidad_id == venta_id)).all()
 
 
+def _venta_de(db, e, *precios):
+    """Venta en curso con una unidad por precio (productos con stock, margen 0 y redondeo del test)."""
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    for n, costo in enumerate(precios):
+        producto = e.cat["alta"](f"Desc general {n} {costo}", costo=costo, margen="0")
+        registrar_ingreso(db, e.admin, producto.id, 5, None, None)
+        venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=producto.id)
+    return venta
+
+
 # --- Iniciar / dueño ------------------------------------------------------------
 
 def test_iniciar_dos_veces_devuelve_la_misma(db, e):
@@ -124,9 +142,8 @@ def test_obtener_venta_inexistente(db):
 
 def test_agregar_por_codigo_y_por_id(db, e):
     venta = servicio.iniciar_venta(db, e.vendedor, None)
-    venta, aviso = servicio.agregar_item(db, e.vendedor, venta.id, codigo=e.p10.codigo_con_verificador)
-    assert aviso is None
-    venta, _ = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=e.p8.id)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, codigo=e.p10.codigo_con_verificador)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=e.p8.id)
     assert [i.producto_id for i in venta.items] == [e.p10.id, e.p8.id]
     assert [i.orden for i in venta.items] == [1, 2]
     item = venta.items[0]
@@ -156,25 +173,6 @@ def test_agregar_producto_inactivo_409(db, e):
         servicio.agregar_item(db, e.vendedor, venta.id, producto_id=e.p10.id)
 
 
-def test_agregar_sin_stock_avisa_y_agrega(db, e):
-    sin_stock = e.cat["alta"]("Gorro", costo="3000")
-    venta = servicio.iniciar_venta(db, e.vendedor, None)
-    venta, aviso = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=sin_stock.id)
-    assert aviso == "Sin stock de 'Gorro': controlá bien el código antes de continuar."
-    assert len(venta.items) == 1
-
-
-def test_aviso_cuenta_lo_ya_cargado(db, e):
-    uno = e.cat["alta"]("Bufanda", costo="3000")
-    registrar_ingreso(db, e.admin, uno.id, 1, None, None)
-    venta = servicio.iniciar_venta(db, e.vendedor, None)
-    _, aviso = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=uno.id)
-    assert aviso is None
-    venta, aviso = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=uno.id)
-    assert aviso is not None and "Bufanda" in aviso
-    assert len(venta.items) == 2
-
-
 def test_quitar_item(db, e):
     venta = _venta(db, e.vendedor, e.p10, e.p8)
     venta = servicio.quitar_item(db, e.vendedor, venta.id, venta.items[0].id)
@@ -187,6 +185,128 @@ def test_quitar_item_ajeno_404(db, e):
     venta = _venta(db, e.vendedor, e.p8)
     with pytest.raises(NoEncontrado):
         servicio.quitar_item(db, e.vendedor, venta.id, otra.items[0].id)
+
+
+# --- Cantidad por línea (Task 1) ------------------------------------------------------
+
+def test_agregar_con_cantidad_crea_una_unidad_por_fila_y_una_linea(db, e):
+    vaso = _con_stock(db, e, "Vaso linea", 5)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id, cantidad=3)
+    assert len(venta.items) == 3
+    lineas = servicio.lineas(venta)
+    assert len(lineas) == 1 and len(lineas[0]) == 3
+
+
+def test_escanear_otra_vez_suma_a_la_linea_sin_descuento(db, e):
+    vaso = _con_stock(db, e, "Vaso escaneo", 5)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, codigo=vaso.codigo_con_verificador)
+    assert [len(linea) for linea in servicio.lineas(venta)] == [2]
+
+
+def test_no_se_supera_el_stock_al_agregar_ni_al_subir_la_cantidad(db, e):
+    vaso = _con_stock(db, e, "Vaso tope", 3)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    with pytest.raises(ReglaDeNegocio, match="Solo quedan 3 unidades de 'Vaso tope'"):
+        servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id, cantidad=4)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id, cantidad=2)
+    with pytest.raises(ReglaDeNegocio, match="Solo quedan 3 unidades"):
+        servicio.cambiar_cantidad(db, e.vendedor, venta.id, venta.items[0].id, 4)
+    venta = servicio.cambiar_cantidad(db, e.vendedor, venta.id, venta.items[0].id, 3)
+    assert len(venta.items) == 3
+    with pytest.raises(ReglaDeNegocio, match="Solo quedan 3 unidades"):
+        servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id)
+
+
+def test_sin_stock_no_se_puede_agregar(db, e):
+    gorro = _con_stock(db, e, "Gorro sin stock", 0)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    with pytest.raises(ReglaDeNegocio, match="No hay stock de 'Gorro sin stock'"):
+        servicio.agregar_item(db, e.vendedor, venta.id, producto_id=gorro.id)
+
+
+def test_stock_infinito_no_tiene_tope(db, e):
+    servicio_infinito = e.cat["alta"]("Servicio de arreglo", costo="1000", stock_infinito=True)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=servicio_infinito.id, cantidad=50)
+    assert len(venta.items) == 50
+
+
+def test_bajar_la_cantidad_quita_las_ultimas_y_cero_quita_la_linea(db, e):
+    vaso = _con_stock(db, e, "Vaso baja", 5)
+    remera = _con_stock(db, e, "Remera baja", 5)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id, cantidad=4)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=remera.id)
+    primera = min(i.id for i in venta.items if i.producto_id == vaso.id)
+    venta = servicio.cambiar_cantidad(db, e.vendedor, venta.id, primera, 1)
+    assert sorted(i.id for i in venta.items if i.producto_id == vaso.id) == [primera]
+    venta = servicio.cambiar_cantidad(db, e.vendedor, venta.id, primera, 0)
+    assert [i.producto_id for i in venta.items] == [remera.id]
+
+
+def test_la_cantidad_valida_el_rango(db, e):
+    vaso = _con_stock(db, e, "Vaso rango", 5)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id)
+    for cantidad in (-1, 1000):
+        with pytest.raises(DatoInvalido):
+            servicio.cambiar_cantidad(db, e.vendedor, venta.id, venta.items[0].id, cantidad)
+
+
+def test_subir_la_cantidad_copia_el_descuento_de_la_linea(db, e):
+    vaso = _con_stock(db, e, "Vaso con descuento", 5)
+    motivo = _motivo(db, e.admin)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id, cantidad=2)
+    venta = servicio.aplicar_descuento_item(db, e.vendedor, venta.id, venta.items[0].id, motivo.id, 10, None)
+    assert all(i.descuento_item == D("10") for i in venta.items)       # toda la línea
+    venta = servicio.cambiar_cantidad(db, e.vendedor, venta.id, venta.items[0].id, 3)
+    assert len(venta.items) == 3 and all(i.descuento_item == D("10") for i in venta.items)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id)   # sin descuento: otra línea
+    assert sorted(len(linea) for linea in servicio.lineas(venta)) == [1, 3]
+
+
+def test_agregar_cantidad_cero_400(db, e):
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    with pytest.raises(DatoInvalido):
+        servicio.agregar_item(db, e.vendedor, venta.id, producto_id=e.p10.id, cantidad=0)
+
+
+def test_poner_la_misma_cantidad_no_hace_nada(db, e):
+    """PUT con la cantidad que la línea ya tiene: no toca el carrito (ni
+    siquiera resetea la promoción a mano o el descuento general)."""
+    vaso = _con_stock(db, e, "Vaso misma cantidad", 5)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id, cantidad=2)
+    venta = servicio.elegir_promocion(db, e.vendedor, venta.id, None)   # promocion_a_mano=True, sin promo
+    venta = servicio.cambiar_cantidad(db, e.vendedor, venta.id, venta.items[0].id, 2)
+    assert len(venta.items) == 2
+    assert venta.promocion_a_mano is True   # _carrito_cambio no se llamó
+
+
+def test_subir_cantidad_producto_inactivo_409(db, e):
+    venta = _venta(db, e.vendedor, e.p10)
+    servicio_productos.cambiar_estado_producto(db, e.admin, e.p10, False, None)
+    with pytest.raises(ReglaDeNegocio, match="está inactivo"):
+        servicio.cambiar_cantidad(db, e.vendedor, venta.id, venta.items[0].id, 2)
+
+
+def test_confirmar_verifica_el_stock_otra_vez(db, e):
+    vaso = _con_stock(db, e, "Vaso confirmar", 2)
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=vaso.id, cantidad=2)
+    # Otro vendedor se lleva una unidad en el medio (baja de stock real, no
+    # AJUSTE_AUDITORIA: ese tipo exige un auditoria_id por constraint de la base).
+    motivo_baja = db.scalar(select(MotivoBaja))
+    servicio_bajas.registrar_baja(db, e.admin, vaso.id, 1, motivo_baja.id, None, None)
+    efectivo = db.scalar(select(MedioDePago).where(MedioDePago.es_efectivo.is_(True)))
+    venta = servicio.registrar_pagos(db, e.vendedor, venta.id,
+                                     [{"medio_de_pago_id": efectivo.id, "monto": venta.cobrable, "plan_cuotas_id": None}])
+    with pytest.raises(ReglaDeNegocio, match="No hay stock suficiente de 'Vaso confirmar'"):
+        servicio.confirmar_venta(db, e.vendedor, venta.id, venta.total, None)
 
 
 # --- Cliente ------------------------------------------------------------------------
@@ -212,6 +332,7 @@ def test_asociar_cliente_inactivo_409(db, e):
 
 def test_descuento_encadenado_hacia_abajo(db, e):
     con_desc = e.cat["alta"]("Saco", costo="10000", descuento_producto="10")
+    registrar_ingreso(db, e.admin, con_desc.id, 5, None, None)
     motivo = _motivo(db, e.admin)
     venta = _venta(db, e.vendedor, con_desc)
     item = venta.items[0]
@@ -224,13 +345,14 @@ def test_descuento_encadenado_hacia_abajo(db, e):
     assert venta.total == D("7650") and venta.descuento_total == D("2350")
     audit = _auditorias(db, "venta.descuento", venta.id)
     assert len(audit) == 1
-    assert audit[0].estado_anterior == {"item_id": item.id, "descuento_item": "0.00", "motivo_descuento_id": None}
+    assert audit[0].estado_anterior == {"item_ids": [item.id], "descuento_item": "0.00", "motivo_descuento_id": None}
     assert audit[0].estado_nuevo["motivo_descuento_id"] == motivo.id
 
 
 def test_descuento_tope_suma_descuento_de_producto(db, e):
     # 30% propio + 25% de venta = 55% > tope 50%; 20% de venta (= 50%) sí vale.
     con_desc = e.cat["alta"]("Tapado", costo="10000", descuento_producto="30")
+    registrar_ingreso(db, e.admin, con_desc.id, 5, None, None)
     motivo = _motivo(db, e.admin)
     venta = _venta(db, e.vendedor, con_desc)
     with pytest.raises(DatoInvalido, match="no puede superar"):
@@ -276,6 +398,154 @@ def test_descuento_item_inexistente_404(db, e):
         servicio.aplicar_descuento_item(db, e.vendedor, venta.id, 999_999_999, motivo.id, 10, None)
 
 
+# --- Descuento general ------------------------------------------------------------------------
+
+def test_descuento_por_total_final_reparte_al_centavo(db, e):
+    venta = _venta_de(db, e, "3000", "5300")
+    base = venta.cobrable
+    objetivo = base - Decimal("300")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, total=objetivo, ip=None)
+    assert venta.descuento_general == Decimal("300.00")
+    assert venta.cobrable == objetivo
+    assert sum(i.precio_final for i in venta.items) == objetivo
+    assert venta.descuento_total == venta.subtotal - objetivo
+
+
+def test_descuento_por_porcentaje(db, e):
+    venta = _venta_de(db, e, "3000", "5000")
+    base = venta.cobrable
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("10"), ip=None)
+    assert venta.descuento_general == redondear(base * Decimal("0.10"))
+
+
+def test_descuento_general_respeta_el_tope(db, e):
+    venta = _venta_de(db, e, "10000")
+    tope = servicio_descuentos.tope(db)
+    with pytest.raises(DatoInvalido, match="no puede superar"):
+        servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=tope + 1, ip=None)
+
+
+def test_total_final_invalido(db, e):
+    venta = _venta_de(db, e, "10000")
+    for total in (venta.cobrable + 1, Decimal("0")):
+        with pytest.raises(DatoInvalido):
+            servicio.aplicar_descuento_general(db, e.vendedor, venta.id, total=total, ip=None)
+
+
+def test_cambiar_el_carrito_borra_el_descuento_general(db, e):
+    venta = _venta_de(db, e, "3000", "5000")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("5"), ip=None)
+    venta = servicio.cambiar_cantidad(db, e.vendedor, venta.id, venta.items[0].id, 2)
+    assert venta.descuento_general == 0
+    assert venta.cobrable == sum(i.precio_final for i in venta.items)
+
+
+def test_quitar_el_descuento_general(db, e):
+    venta = _venta_de(db, e, "3000")
+    base = venta.cobrable
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("5"), ip=None)
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, ip=None)
+    assert venta.descuento_general == 0 and venta.cobrable == base
+
+
+def test_descuento_general_se_audita_y_llega_confirmado(db, e):
+    # Confirmar con descuento general: los precio_final guardados suman el total cobrado.
+    venta = _venta_de(db, e, "3000", "5300")
+    base = venta.cobrable
+    objetivo = base - Decimal("300")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, total=objetivo, ip=None)
+    efectivo = _medio(db, "Efectivo")
+    venta = servicio.registrar_pagos(
+        db, e.vendedor, venta.id,
+        [{"medio_de_pago_id": efectivo.id, "monto": venta.cobrable, "plan_cuotas_id": None}])
+    venta = servicio.confirmar_venta(db, e.vendedor, venta.id, venta.total, None)
+    assert venta.estado is EstadoVenta.CONFIRMADA
+    assert sum(i.precio_final for i in venta.items) == venta.total - venta.recargo_total
+    audit = _auditorias(db, "venta.descuento_general", venta.id)
+    assert len(audit) == 1
+    assert audit[0].estado_nuevo["descuento_general"] == "300.00"
+
+
+def test_descuento_general_reparte_centavos_sin_negativos(db, e):
+    """3 unidades iguales y un monto impar (no divide exacto entre 3): la suma
+    de los precio_final da EXACTO y ninguna unidad queda negativa."""
+    producto = _con_stock(db, e, "Descuento parejo", 5, costo="1000")
+    venta = servicio.iniciar_venta(db, e.vendedor, None)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=producto.id, cantidad=3)
+    base = venta.cobrable
+    objetivo = base - Decimal("10.01")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, total=objetivo, ip=None)
+    assert venta.descuento_general == Decimal("10.01")
+    assert sum(i.precio_final for i in venta.items) == objetivo
+    assert all(i.precio_final >= 0 for i in venta.items)
+    # El centavo sobrante se reparte de a uno: a lo sumo 1 centavo de diferencia entre unidades.
+    precios = sorted(i.precio_final for i in venta.items)
+    assert precios[-1] - precios[0] <= Decimal("0.01")
+
+
+def test_descuento_general_no_afecta_la_unidad_gratis_de_una_promo(db, e):
+    _promo(db, e.admin, "2x1 general")
+    venta = _venta(db, e.vendedor, e.p10, e.p8, e.p6)   # p8 (8000) sale gratis
+    gratis = next(i for i in venta.items if i.producto_id == e.p8.id)
+    assert gratis.precio_final == 0 and gratis.en_promocion
+    base = venta.cobrable   # 10000 + 0 + 6000
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, total=base - Decimal("1000"), ip=None)
+    gratis = next(i for i in venta.items if i.producto_id == e.p8.id)
+    assert gratis.precio_final == 0   # 0% de la base: no recibe descuento
+    assert all(i.precio_final >= 0 for i in venta.items)
+    assert sum(i.precio_final for i in venta.items) == base - Decimal("1000")
+
+
+def test_descuento_general_se_borra_solo_por_recalculo_sin_pasar_por_carrito_cambio(db, e):
+    """Red de seguridad de _recalcular (no _carrito_cambio): una promoción por
+    medio de pago que se activa al CAMBIAR el pago encoge la base sin que
+    ninguna acción de carrito la haya tocado; si el monto fijo ya no entra
+    (supera el tope de la base nueva, más chica), se vuelve a 0.
+
+    `aplica_con_medios` rige por default sin pagos cargados (medio_ids vacío
+    no bloquea): hay que pagar primero con un medio que la excluya (Efectivo)
+    para arrancar SIN la promo, y recién después cambiar a Débito."""
+    debito, efectivo = _medio(db, "Débito"), _medio(db, "Efectivo")
+    _promo(db, e.admin, "Débito 20", tipo=TipoPromocion.PORCENTAJE, porcentaje_descuento=20,
+          alcances=[_todos(), PromocionAlcanceDatos(tipo_alcance=TipoAlcancePromocion.MEDIO_DE_PAGO,
+                                                    referencia_id=debito.id)])
+    venta = _venta(db, e.vendedor, e.p10)                 # 10000
+    venta = _pagar(db, e.vendedor, venta, (efectivo, 1))  # bloquea la promo (otro medio)
+    assert venta.promocion_id is None and venta.cobrable == D("10000")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("48"), ip=None)
+    assert venta.descuento_general == D("4800")
+    venta = _pagar(db, e.vendedor, venta, (debito, 1))    # activa el 20%: nueva base 8000
+    assert venta.promocion_id is not None and venta.cobrable == D("8000")
+    assert venta.descuento_general == 0   # 4800 > 50% de 8000: ya no entraba
+
+
+def test_elegir_promocion_borra_el_descuento_general(db, e):
+    _promo(db, e.admin, "2x1 borra desc general")
+    venta = _venta_de(db, e, "3000", "5000")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("5"), ip=None)
+    assert venta.descuento_general > 0
+    venta = servicio.elegir_promocion(db, e.vendedor, venta.id, None)   # "sin promoción" a mano
+    assert venta.descuento_general == 0
+
+
+def test_asociar_cliente_borra_el_descuento_general(db, e):
+    cliente = servicio_clientes.crear_cliente(db, e.admin, ClienteCrear(nombre="Cliente desc general"), None)
+    venta = _venta_de(db, e, "3000", "5000")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("5"), ip=None)
+    assert venta.descuento_general > 0
+    venta = servicio.asociar_cliente(db, e.vendedor, venta.id, cliente.id)
+    assert venta.descuento_general == 0
+
+
+def test_aplicar_descuento_item_borra_el_descuento_general(db, e):
+    venta = _venta_de(db, e, "3000", "5000")
+    venta = servicio.aplicar_descuento_general(db, e.vendedor, venta.id, porcentaje=Decimal("5"), ip=None)
+    assert venta.descuento_general > 0
+    motivo = _motivo(db, e.admin)
+    venta = servicio.aplicar_descuento_item(db, e.vendedor, venta.id, venta.items[0].id, motivo.id, 10, None)
+    assert venta.descuento_general == 0
+
+
 # --- Promociones ------------------------------------------------------------------------
 
 def test_promocion_automatica_2x1(db, e):
@@ -304,7 +574,7 @@ def test_elegir_promocion_a_mano_y_perderla_al_cambiar_el_carrito(db, e):
     venta = servicio.recalcular(db, e.vendedor, venta.id)
     assert venta.promocion_id == porcentaje.id   # recalcular no la pierde
 
-    venta, _ = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=e.p6.id)
+    venta = servicio.agregar_item(db, e.vendedor, venta.id, producto_id=e.p6.id)
     assert venta.promocion_id == dos_x_uno.id and venta.promocion_a_mano is False
 
 
@@ -531,14 +801,6 @@ def test_confirmar_descuenta_stock_y_congela(db, e):
     assert servicio.iniciar_venta(db, e.vendedor, None).id != venta.id
 
 
-def test_confirmar_puede_dejar_stock_negativo(db, e):
-    sin_stock = e.cat["alta"]("Guantes", costo="2000")
-    venta = _venta(db, e.vendedor, sin_stock)
-    _confirmar(db, e.vendedor, venta, (_medio(db, "Efectivo"), 1))
-    db.refresh(sin_stock)
-    assert sin_stock.stock == -1
-
-
 def test_confirmar_sin_items_409(db, e):
     venta = servicio.iniciar_venta(db, e.vendedor, None)
     with pytest.raises(ReglaDeNegocio, match="no tiene productos"):
@@ -673,7 +935,7 @@ def test_vendedores_activos(db, e, crear_usuario):
 def test_respuesta_sin_costo_unitario(db, e):
     venta = _venta(db, e.vendedor, e.p10)
     venta = _pagar(db, e.vendedor, venta, (_medio(db, "Efectivo"), 1))
-    datos = VentaResponse.desde(venta, servicio_categorias.caminos(db)).model_dump()
+    datos = VentaResponse.desde(venta, servicio_categorias.caminos(db), servicio.lineas(venta)).model_dump()
     assert "costo_unitario" not in datos
     assert all("costo_unitario" not in i for i in datos["items"])
     assert "costo" not in str(datos)

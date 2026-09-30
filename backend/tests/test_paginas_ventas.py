@@ -166,6 +166,42 @@ def test_venta_nueva_vendedor(db, crear_usuario, iniciar_sesion):
     assert "puedeVerClientes: true" in html and "puedeCrearCliente: true" in html
     assert "hayTurno: true" in html
     assert 'href="/ventas"' in html
+    # Carrito por líneas (Task 3): cantidad editable en toda fila y, con
+    # venta.descuento, la sección de descuento general de la Task 2.
+    assert 'aria-label="Sumar uno"' in html
+    assert "Descuento general" in html
+
+
+def test_venta_nueva_sin_venta_descuento_no_ve_descuento_general(db, crear_usuario, iniciar_sesion, monkeypatch):
+    """`venta.descuento` se hereda del permiso general `ventas crear`
+    (resolver_permiso, módulo 02): quien ve /ventas/nueva siempre lo tiene
+    (decisión del usuario, docs/pendientes.md § Módulo 06), así que no hay
+    forma de armar un rol real que vea la pantalla sin él. Para probar que la
+    sección se gatea en Jinja (`{% if puede_descontar %}`) y no solo con
+    `x-show` (que dejaría el texto en el HTML igual), se fuerza acá
+    `puede_descontar` a False sin tocar el resto de los permisos reales."""
+    from decimal import Decimal
+
+    from app.api import pages as pages_router
+    from app.core.permisos import Modulo, Recurso
+    from app.services import turnos as servicio_turnos
+
+    original = pages_router.resolver_permiso
+
+    def sin_descuento(db, usuario_id, modulo, accion, recurso=None):
+        if modulo == Modulo.VENTAS and accion == "crear" and recurso == Recurso.VENTA_DESCUENTO:
+            return False
+        return original(db, usuario_id, modulo, accion, recurso)
+
+    monkeypatch.setattr(pages_router, "resolver_permiso", sin_descuento)
+
+    vendedor = crear_usuario("vendedor")
+    servicio_turnos.abrir_turno(db, vendedor, Decimal("0"), None, None)
+    html = iniciar_sesion(vendedor).get("/ventas/nueva").text
+    assert "puedeDescontar: false" in html
+    assert "Descuento general" not in html
+    # El resto de la pantalla (incluida la cantidad por línea) sigue intacto.
+    assert 'aria-label="Sumar uno"' in html
 
 
 def test_venta_nueva_sin_ventas_crear_da_403(client, crear_usuario, iniciar_sesion, headers_de):

@@ -68,17 +68,70 @@ test('puedeAgregar: con stock o stock infinito', () => {
   assert.equal(L.puedeAgregar({ stock: -2, stock_infinito: false }), false);
 });
 
-test('textoDescuento: Promo, "X% · Motivo" o vacío', () => {
-  assert.equal(L.textoDescuento({ en_promocion: true, descuento_item: '0.00', motivo: null }), 'Promo');
-  assert.equal(L.textoDescuento({ en_promocion: false, descuento_item: '15.00', motivo: { id: 1, nombre: 'Fallado' } }),
-    '15% · Fallado');
-  assert.equal(L.textoDescuento({ en_promocion: false, descuento_item: '0.00', motivo: null }), '');
+test('cantidadValida: entero 0-999 o null', () => {
+  assert.equal(L.cantidadValida('3'), 3);
+  assert.equal(L.cantidadValida(''), null);
+  assert.equal(L.cantidadValida('2.5'), null);
+  assert.equal(L.cantidadValida('-1'), null);
+  assert.equal(L.cantidadValida('1000'), null);
+  assert.equal(L.cantidadValida('0'), 0);
 });
 
-test('puedeDescontar: con permiso y fuera de promoción', () => {
-  assert.equal(L.puedeDescontar({ en_promocion: false }, true), true);
-  assert.equal(L.puedeDescontar({ en_promocion: true }, true), false);
-  assert.equal(L.puedeDescontar({ en_promocion: false }, false), false);
+test('puedeSumar: tope de stock por PRODUCTO (todas sus unidades en la venta, no solo las de esta línea)', () => {
+  const venta = { items: [
+    { producto_id: 1 }, { producto_id: 1 },   // otra línea del mismo producto (ej. con descuento)
+    { producto_id: 1 },                        // la unidad de esta línea
+    { producto_id: 2 },
+  ] };
+  assert.equal(L.puedeSumar({ producto_id: 1, stock: 3 }, venta), false);   // ya hay 3 del producto 1
+  assert.equal(L.puedeSumar({ producto_id: 1, stock: 4 }, venta), true);
+  assert.equal(L.puedeSumar({ producto_id: 2, stock: 3 }, venta), true);    // solo 1 del producto 2
+  assert.equal(L.puedeSumar({ producto_id: 1, stock: null }, venta), true);
+  assert.equal(L.puedeSumar({ producto_id: 9, stock: 1 }, null), true);     // sin venta: no cuenta nada
+});
+
+test('lineaOcupada: item_id presente en el Set de líneas con un PUT en vuelo', () => {
+  const ocupadas = new Set([5]);
+  assert.equal(L.lineaOcupada(ocupadas, 5), true);
+  assert.equal(L.lineaOcupada(ocupadas, 6), false);
+});
+
+test('descuentoGeneralSeBorro: de > 0 a 0 (y no en los demás casos)', () => {
+  assert.equal(L.descuentoGeneralSeBorro({ descuento_general: '300.00' }, { descuento_general: '0.00' }), true);
+  assert.equal(L.descuentoGeneralSeBorro({ descuento_general: '0.00' }, { descuento_general: '0.00' }), false);
+  assert.equal(L.descuentoGeneralSeBorro({ descuento_general: '300.00' }, { descuento_general: '150.00' }), false);
+  assert.equal(L.descuentoGeneralSeBorro(null, { descuento_general: '0.00' }), false);
+  assert.equal(L.descuentoGeneralSeBorro({ descuento_general: '300.00' }, null), true);
+});
+
+test('textoDescuentoLinea: Promo, Promo parcial, "X% · Motivo" o vacío', () => {
+  assert.equal(L.textoDescuentoLinea({ unidades_en_promocion: 3, cantidad: 3, descuento_item: '0.00', motivo: null }),
+    'Promo');
+  assert.equal(L.textoDescuentoLinea({ unidades_en_promocion: 1, cantidad: 3, descuento_item: '0.00', motivo: null }),
+    'Promo (1 de 3)');
+  assert.equal(L.textoDescuentoLinea({ unidades_en_promocion: 0, cantidad: 2, descuento_item: '15.00',
+    motivo: { id: 1, nombre: 'Fallado' } }), '15% · Fallado');
+  assert.equal(L.textoDescuentoLinea({ unidades_en_promocion: 0, cantidad: 1, descuento_item: '0.00', motivo: null }),
+    '');
+});
+
+test('puedeDescontarLinea: con permiso y fuera de promoción', () => {
+  assert.equal(L.puedeDescontarLinea({ unidades_en_promocion: 0 }, true), true);
+  assert.equal(L.puedeDescontarLinea({ unidades_en_promocion: 2 }, true), false);
+  assert.equal(L.puedeDescontarLinea({ unidades_en_promocion: 0 }, false), false);
+});
+
+test('porcentajeDescuentoGeneral: % sobre el total antes de aplicarlo', () => {
+  assert.equal(L.porcentajeDescuentoGeneral({ descuento_general: '3.00', cobrable: '80.00' }), 3.6);
+  assert.equal(L.porcentajeDescuentoGeneral({ descuento_general: '0.00', cobrable: '80.00' }), 0);
+  assert.equal(L.porcentajeDescuentoGeneral(null), 0);
+});
+
+test('cuerpoDescuentoGeneral: cuerpo de POST /descuento-general', () => {
+  assert.deepEqual(plano(L.cuerpoDescuentoGeneral('total', '80')), { total: '80', porcentaje: null });
+  assert.deepEqual(plano(L.cuerpoDescuentoGeneral('porcentaje', '10,5')), { porcentaje: '10.5', total: null });
+  assert.equal(L.cuerpoDescuentoGeneral('total', ''), null);
+  assert.equal(L.cuerpoDescuentoGeneral('total', '   '), null);
 });
 
 test('moverIndice: circular y -1 sin resultados', () => {
@@ -252,6 +305,46 @@ test('confirmar: éxito limpia la pantalla y abre el modal con el código', asyn
   assert.equal(pantalla.venta, null);
   assert.equal(pantalla.confirmadaAbierta, true);
   assert.equal(pantalla.confirmada.codigo_cambio, 'K7P2QX');
+});
+
+test('confirmar: una acción en vuelo que se rechaza (ej. una cantidad tipeada) bloquea F10 sin otro toast', async () => {
+  const { window, toasts } = cargar();
+  const pedidos = [];
+  const venta = { ...ventaVacia(), items: [{ id: 1, motivo: null }], pagos: [pago(1, '1000.00')], cobrable: '1000.00', total: '1000.00' };
+  let rechazarCantidad;
+  window.pedir = (url, op = {}) => {
+    pedidos.push(`${op.method || 'GET'} ${url}`);
+    if (url.endsWith('/cantidad')) return new Promise((_r, reject) => { rechazarCantidad = reject; });
+    return Promise.resolve(venta);
+  };
+  const pantalla = crearPantalla(window);
+  pantalla.mostrar(venta);
+  // Simula el PUT /cantidad todavía en vuelo cuando se aprieta F10.
+  const cantidadEnVuelo = pantalla._fijarCantidad({ item_id: 1, cantidad: 1 }, 2);
+  const confirmando = pantalla.confirmarVenta();
+  rechazarCantidad(Object.assign(new Error("Solo quedan 1 unidades de 'Vaso'."), { status: 409 }));
+  await Promise.all([cantidadEnVuelo, confirmando]);
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].mensaje, "Solo quedan 1 unidades de 'Vaso'.");
+  assert.ok(!pedidos.some((p) => p.includes('/confirmar')));
+  assert.equal(pantalla.confirmadaAbierta, false);
+});
+
+test('mostrar: avisa cuando el descuento general se borra solo, pero no cuando lo pidió el propio usuario', async () => {
+  const { window, toasts } = cargar();
+  const conDescuento = { ...ventaVacia(), items: [{ id: 1, motivo: null }], descuento_general: '300.00' };
+  const sinDescuento = { ...ventaVacia(), items: [{ id: 1, motivo: null }], descuento_general: '0.00' };
+  window.pedir = async (url) => (url.endsWith('/descuento-general') ? sinDescuento : []);
+  const pantalla = crearPantalla(window);
+
+  pantalla.mostrar(conDescuento);
+  pantalla.mostrar(sinDescuento);   // ej. se cambió el carrito: el backend ya lo borró solo
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].mensaje, 'Se quitó el descuento general porque cambió la venta.');
+
+  pantalla.mostrar(conDescuento);
+  await pantalla.quitarDescuentoGeneral();   // lo pidió el propio usuario: sin aviso
+  assert.equal(toasts.length, 1);            // no hay un segundo toast
 });
 
 test('ESC con un modal abierto no descarta la venta', () => {

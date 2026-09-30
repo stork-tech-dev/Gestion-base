@@ -1,0 +1,60 @@
+{% from "components/miniatura.html" import miniatura %}
+{# Fotos de un producto: grilla de miniaturas (marcar principal, borrar) y
+   subir/tomar foto. Componente Alpine propio (static/js/fotos_producto.js),
+   reusado por la ficha de solo lectura (pages/productos/_modal_ficha.html) y
+   por el formulario de edición (producto_form.html, que guarda al instante).
+   El título ("Fotos") y cualquier aclaración quedan a cargo de quien llama
+   a la macro (no todos los usos quieren el mismo encabezado).
+
+   `producto_id_expr` / `fotos_expr`: expresiones Alpine SIN comillas, con el
+   id y las fotos iniciales ("ficha.id"/"ficha.fotos" o "form.id"/"form.fotos").
+   Se capturan una sola vez al montar: el propio componente se mantiene
+   actualizado después con su `recargar()`.
+   `puede_editar_expr`: expresión Alpine (o "true") que gatea subir/marcar/borrar.
+   `vigilar_expr`: string con la expresión que apaga la cámara al cerrarse el
+   padre (mismo patrón de `webcamCapture` que ya usan la ficha y el alta).
+   `al_cambiar`: sentencia Alpine que se ejecuta al terminar cada cambio (ej.
+   refrescar la ficha o recargar el listado).
+   `vigilar_producto_expr` (opcional, string): expresión con el id REAL del
+   producto en el padre (ej. "form.id"), para cuando el `x-if` que envuelve
+   la macro puede no pasar por "falsy" al pasar de un producto a otro (ej. el
+   formulario de edición, que no cierra el form entre una edición y la
+   siguiente); sin esto, el componente podría quedarse con el `productoId`
+   viejo. La ficha no lo necesita (su `x-if="ficha"` sí remonta solo).
+   ADVERTENCIA: `al_cambiar` (como `atributos` en form_field.html) se inyecta
+   crudo, sin escapar, dentro del cuerpo de una función: debe recibir SOLO
+   literales de plantilla escritos a mano, nunca texto que venga de un
+   usuario o de la API. #}
+{% macro fotos_producto(producto_id_expr, fotos_expr, puede_editar_expr, vigilar_expr, al_cambiar="", vigilar_producto_expr=None) -%}
+<div x-data="fotosProducto({ productoId: {{ producto_id_expr }}, fotos: {{ fotos_expr }}, alCambiar() { {{ al_cambiar }} }, vigilarProducto: {{ (vigilar_producto_expr|js) if vigilar_producto_expr else 'null' }} })">
+  <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+    <template x-for="f in fotos" :key="f.id">
+      <div class="flex flex-col items-center gap-2">
+        {{ miniatura("f.url", "lg") }}
+        <span class="text-xs text-texto-muted" x-show="f.es_principal">Principal</span>
+        <div class="flex flex-wrap justify-center gap-3" x-show="{{ puede_editar_expr }}">
+          <button type="button" class="min-h-toque inline-flex items-center text-xs text-primary hover:underline" x-show="!f.es_principal" @click="marcarPrincipal(f)">Marcar principal</button>
+          <button type="button" class="min-h-toque inline-flex items-center text-xs text-danger hover:underline" @click="borrarFoto(f)">Borrar</button>
+        </div>
+      </div>
+    </template>
+    <p class="col-span-full text-sm text-texto-muted" x-show="!fotos.length">Sin fotos cargadas.</p>
+  </div>
+
+  <div class="mt-4 flex flex-wrap items-center gap-3" x-show="({{ puede_editar_expr }}) && puedeSubir"
+       x-data="webcamCapture({ vigilar: {{ vigilar_expr|js }} })">
+    <label class="boton boton-secundario">
+      <span>Subir foto</span>
+      <input type="file" class="sr-only" accept="image/jpeg,image/png,image/webp" @change="subirFoto($event.target.files[0]); $event.target.value = ''">
+    </label>
+    <button type="button" class="boton boton-secundario" x-show="!activa" @click="iniciar()">Tomar foto</button>
+    {# x-show y no x-if: iniciar() necesita $refs.video en el DOM ANTES de activarse. #}
+    <div class="flex flex-wrap items-center gap-2" x-show="activa" x-cloak>
+      <video x-ref="video" autoplay playsinline class="h-24 max-w-full rounded-input border border-borde"></video>
+      <button type="button" class="boton boton-secundario" @click="capturarFoto($data)">Capturar</button>
+      <button type="button" class="boton boton-secundario" @click="detener()">Cancelar</button>
+    </div>
+    <p class="text-sm text-danger" x-show="error" x-text="error" x-cloak></p>
+  </div>
+</div>
+{%- endmacro %}

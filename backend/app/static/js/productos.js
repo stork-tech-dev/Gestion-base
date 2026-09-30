@@ -263,52 +263,9 @@
         }
       },
 
-      // ---------- Fotos ----------
-
-      async subirFoto(archivo) {
-        if (!archivo || !this.ficha) return;
-        const datos = new FormData();
-        datos.append('archivo', archivo);
-        try {
-          await window.pedir(`${API}/${this.ficha.id}/fotos`, { method: 'POST', body: datos });
-          window.toast('Foto subida.');
-          await this._refrescarFicha();
-        } catch (e) {
-          window.toast(e.message, 'error');
-        }
-      },
-
-      async capturarFoto(camara) {
-        const blob = await camara.capturar();
-        camara.detener();
-        await this.subirFoto(blob);
-      },
-
-      async marcarPrincipal(f) {
-        try {
-          await window.pedir(`${API}/fotos/${f.id}/principal`, { method: 'PATCH' });
-          await this._refrescarFicha();
-        } catch (e) {
-          window.toast(e.message, 'error');
-        }
-      },
-
-      async borrarFoto(f) {
-        const ok = await window.confirmar({
-          titulo: '¿Borrar esta foto?',
-          mensaje: 'No se puede deshacer.',
-          textoConfirmar: 'Borrar',
-          peligro: true,
-        });
-        if (!ok) return;
-        try {
-          await window.pedir(`${API}/fotos/${f.id}`, { method: 'DELETE' });
-          window.toast('Foto borrada.');
-          await this._refrescarFicha();
-        } catch (e) {
-          window.toast(e.message, 'error');
-        }
-      },
+      // Fotos: ver static/js/fotos_producto.js (window.fotosProducto) — la
+      // ficha lo usa vía la macro components/fotos_producto.html, con
+      // `al_cambiar="_refrescarFicha()"` para refrescarse tras cada cambio.
 
       // ---------- Etiquetas ----------
 

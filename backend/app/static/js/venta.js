@@ -21,10 +21,49 @@
     esCodigo: (texto) => /^[A-Za-z]{2}[0-9]{3}[0-9A-Za-z]?$/.test(String(texto || '').trim()),
     // En el desplegable: sin stock y sin stock infinito → deshabilitado.
     puedeAgregar: (p) => p.stock_infinito || p.stock > 0,
-    // Texto de la columna Descuento.
-    textoDescuento: (item) => item.en_promocion ? 'Promo'
-      : (Number(item.descuento_item) > 0 ? `${Number(item.descuento_item)}% · ${item.motivo?.nombre ?? ''}` : ''),
-    puedeDescontar: (item, permiso) => permiso && !item.en_promocion,
+    // Cantidad tipeada en una línea → entero válido o null (vacío, decimal,
+    // negativo, > 999: se ignora y la fila vuelve a la cantidad de la API).
+    cantidadValida: (valor) => {
+      const texto = String(valor ?? '').trim();
+      if (!/^\d+$/.test(texto)) return null;
+      const n = Number(texto);
+      return n <= 999 ? n : null;
+    },
+    // El + de una línea: deshabilitado si ya se llegó al stock del PRODUCTO
+    // (no de esta línea sola: un producto puede estar repartido en varias
+    // líneas, una con descuento y otra sin él). null = infinito.
+    puedeSumar: (linea, venta) => {
+      if (linea.stock === null) return true;
+      const cargadas = ((venta && venta.items) || []).filter((i) => i.producto_id === linea.producto_id).length;
+      return cargadas < linea.stock;
+    },
+    // Mientras haya un PUT de cantidad en vuelo para esta línea: deshabilita
+    // −/+/input así dos clics seguidos no mandan la misma cantidad de base dos veces.
+    lineaOcupada: (ocupadas, itemId) => ocupadas.has(itemId),
+    // Columna Descuento de una línea.
+    textoDescuentoLinea: (linea) => {
+      if (linea.unidades_en_promocion) return linea.unidades_en_promocion === linea.cantidad
+        ? 'Promo' : `Promo (${linea.unidades_en_promocion} de ${linea.cantidad})`;
+      return Number(linea.descuento_item) > 0 ? `${Number(linea.descuento_item)}% · ${linea.motivo?.nombre ?? ''}` : '';
+    },
+    puedeDescontarLinea: (linea, permiso) => permiso && !linea.unidades_en_promocion,
+    // % que representa el descuento general sobre el total antes de aplicarlo (1 decimal, para mostrar).
+    porcentajeDescuentoGeneral: (venta) => {
+      const monto = Number(venta?.descuento_general || 0);
+      const base = Number(venta?.cobrable || 0) + monto;
+      return monto > 0 && base > 0 ? Math.round((monto / base) * 1000) / 10 : 0;
+    },
+    // Cuerpo de POST /descuento-general según el modo elegido ('porcentaje' | 'total').
+    cuerpoDescuentoGeneral: (modo, valor) => {
+      const texto = String(valor ?? '').trim().replace(',', '.');
+      if (!texto) return null;
+      return modo === 'total' ? { total: texto, porcentaje: null } : { porcentaje: texto, total: null };
+    },
+    // El backend borra el descuento general en silencio cuando cambia el
+    // carrito (_carrito_cambio) o cuando deja de entrar (red de seguridad de
+    // _recalcular): de > 0 a 0 sin que el usuario lo haya pedido él mismo.
+    descuentoGeneralSeBorro: (anterior, actual) =>
+      !!anterior && Number(anterior.descuento_general || 0) > 0 && Number(actual?.descuento_general || 0) === 0,
     // Índice del desplegable con flechas (circular, -1 = ninguno).
     moverIndice: (actual, total, delta) => total === 0 ? -1 : (actual + delta + total) % total,
     // Pagos que se mandan al backend: el monto del primero solo importa si hay dos.
@@ -125,10 +164,11 @@
       opcionesPago: [[], []],
       confirmando: false,
       descartando: false,
+      descuentoGeneral: { modo: 'total', valor: '' },
 
-      // Popover (modal) de descuento de un ítem.
+      // Popover (modal) de descuento de una línea.
       descuentoAbierto: false,
-      descuento: { item: null, motivo_id: '', porcentaje: '' },
+      descuento: { linea: null, motivo_id: '', porcentaje: '' },
       // Alta rápida de cliente.
       clienteAbierto: false,
       clienteForm: window.clienteFormulario.vacio(),
@@ -144,6 +184,8 @@
       _clavesOpcionesPago: [null, null],
       _iniciando: null,
       _enVuelo: new Set(),
+      _lineasOcupadas: new Set(),
+      _descuentoGeneralAMano: false,
       _pidiendoConfirmacion: false,
 
       async init() {
@@ -162,6 +204,8 @@
 
       // ---------- Estado derivado (solo presentación) ----------
       get items() { return this.venta ? this.venta.items : []; },
+      // Carrito que muestra la tabla: unidades agrupadas por producto + descuento (Task 3).
+      get lineas() { return this.venta ? this.venta.lineas : []; },
       get hayModalAbierto() {
         return this.descuentoAbierto || this.clienteAbierto || this.confirmadaAbierta || this._pidiendoConfirmacion;
       },
@@ -171,8 +215,6 @@
       },
       // Importe con signo de pesos (formato es-AR de app.js).
       plata: (valor) => '$ ' + window.pesos(valor),
-      textoDescuento: (item) => L.textoDescuento(item),
-      puedeDescontarItem(item) { return L.puedeDescontar(item, this.puedeDescontar); },
       montoEditable(indice) { return L.montoEditable(indice, this.pagos); },
       planesDe(indice) {
         const fila = this.pagos[indice];
@@ -192,6 +234,7 @@
       // ---------- Respuestas de la API ----------
       /** Muestra la última VentaResponse y recarga lo que depende de ella. */
       mostrar(venta) {
+        const anterior = this.venta;
         this.venta = venta;
         this.pagos = L.filasDePagos(venta, this.pagos);
         this.promocionElegida = venta && venta.promocion ? String(venta.promocion.id) : '';
@@ -201,13 +244,27 @@
         } else {
           this.promociones = [];
         }
+        // Aviso solo si el borrado NO lo pidió el propio usuario (aplicar uno
+        // nuevo o "Quitar"): esas dos acciones prenden _descuentoGeneralAMano.
+        if (!this._descuentoGeneralAMano && L.descuentoGeneralSeBorro(anterior, venta)) {
+          window.toast('Se quitó el descuento general porque cambió la venta.');
+        }
       },
 
-      /** Acción que devuelve una VentaResponse (o {venta, aviso}): secuenciada
-          (solo se muestra la del último pedido lanzado) y registrada para que
-          confirmar espere a que terminen las escrituras en vuelo. */
-      async accion(promesa) {
-        this._enVuelo.add(promesa);
+      /** Acción que devuelve una VentaResponse: secuenciada (solo se muestra
+          la del último pedido lanzado) y registrada para que confirmar espere
+          a que terminen las escrituras en vuelo (y no confirme si alguna
+          falló: ver `_ejecutarAccion`). */
+      accion(promesa) {
+        // `_enVuelo` guarda la promesa de ESTA función (nunca rechaza: ya
+        // atrapó su propio error), no la de `promesa`: así confirmar puede
+        // distinguir "en vuelo" de "en vuelo y ya falló" con un solo
+        // allSettled (ver confirmarVenta).
+        const tarea = this._ejecutarAccion(promesa);
+        this._enVuelo.add(tarea);
+        return tarea.finally(() => this._enVuelo.delete(tarea));
+      },
+      async _ejecutarAccion(promesa) {
         try {
           const respuesta = await this._ultimaVenta(promesa);
           if (respuesta !== undefined) this.mostrar(respuesta);
@@ -215,8 +272,6 @@
         } catch (e) {
           window.toast(e.message, 'error');
           return false;
-        } finally {
-          this._enVuelo.delete(promesa);
         }
       },
 
@@ -240,6 +295,7 @@
         this._clavesOpcionesPago = [null, null];
         this.promociones = [];
         this.promocionElegida = '';
+        this.descuentoGeneral = { modo: 'total', valor: '' };
         this.productos.limpiar();
         this.clientes.limpiar();
       },
@@ -296,16 +352,34 @@
           window.toast(e.message, 'error');
           return;
         }
-        const pedido = window.pedir(`${API}/${ventaId}/items`, { method: 'POST', body: { producto_id: productoId } })
-          .then((r) => { if (r.aviso) window.toast(r.aviso, 'error'); return r.venta; });
+        const pedido = window.pedir(`${API}/${ventaId}/items`, { method: 'POST', body: { producto_id: productoId } });
         await this.accion(pedido);
       },
 
-      async quitarItem(item) {
-        await this.accion(window.pedir(`${API}/${this.venta.id}/items/${item.id}`, { method: 'DELETE' }));
+      // ---------- Cantidad por línea (Task 3) ----------
+      lineaOcupada(linea) { return L.lineaOcupada(this._lineasOcupadas, linea.item_id); },
+      async cambiarCantidad(linea, campo) {
+        const cantidad = L.cantidadValida(campo.value);
+        if (cantidad === null || cantidad === linea.cantidad) { campo.value = linea.cantidad; return; }
+        const ok = await this._fijarCantidad(linea, cantidad);
+        if (!ok) campo.value = linea.cantidad;   // rechazada (ej. stock): vuelve a la de la API
+      },
+      sumar(linea, delta) { return this._fijarCantidad(linea, linea.cantidad + delta); },
+      quitarLinea(linea) { return this._fijarCantidad(linea, 0); },
+      async _fijarCantidad(linea, cantidad) {
+        // Mientras esta línea tenga un PUT en vuelo, −/+/input quedan
+        // deshabilitados (template): dos clics antes de que vuelva la
+        // respuesta no mandan la misma cantidad de base dos veces.
+        this._lineasOcupadas.add(linea.item_id);
+        try {
+          return await this.accion(window.pedir(`${API}/${this.venta.id}/items/${linea.item_id}/cantidad`,
+                                                { method: 'PUT', body: { cantidad } }));
+        } finally {
+          this._lineasOcupadas.delete(linea.item_id);
+        }
       },
 
-      // ---------- Descuento por ítem ----------
+      // ---------- Descuento por línea ----------
       async cargarOpcionesDescuento() {
         if (!this.puedeDescontar) return;
         try {
@@ -315,11 +389,11 @@
         }
       },
 
-      abrirDescuento(item) {
+      abrirDescuento(linea) {
         this.descuento = {
-          item,
-          motivo_id: item.motivo ? String(item.motivo.id) : '',
-          porcentaje: Number(item.descuento_item) > 0 ? String(Number(item.descuento_item)) : '',
+          linea,
+          motivo_id: linea.motivo ? String(linea.motivo.id) : '',
+          porcentaje: Number(linea.descuento_item) > 0 ? String(Number(linea.descuento_item)) : '',
         };
         this.descuentoAbierto = true;
       },
@@ -335,9 +409,27 @@
         }
         const ok = await this.accion(window.pedir(`${API}/${this.venta.id}/descuento`, {
           method: 'POST',
-          body: { item_id: this.descuento.item.id, motivo_id: motivo ? motivo.id : null, porcentaje },
+          body: { item_id: this.descuento.linea.item_id, motivo_id: motivo ? motivo.id : null, porcentaje },
         }));
         if (ok) this.descuentoAbierto = false;
+      },
+
+      // ---------- Descuento general de la venta ----------
+      // `_descuentoGeneralAMano` evita el toast de "se quitó solo" en `mostrar`
+      // cuando el cambio lo pidió el propio usuario (aplicar uno nuevo o Quitar).
+      async aplicarDescuentoGeneral() {
+        const cuerpo = L.cuerpoDescuentoGeneral(this.descuentoGeneral.modo, this.descuentoGeneral.valor);
+        if (!cuerpo) { window.toast('Escribí el total final o el porcentaje.', 'error'); return; }
+        this._descuentoGeneralAMano = true;
+        const ok = await this.accion(window.pedir(`${API}/${this.venta.id}/descuento-general`, { method: 'POST', body: cuerpo }))
+          .finally(() => { this._descuentoGeneralAMano = false; });
+        if (ok) this.descuentoGeneral.valor = '';
+      },
+      quitarDescuentoGeneral() {
+        this._descuentoGeneralAMano = true;
+        return this.accion(window.pedir(`${API}/${this.venta.id}/descuento-general`,
+                                        { method: 'POST', body: { porcentaje: null, total: null } }))
+          .finally(() => { this._descuentoGeneralAMano = false; });
       },
 
       // ---------- Cliente ----------
@@ -461,8 +553,13 @@
         if (enFoco && typeof enFoco.blur === 'function') enFoco.blur();
         this.confirmando = true;
         try {
-          // Primero terminan las escrituras en vuelo (p. ej. el cambio de un medio de pago).
-          await Promise.allSettled([...this._enVuelo]);
+          // Primero terminan las escrituras en vuelo (p. ej. el cambio de un
+          // medio de pago, o una cantidad tipeada): si alguna falló, el toast
+          // de error ya se mostró y no hay que confirmar con datos a medio
+          // aplicar (rejected: no debería pasar, `accion()` no rechaza, pero
+          // se cubre igual; value === false: falló y ya se avisó).
+          const resultados = await Promise.allSettled([...this._enVuelo]);
+          if (resultados.some((r) => r.status === 'rejected' || r.value === false)) return;
           if (!L.puedeConfirmar(this.venta, this.hayTurno)) return;
           const venta = this.venta;
           const confirmada = await window.pedir(`${API}/${venta.id}/confirmar`, {

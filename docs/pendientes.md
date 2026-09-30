@@ -132,6 +132,15 @@ que conviene resolverlos. Al resolver uno, borrarlo de esta lista.
 - `elegir_promocion` acepta una promoción aplicable que no ahorra nada (la venta dice "elegida a mano" y no cambia nada).
 - En la pantalla de venta, un monto con coma decimal ("5000,50") da un 422 genérico (hoy `type="number"` lo evita en la mayoría de los navegadores).
 
+## Mejoras de venta y productos: pendientes
+- Subir/bajar la cantidad de una línea con unidades en promoción no tiene test propio.
+- La auditoría de `venta.descuento_general` registra el monto pedido, no el que quedó si el segundo recálculo lo anula (caso: se borran los pagos y cae una promo por medio de pago).
+- El "total final" no está garantizado en ese mismo caso (el total visible y `total_esperado` protegen la confirmación).
+- El mensaje del tope de descuento general trunca un tope con decimales; quitar un descuento general inexistente igual audita.
+- En el formulario de producto, los errores del preview en modo precio (precio < costo, margen > 1000 %) no se ven hasta guardar.
+- `fotosProducto.recargar()` sin secuenciador; la ficha pide dos veces tras cada cambio de foto; "· dólar" suelto sin el precio adelante.
+- Productos en dólares con costo en pesos de 4 decimales: el mensaje de "precio menor al costo" muestra el costo redondeado igual al precio rechazado.
+
 ## Verificación manual pendiente (navegador)
 - Tema claro/oscuro sin recargar, cajón del sidebar debajo de 1024px, sin
   scroll horizontal de 320px a 1920px, y botones de al menos 44px en modo

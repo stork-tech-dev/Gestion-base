@@ -282,20 +282,21 @@ def test_finalizar_aplica_los_ajustes_en_orden_de_producto_id(db, base):
 
 def test_finalizar_con_faltante_no_aplica_nada_y_sigue_en_curso(db, base):
     """Se vendió entre el conteo y el cierre: al cerrar, el ajuste dejaría el
-    stock negativo (aplicar_movimiento no permite faltante en un ajuste de
-    auditoría) -> 409, la auditoría sigue en curso y no queda ningún ajuste."""
+    stock negativo (ningún movimiento, tampoco un ajuste de auditoría, puede
+    dejarlo negativo) -> 409, la auditoría sigue en curso y no queda ningún ajuste."""
     p = base["alta"]("Remera faltante cierre")
     servicio_stock.registrar_ingreso(db, base["admin"], p.id, 10, None, None)
     auditoria = servicio.iniciar(db, base["admin"], AuditoriaIniciar(notas=None), None)
     servicio.registrar_items(db, base["admin"], auditoria, [ItemContado(producto_id=p.id, cantidad_contada=8)], None)
-    # Venta con permitir_faltante después de registrar el conteo: baja mucho más el stock real.
+    # Venta real después de registrar el conteo: baja más el stock (de 10 a 1,
+    # sigue siendo >= 0, así que no hace falta nada especial para que se aplique).
     # referencia_venta_id es FK (sesión 06): no acepta un id inventado.
     venta = Venta(numero="V-100004", usuario_id=base["admin"].id)
     db.add(venta)
     db.flush()
     servicio_stock.aplicar_movimiento(
         db, base["admin"], tipo=TipoMovimientoStock.VENTA, producto_id=p.id, cantidad=-9,
-        referencia_venta_id=venta.id, permitir_faltante=True,
+        referencia_venta_id=venta.id,
     )
     assert p.stock == 1
     with pytest.raises(ReglaDeNegocio):

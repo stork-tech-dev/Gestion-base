@@ -19,6 +19,11 @@ MONTO_MAXIMO = Decimal("99999999.99")
 class ItemAgregar(BaseModel):
     codigo: str | None = Field(default=None, min_length=1, max_length=30)
     producto_id: int | None = None
+    cantidad: int = Field(default=1, ge=1, le=999)
+
+
+class CantidadLinea(BaseModel):
+    cantidad: int = Field(ge=0, le=999)   # 0 = quitar la línea
 
 
 class ClienteAsociar(BaseModel):
@@ -35,6 +40,12 @@ class DescuentoAplicar(BaseModel):
 
 class PromocionElegir(BaseModel):
     promocion_id: int | None = None
+
+
+class DescuentoGeneral(BaseModel):
+    """Uno de los dos (o ninguno = quitar el descuento general)."""
+    porcentaje: Decimal | None = Field(default=None, gt=0, le=100, decimal_places=2)
+    total: Decimal | None = Field(default=None, gt=0, le=MONTO_MAXIMO, decimal_places=2)
 
 
 class PagoDatos(BaseModel):
@@ -129,6 +140,43 @@ class VentaPagoResponse(BaseModel):
         )
 
 
+class VentaLineaResponse(BaseModel):
+    """Unidades del mismo producto con el mismo descuento (lo que muestra el carrito)."""
+    item_id: int                     # representante: cantidad, descuento y quitar se piden con este id
+    item_ids: list[int]
+    producto_id: int
+    codigo: str
+    descripcion: str
+    foto_url: str | None
+    cantidad: int
+    precio_lista: Decimal            # unitario
+    precio_unitario: Decimal         # unitario sin promo
+    descuento_item: Decimal
+    descuento_efectivo: Decimal
+    motivo: Referencia | None
+    porcentaje_modificado: bool
+    precio_final: Decimal            # suma de la línea
+    unidades_en_promocion: int
+    stock: int | None                # stock actual del producto; None = infinito
+
+    @classmethod
+    def desde(cls, unidades) -> "VentaLineaResponse":
+        primera = unidades[0]
+        producto = primera.producto
+        return cls(
+            item_id=primera.id, item_ids=[i.id for i in unidades], producto_id=primera.producto_id,
+            codigo=producto.codigo_con_verificador, descripcion=producto.descripcion,
+            foto_url=producto.foto_principal_url, cantidad=len(unidades),
+            precio_lista=primera.precio_lista, precio_unitario=primera.precio_unitario,
+            descuento_item=primera.descuento_item,
+            descuento_efectivo=calcular_descuento_total(producto.descuento_producto, primera.descuento_item),
+            motivo=Referencia.de(primera.motivo_descuento), porcentaje_modificado=primera.porcentaje_modificado,
+            precio_final=sum((i.precio_final for i in unidades), Decimal("0")),
+            unidades_en_promocion=sum(1 for i in unidades if i.en_promocion),
+            stock=None if producto.stock_infinito else producto.stock,
+        )
+
+
 class VentaResponse(BaseModel):
     id: int
     numero: str
@@ -136,9 +184,11 @@ class VentaResponse(BaseModel):
     cliente: ClienteDeVenta | None
     usuario: Referencia
     items: list[VentaItemResponse]
+    lineas: list[VentaLineaResponse]
     pagos: list[VentaPagoResponse]
     subtotal: Decimal
     descuento_total: Decimal
+    descuento_general: Decimal
     recargo_total: Decimal
     total: Decimal
     cobrable: Decimal
@@ -152,8 +202,10 @@ class VentaResponse(BaseModel):
     motivo_anulacion: str | None
 
     @classmethod
-    def desde(cls, venta, caminos: dict[int, str]) -> "VentaResponse":
-        """`caminos` = services.categorias.caminos(db) (una sola lectura por respuesta)."""
+    def desde(cls, venta, caminos: dict[int, str], lineas) -> "VentaResponse":
+        """`caminos` = services.categorias.caminos(db) (una sola lectura por
+        respuesta). `lineas` = services.ventas.lineas(venta) (evita importar
+        el service desde el schema)."""
         cliente = venta.cliente
         return cls(
             id=venta.id, numero=venta.numero, estado=venta.estado,
@@ -161,8 +213,10 @@ class VentaResponse(BaseModel):
                      if cliente else None),
             usuario=Referencia.de(venta.usuario),
             items=[VentaItemResponse.desde(i, caminos.get(i.producto.categoria_id, "")) for i in venta.items],
+            lineas=[VentaLineaResponse.desde(u) for u in lineas],
             pagos=[VentaPagoResponse.desde(p) for p in venta.pagos],
-            subtotal=venta.subtotal, descuento_total=venta.descuento_total, recargo_total=venta.recargo_total,
+            subtotal=venta.subtotal, descuento_total=venta.descuento_total,
+            descuento_general=venta.descuento_general, recargo_total=venta.recargo_total,
             total=venta.total, cobrable=venta.cobrable, promocion=Referencia.de(venta.promocion),
             promocion_a_mano=venta.promocion_a_mano, codigo_cambio=venta.codigo_cambio,
             confirmada_en=venta.confirmada_en, created_at=venta.created_at, anulada_en=venta.anulada_en,
@@ -197,11 +251,6 @@ class VentaResumen(BaseModel):
             anulada_en=venta.anulada_en, anulada_por=Referencia.de(venta.anulada_por),
             motivo_anulacion=venta.motivo_anulacion,
         )
-
-
-class AgregarItemResponse(BaseModel):
-    venta: VentaResponse
-    aviso: str | None
 
 
 class ProductoVenta(BaseModel):

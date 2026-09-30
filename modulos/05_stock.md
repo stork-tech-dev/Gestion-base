@@ -22,7 +22,7 @@ en la misma transacción.
 
 ```sql
 -- A productos se le agregan:
---   stock          INTEGER NOT NULL DEFAULT 0   -- puede quedar negativo SOLO por ventas
+--   stock          INTEGER NOT NULL DEFAULT 0   -- nunca queda negativo (tampoco por ventas)
 --   stock_minimo   INTEGER NOT NULL DEFAULT 0   -- CHECK >= 0
 -- Propiedad/column_property `bajo_minimo` = stock_minimo > 0 AND stock <= stock_minimo.
 -- `productos.stock` SOLO lo escribe `aplicar_movimiento` (no está en ningún
@@ -87,16 +87,16 @@ general (Admin, o un rol personalizado).
 
 ### `/app/services/stock.py`
 - **`aplicar_movimiento(db, autor, *, tipo, producto_id, cantidad, motivo_baja_id=None,
-  auditoria_id=None, referencia_venta_id=None, permitir_faltante=False, notas=None,
-  ip_origen=None)`** — ÚNICO camino por el que cambia `productos.stock`:
+  auditoria_id=None, referencia_venta_id=None, notas=None, ip_origen=None)`** —
+  ÚNICO camino por el que cambia `productos.stock`:
   - `cantidad` con signo y ≠ 0; el signo tiene que ser coherente con el tipo
     (el CHECK de la base lo refuerza).
   - Bloquea la fila del producto (`SELECT … FOR UPDATE`) antes de calcular.
   - Si el producto tiene `stock_infinito`, registra el movimiento pero no toca
     el stock (`stock_resultante` = stock actual).
   - Si el movimiento resta y el stock no alcanza → 409 "No hay stock suficiente
-    de '<descripción>': hay N y se piden M", salvo `permitir_faltante=True`
-    (solo ventas).
+    de '<descripción>': hay N y se piden M" (ningún tipo, tampoco una venta,
+    puede dejarlo negativo).
   - Guarda `stock_resultante`. No hace commit.
   - Audita `stock.<tipo>`.
 - `registrar_ingreso(autor, producto_id, cantidad, notas)`: cantidad entera > 0;
@@ -215,8 +215,8 @@ activar/desactivar.
 ## TESTS (`tests/test_stock.py`, `test_bajas_stock.py`, `test_auditoria_inventario.py`)
 - `productos.stock` solo cambia vía `aplicar_movimiento`; `stock_resultante`
   correcto; stock infinito no se toca.
-- Baja o ajuste sin stock suficiente → 409; venta con `permitir_faltante` deja
-  stock negativo.
+- Baja, ajuste o venta sin stock suficiente → 409 (ningún tipo deja el stock
+  negativo).
 - CHECKs de signo por tipo en `movimientos_stock`.
 - Una sola auditoría en curso; al cerrar genera un ajuste por diferencia ≠ 0.
 
@@ -228,4 +228,4 @@ activar/desactivar.
 - Cada movimiento guarda el stock resultante y queda trazado con usuario y fecha.
 - Una auditoría cerrada genera un `ajuste_auditoria` por cada diferencia ≠ 0;
   una sola auditoría en curso a la vez; `diferencia` es columna generada.
-- El stock solo puede quedar negativo por ventas.
+- El stock nunca queda negativo (tampoco por ventas).

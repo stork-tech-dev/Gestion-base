@@ -39,6 +39,10 @@ class Venta(Base):
     estado: Mapped[EstadoVenta] = mapped_column(enum_db(EstadoVenta, "estado_venta"), default=EstadoVenta.EN_CURSO)
     subtotal: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     descuento_total: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
+    # Monto del descuento general (% o "total final" de la pantalla). Ya está
+    # repartido en el precio_final de cada unidad: se guarda para poder
+    # recalcular y para mostrarlo; no se vuelve a restar del total.
+    descuento_general: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     recargo_total: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     total: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0"))
     codigo_cambio: Mapped[str | None] = mapped_column(String(8), unique=True)

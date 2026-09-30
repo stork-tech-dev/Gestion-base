@@ -75,10 +75,81 @@ def test_precio_en_dolares_con_ceil(db, admin, base):
 
 
 def test_precio_preview(db, base):
-    vista = servicio.precio_preview(db, base["dolares"].id, Decimal("10.01"), Decimal("10"))
-    assert vista == {"moneda": "usd", "dolar_proveedor": Decimal("1000.00"), "precio_venta": Decimal("11100.00")}
-    vista = servicio.precio_preview(db, base["pesos"].id, Decimal("1001"), Decimal("0"))
-    assert vista == {"moneda": "ars", "dolar_proveedor": None, "precio_venta": Decimal("1100.00")}
+    vista = servicio.precio_preview(db, base["dolares"].id, Decimal("10.01"), margen=Decimal("10"))
+    assert vista == {"moneda": "usd", "dolar_proveedor": Decimal("1000.00"), "precio_venta": Decimal("11100.00"),
+                     "margen": Decimal("10.00"), "redondeo": Decimal("100"), "redondeado": True}
+    vista = servicio.precio_preview(db, base["pesos"].id, Decimal("1001"), margen=Decimal("0"))
+    assert vista == {"moneda": "ars", "dolar_proveedor": None, "precio_venta": Decimal("1100.00"),
+                     "margen": Decimal("0.00"), "redondeo": Decimal("100"), "redondeado": True}
+
+
+def test_precio_preview_con_precio_manual(db, base):
+    # Precio manual: precio exacto (sin CEIL al redondeo) y margen derivado.
+    vista = servicio.precio_preview(db, base["pesos"].id, Decimal("1000"), precio_venta=Decimal("1550"))
+    assert vista == {"moneda": "ars", "dolar_proveedor": None, "precio_venta": Decimal("1550.00"),
+                     "margen": Decimal("55.00"), "redondeo": Decimal("100"), "redondeado": False}
+
+
+def test_alta_con_precio_venta_manual_en_pesos(db, admin, base):
+    p = _alta(db, admin, base, costo="1000", precio_venta="1500")
+    assert p.precio_venta == Decimal("1500.00")            # exacto, no múltiplo forzado de otra cosa
+    assert p.margen == Decimal("50.00")
+
+
+def test_alta_con_precio_venta_manual_en_dolares(db, admin, base):
+    p = _alta(db, admin, base, proveedor_id=base["dolares"].id, costo="2", precio_venta="2500")
+    assert p.precio_venta == Decimal("2500.00")
+    assert p.margen == Decimal("25.00")                    # 2500 / (2*1000) - 1 = 25 %
+
+
+def test_precio_venta_manual_menor_al_costo_o_margen_excesivo(db, admin, base):
+    with pytest.raises(DatoInvalido) as error:
+        _alta(db, admin, base, costo="1000", precio_venta="500")
+    assert "no puede ser menor al costo" in error.value.mensaje
+    with pytest.raises(DatoInvalido) as error:
+        _alta(db, admin, base, costo="100", precio_venta="1200")   # margen 1100 % > 1000 %
+    assert "1000" in error.value.mensaje
+
+
+def test_precio_venta_apenas_por_debajo_del_costo_se_rechaza(db, admin, base):
+    """Redondear el margen a 2 decimales ANTES de comparar convertía un
+    margen apenas negativo (ej. -0.001 %) en "-0.00", que no es < 0: un
+    precio apenas por debajo del costo se guardaba con margen 0. La
+    comparación ahora es exacta, antes de redondear nada."""
+    with pytest.raises(DatoInvalido) as error:
+        _alta(db, admin, base, costo="1000", precio_venta="999.99")
+    assert "no puede ser menor al costo" in error.value.mensaje
+
+
+def test_precio_venta_igual_al_costo_se_acepta_con_margen_cero(db, admin, base):
+    p = _alta(db, admin, base, costo="1000", precio_venta="1000")
+    assert p.precio_venta == Decimal("1000.00") and p.margen == Decimal("0.00")
+
+
+def test_edicion_con_precio_venta_manual_recalcula_margen(db, admin, base):
+    p = _alta(db, admin, base, costo="1000", margen="0")            # precio 1000.00
+    datos = ProductoEditar(categoria_id=p.categoria_id, descripcion=p.descripcion, costo="1000",
+                           precio_venta="1300")
+    editado = servicio.editar_producto(db, admin, p, datos, None)
+    assert editado.precio_venta == Decimal("1300.00") and editado.margen == Decimal("30.00")
+
+
+def test_edicion_con_margen_y_costo_nuevo_recalcula_con_la_formula(db, admin, base):
+    p = _alta(db, admin, base, costo="1000", margen="0")
+    editado = _editar(db, admin, p, costo="2000", margen="20")
+    assert editado.precio_venta == Decimal("2400.00")               # 2000 × 1.20, formula + redondeo
+
+
+def test_precio_manual_y_cambio_de_dolar_recalcula_con_margen_y_redondeo(db, admin, base):
+    """Un precio cargado a mano queda EXACTO solo hasta el próximo recálculo:
+    un cambio de dólar del proveedor (o de costo/margen en otra edición)
+    vuelve a pasar por la fórmula con el margen derivado y el redondeo
+    configurado, así que el precio exacto puede dejar de serlo."""
+    p = _alta(db, admin, base, proveedor_id=base["dolares"].id, costo="2", precio_venta="2500")
+    assert p.precio_venta == Decimal("2500.00") and p.margen == Decimal("25.00")
+    servicio_proveedores.cambiar_dolar(db, admin, base["dolares"], Decimal("2000"), None)
+    db.refresh(p)
+    assert p.precio_venta == Decimal("5000.00")                     # CEIL(2 × 2000 × 1.25, 100) = 5000
 
 
 def test_recalculo_por_cambio_de_dolar(db, admin, base):

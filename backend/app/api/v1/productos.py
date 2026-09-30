@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFi
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.errores import NoProcesable
 from app.core.permisos import Modulo
 from app.core.seguridad import requiere_permiso
 from app.core.utils import ip_de_request
@@ -68,9 +69,12 @@ def proveedores(solo_activos: bool = False, db: Session = Depends(get_db), _: Us
 
 @router.get("/precio-preview", response_model=PrecioPreview)
 def precio_preview(proveedor_id: int, costo: Decimal = Query(gt=0, lt=PRECIO_MAXIMO),
-                   margen: Decimal = Query(ge=0, le=1000), db: Session = Depends(get_db),
-                   _: Usuario = Depends(puede_ver)):
-    return servicio.precio_preview(db, proveedor_id, costo, margen)
+                   margen: Decimal | None = Query(None, ge=0, le=1000),
+                   precio_venta: Decimal | None = Query(None, gt=0, lt=PRECIO_MAXIMO),
+                   db: Session = Depends(get_db), _: Usuario = Depends(puede_ver)):
+    if (margen is None) == (precio_venta is None):
+        raise NoProcesable("Mandá margen o precio de venta (uno de los dos).")
+    return servicio.precio_preview(db, proveedor_id, costo, margen, precio_venta)
 
 
 @router.get("/similares", response_model=list[Similar])

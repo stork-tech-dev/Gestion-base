@@ -60,12 +60,46 @@ def calcular_precio_venta(db, costo, margen, proveedor: Proveedor, redondeo: Dec
     return precio
 
 
-def precio_preview(db, proveedor_id: int, costo, margen) -> dict:
+MARGEN_MAXIMO = Decimal("1000")
+
+
+def margen_desde_precio(costo, precio, proveedor: Proveedor) -> Decimal:
+    """Margen % que lleva el costo (en pesos, con el dólar actual) al precio
+    cargado a mano. El precio se respeta exacto (decisión del usuario)."""
+    factor = proveedor.dolar_actual if proveedor.en_dolares else Decimal("1")
+    costo_pesos = Decimal(costo) * factor
+    precio_exacto = Decimal(precio)
+    # Comparación EXACTA (sin redondear el margen primero): redondear a 2
+    # decimales puede convertir un precio apenas por debajo del costo (margen
+    # negativo, ej. -0.001 %) en "-0.00", que no es < 0 y dejaría pasar un
+    # precio menor al costo con margen 0.
+    if precio_exacto < costo_pesos:
+        raise DatoInvalido(f"El precio de venta no puede ser menor al costo (${redondear(costo_pesos)}).")
+    margen = redondear((precio_exacto / costo_pesos - 1) * 100)
+    if margen > MARGEN_MAXIMO:
+        raise DatoInvalido("El margen resultante supera el 1000 %.")
+    return margen
+
+
+def precio_preview(db, proveedor_id: int, costo, margen=None, precio_venta=None) -> dict:
+    """Con `precio_venta`: precio exacto y margen derivado (sin redondeo). Con
+    `margen`: precio por la fórmula (CEIL al redondeo configurado). El
+    llamador (router) exige exactamente uno de los dos."""
     proveedor = obtener_proveedor(db, proveedor_id)
+    redondeo = obtener_configuracion(db).redondeo
+    if precio_venta is not None:
+        precio = redondear(precio_venta)
+        margen_final = margen_desde_precio(costo, precio, proveedor)
+    else:
+        margen_final = redondear(margen)
+        precio = calcular_precio_venta(db, costo, margen_final, proveedor, redondeo)
     return {
         "moneda": proveedor.moneda.value,
         "dolar_proveedor": proveedor.dolar_actual if proveedor.en_dolares else None,
-        "precio_venta": calcular_precio_venta(db, costo, margen, proveedor),
+        "precio_venta": precio,
+        "margen": margen_final,
+        "redondeo": redondeo,
+        "redondeado": precio_venta is None,
     }
 
 
@@ -173,9 +207,13 @@ def crear_producto(db, autor, datos, ip) -> Producto:
     # crear nada (ni el producto ni el movimiento).
     if datos.stock_inicial and not datos.stock_infinito and not resolver_permiso(db, autor.id, Modulo.STOCK, "crear"):
         raise SinPermiso("Cargar stock inicial requiere permiso de ingreso de stock")
-    margen = redondear(datos.margen if datos.margen is not None else obtener_configuracion(db).margen_default)
     costo = redondear(datos.costo)
-    precio = calcular_precio_venta(db, costo, margen, proveedor)
+    if datos.precio_venta is not None:
+        precio = redondear(datos.precio_venta)
+        margen = margen_desde_precio(costo, precio, proveedor)
+    else:
+        margen = redondear(datos.margen if datos.margen is not None else obtener_configuracion(db).margen_default)
+        precio = calcular_precio_venta(db, costo, margen, proveedor)
     sku = _siguiente_sku(db)
     producto = Producto(sku=sku, verificador=digito_verificador(sku), descripcion=descripcion,
                         categoria_id=categoria.id, proveedor_id=proveedor.id, costo=costo, margen=margen,
@@ -216,10 +254,15 @@ def editar_producto(db, autor, producto: Producto, datos, ip) -> Producto:
     _validar_descuento(db, datos.descuento_producto)
     stock_infinito = producto.stock_infinito if datos.stock_infinito is None else datos.stock_infinito
     _validar_stock_infinito(autor, producto.stock_infinito, stock_infinito)
-    costo, margen = redondear(datos.costo), redondear(datos.margen)
-    precio = producto.precio_venta
-    if costo != producto.costo or margen != producto.margen:
-        precio = calcular_precio_venta(db, costo, margen, proveedor)
+    costo = redondear(datos.costo)
+    if datos.precio_venta is not None:
+        precio = redondear(datos.precio_venta)
+        margen = margen_desde_precio(costo, precio, proveedor)
+    else:
+        margen = redondear(datos.margen)
+        precio = producto.precio_venta
+        if costo != producto.costo or margen != producto.margen:
+            precio = calcular_precio_venta(db, costo, margen, proveedor)
 
     antes = snapshot(producto)
     producto.categoria_id = categoria_id

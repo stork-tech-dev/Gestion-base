@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from app.services import stock as servicio_stock
 from tests.fabricas import abrir_turno_de_test, catalogo
 
@@ -84,9 +86,7 @@ def test_flujo_completo_de_venta_sin_cliente(client, crear_usuario, headers_de, 
 
     r = client.post(f"{URL}/{venta_id}/items", json={"codigo": producto.codigo_con_verificador}, headers=h)
     assert r.status_code == 200
-    cuerpo = r.json()
-    assert cuerpo["aviso"] is None
-    total = cuerpo["venta"]["total"]
+    total = r.json()["total"]
 
     r = client.post(f"{URL}/{venta_id}/pagos", json={"pagos": [{"medio_de_pago_id": medio_id, "monto": str(total)}]},
                     headers=h)
@@ -100,7 +100,7 @@ def test_flujo_completo_de_venta_sin_cliente(client, crear_usuario, headers_de, 
     assert len(confirmada["codigo_cambio"]) == 4
 
 
-def test_agregar_item_sin_stock_da_200_con_aviso(client, crear_usuario, headers_de, db):
+def test_agregar_item_sin_stock_da_409(client, crear_usuario, headers_de, db):
     admin = crear_usuario("admin")
     producto = _producto_con_stock(db, admin, "Remera sin stock venta", cantidad=0)
     vendedor = crear_usuario("vendedor")
@@ -108,8 +108,40 @@ def test_agregar_item_sin_stock_da_200_con_aviso(client, crear_usuario, headers_
 
     venta_id = client.post(URL, headers=h).json()["id"]
     r = client.post(f"{URL}/{venta_id}/items", json={"codigo": producto.codigo_con_verificador}, headers=h)
+    assert r.status_code == 409
+    assert "No hay stock de" in r.json()["detail"]
+
+
+def test_put_cantidad_y_lineas_en_la_respuesta(client, crear_usuario, headers_de, db):
+    admin = crear_usuario("admin")
+    producto = _producto_con_stock(db, admin, "Vaso API cantidad", cantidad=5)
+    h = headers_de(crear_usuario("vendedor"))
+    venta_id = client.post(URL, headers=h).json()["id"]
+    r = client.post(f"{URL}/{venta_id}/items", json={"producto_id": producto.id, "cantidad": 2}, headers=h)
     assert r.status_code == 200
-    assert r.json()["aviso"] is not None
+    linea = r.json()["lineas"][0]
+    assert linea["cantidad"] == 2 and len(linea["item_ids"]) == 2 and linea["stock"] == 5
+    assert linea["precio_final"] == str(Decimal(r.json()["items"][0]["precio_final"]) * 2)
+    r = client.put(f"{URL}/{venta_id}/items/{linea['item_id']}/cantidad", json={"cantidad": 5}, headers=h)
+    assert r.status_code == 200 and r.json()["lineas"][0]["cantidad"] == 5
+    r = client.put(f"{URL}/{venta_id}/items/{linea['item_id']}/cantidad", json={"cantidad": 6}, headers=h)
+    assert r.status_code == 409 and "Solo quedan 5 unidades" in r.json()["detail"]
+    assert client.put(f"{URL}/{venta_id}/items/{linea['item_id']}/cantidad", json={"cantidad": 1000},
+                      headers=h).status_code == 422
+
+
+def test_put_cantidad_venta_ajena_403(client, crear_usuario, headers_de, db):
+    """`_venta_propia_en_curso` levanta SinPermiso (403), no NoEncontrado: la
+    venta existe, pero es de otro usuario."""
+    admin = crear_usuario("admin")
+    producto = _producto_con_stock(db, admin, "Vaso ajeno", cantidad=5)
+    h1 = headers_de(crear_usuario("vendedor"))
+    h2 = headers_de(crear_usuario("vendedor"))
+    venta_id = client.post(URL, headers=h1).json()["id"]
+    r = client.post(f"{URL}/{venta_id}/items", json={"producto_id": producto.id}, headers=h1)
+    item_id = r.json()["items"][0]["id"]
+    r = client.put(f"{URL}/{venta_id}/items/{item_id}/cantidad", json={"cantidad": 2}, headers=h2)
+    assert r.status_code == 403
 
 
 def test_costo_unitario_nunca_aparece(client, crear_usuario, headers_de, db):
@@ -141,7 +173,7 @@ def test_permisos_del_carrito_descuento_y_anulacion(client, crear_usuario, heade
 
     venta_id = client.post(URL, headers=h).json()["id"]
     r = client.post(f"{URL}/{venta_id}/items", json={"codigo": producto.codigo_con_verificador}, headers=h)
-    item_id = r.json()["venta"]["items"][0]["id"]
+    item_id = r.json()["items"][0]["id"]
 
     # El vendedor sembrado tiene venta.descuento.
     r = client.post(f"{URL}/{venta_id}/descuento", json={"item_id": item_id, "motivo_id": motivo_id,
@@ -182,6 +214,36 @@ def test_permisos_del_carrito_descuento_y_anulacion(client, crear_usuario, heade
     assert r.status_code == 403
 
 
+def test_descuento_general_api(client, crear_usuario, headers_de, db):
+    admin = crear_usuario("admin")
+    h_admin = headers_de(admin)
+    producto = _producto_con_stock(db, admin, "Remera descuento general", cantidad=10)
+
+    vendedor = crear_usuario("vendedor")
+    h = headers_de(vendedor)
+
+    venta_id = client.post(URL, headers=h).json()["id"]
+    r = client.post(f"{URL}/{venta_id}/items", json={"codigo": producto.codigo_con_verificador}, headers=h)
+    total = r.json()["total"]
+
+    # Los dos a la vez: 400.
+    r = client.post(f"{URL}/{venta_id}/descuento-general", json={"porcentaje": "10", "total": "100"}, headers=h)
+    assert r.status_code == 400
+
+    # Por total final: 200 y descuento_general en la respuesta.
+    objetivo = str(Decimal(total) - Decimal("100"))
+    r = client.post(f"{URL}/{venta_id}/descuento-general", json={"total": objetivo}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["descuento_general"] == "100.00"
+
+    # Sin "ventas crear" (donde se hereda venta.descuento): 403.
+    rol_sin_descuento = _rol_sin_descuento(client, h_admin)
+    otro = crear_usuario(rol=rol_sin_descuento)
+    h_otro = headers_de(otro)
+    r = client.post(f"{URL}/{venta_id}/descuento-general", json={"total": objetivo}, headers=h_otro)
+    assert r.status_code == 403
+
+
 def test_auditoria_de_anulacion(client, crear_usuario, headers_de, db):
     admin = crear_usuario("admin")
     h_admin = headers_de(admin)
@@ -193,7 +255,7 @@ def test_auditoria_de_anulacion(client, crear_usuario, headers_de, db):
     h = headers_de(vendedor)
     venta_id = client.post(URL, headers=h).json()["id"]
     r = client.post(f"{URL}/{venta_id}/items", json={"codigo": producto.codigo_con_verificador}, headers=h)
-    total = r.json()["venta"]["total"]
+    total = r.json()["total"]
     r = client.post(f"{URL}/{venta_id}/pagos", json={"pagos": [{"medio_de_pago_id": medio_id, "monto": str(total)}]},
                     headers=h)
     total = r.json()["total"]
