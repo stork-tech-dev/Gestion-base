@@ -111,6 +111,21 @@ def test_precio_venta_manual_menor_al_costo_o_margen_excesivo(db, admin, base):
     assert "1000" in error.value.mensaje
 
 
+def test_precio_venta_apenas_por_debajo_del_costo_se_rechaza(db, admin, base):
+    """Redondear el margen a 2 decimales ANTES de comparar convertía un
+    margen apenas negativo (ej. -0.001 %) en "-0.00", que no es < 0: un
+    precio apenas por debajo del costo se guardaba con margen 0. La
+    comparación ahora es exacta, antes de redondear nada."""
+    with pytest.raises(DatoInvalido) as error:
+        _alta(db, admin, base, costo="1000", precio_venta="999.99")
+    assert "no puede ser menor al costo" in error.value.mensaje
+
+
+def test_precio_venta_igual_al_costo_se_acepta_con_margen_cero(db, admin, base):
+    p = _alta(db, admin, base, costo="1000", precio_venta="1000")
+    assert p.precio_venta == Decimal("1000.00") and p.margen == Decimal("0.00")
+
+
 def test_edicion_con_precio_venta_manual_recalcula_margen(db, admin, base):
     p = _alta(db, admin, base, costo="1000", margen="0")            # precio 1000.00
     datos = ProductoEditar(categoria_id=p.categoria_id, descripcion=p.descripcion, costo="1000",

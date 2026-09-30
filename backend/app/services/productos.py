@@ -68,9 +68,14 @@ def margen_desde_precio(costo, precio, proveedor: Proveedor) -> Decimal:
     cargado a mano. El precio se respeta exacto (decisión del usuario)."""
     factor = proveedor.dolar_actual if proveedor.en_dolares else Decimal("1")
     costo_pesos = Decimal(costo) * factor
-    margen = redondear((Decimal(precio) / costo_pesos - 1) * 100)
-    if margen < 0:
+    precio_exacto = Decimal(precio)
+    # Comparación EXACTA (sin redondear el margen primero): redondear a 2
+    # decimales puede convertir un precio apenas por debajo del costo (margen
+    # negativo, ej. -0.001 %) en "-0.00", que no es < 0 y dejaría pasar un
+    # precio menor al costo con margen 0.
+    if precio_exacto < costo_pesos:
         raise DatoInvalido(f"El precio de venta no puede ser menor al costo (${redondear(costo_pesos)}).")
+    margen = redondear((precio_exacto / costo_pesos - 1) * 100)
     if margen > MARGEN_MAXIMO:
         raise DatoInvalido("El margen resultante supera el 1000 %.")
     return margen
