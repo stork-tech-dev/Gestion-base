@@ -383,8 +383,8 @@ sea solo editar este archivo y `_tailwind_config.html`, sin tocar templates.
 | `table.html` | `barra_filtros(...)`, `tabla(columnas, filas, acciones, url_base, vacio)`, `paginacion(...)` |
 | `toast.html` | `contenedor_toasts()` |
 
-(Los macros `campo_auth.html`, `permisos_tree.html` y `producto_form.html` se
-crean en las sesiones 02 y 04.)
+(Los macros `permisos_tree.html`, `producto_form.html`, `fotos_producto.html` y
+`cliente_form.html` se crean en las sesiones posteriores.)
 
 **Páginas base** (`app/api/pages.py`, router HTML sin esquema OpenAPI):
 - `GET /` → `pages/index.html`: solo el saludo "Bienvenido, <primer nombre>"

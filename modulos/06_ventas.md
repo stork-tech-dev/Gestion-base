@@ -24,7 +24,8 @@ registradora fiscal, aparte).
 
 Fuera de alcance (decisión de producto): **señas, puntos de cliente, cuenta
 corriente, gift cards, cambios y devoluciones parciales**. Lo único que se
-aplica al vender son descuentos (motivos) y promociones. Una venta confirmada
+aplica al vender son descuentos por ítem (motivos), el descuento general de la
+venta y promociones. Una venta confirmada
 solo se puede **anular completa**.
 
 > El turno de caja se implementa en la sesión 07. Desde entonces **confirmar
@@ -134,7 +135,8 @@ ventas (
   usuario_id          BIGINT FK → usuarios.id NOT NULL,   -- índice; quien vende
   estado              estado_venta NOT NULL DEFAULT 'en_curso',   -- índice
   subtotal            NUMERIC(10,2) NOT NULL DEFAULT 0,   -- suma de precios de lista
-  descuento_total     NUMERIC(10,2) NOT NULL DEFAULT 0,
+  descuento_total     NUMERIC(10,2) NOT NULL DEFAULT 0,   -- incluye el descuento general
+  descuento_general   NUMERIC(10,2) NOT NULL DEFAULT 0,   -- MONTO (no %); migración 0008
   recargo_total       NUMERIC(10,2) NOT NULL DEFAULT 0,
   total               NUMERIC(10,2) NOT NULL DEFAULT 0,   -- lo que paga el cliente
   codigo_cambio       VARCHAR(8) UNIQUE,                  -- 4 caracteres, se genera al CONFIRMAR
@@ -270,17 +272,27 @@ reintento ante colisión (se anota en el ticket para identificar la venta);
 **Flujo (la venta se persiste desde que se inicia; el carrito es la venta `en_curso`):**
 1. `iniciar_venta(autor)`: si el usuario ya tiene una `en_curso`, la devuelve
    (nunca dos abiertas por usuario). Audita `venta.iniciar`.
-2. `agregar_item(venta, codigo | producto_id)`: una unidad por fila; el código
-   se resuelve con `productos.buscar_por_codigo` (con o sin verificador; 404 si
-   no existe); producto activo; si no queda stock (contando lo ya cargado en el
-   carrito) devuelve un **aviso** "Sin stock de '…': controlá bien el código
-   antes de continuar." **sin bloquear** (el backend no bloquea).
+2. `agregar_item(venta, codigo | producto_id, cantidad=1)`: una unidad por
+   fila (`venta_items` no tiene cantidad); el código se resuelve con
+   `productos.buscar_por_codigo` (con o sin verificador; 404 si no existe);
+   producto activo; las unidades nuevas van sin descuento (caen en la línea sin
+   descuento del producto). **Tope de stock bloqueante:** 409 si las unidades
+   del producto en la venta superan el stock ("Solo quedan N unidades de 'X'." /
+   "No hay stock de 'X'."); el stock infinito no tiene tope.
+   **Línea** = unidades del mismo producto con el mismo descuento
+   (`producto_id`, `descuento_item`, `motivo_descuento_id`); la respuesta suma
+   `lineas` (en el orden de su primera unidad) además de `items`, y las líneas
+   que quedan iguales se unen solas.
+   `cambiar_cantidad(item_id, cantidad)`: fija la cantidad de la línea del
+   ítem; sube agregando unidades con el mismo descuento (mismo tope de stock),
+   baja quitando las últimas, 0 = quita la línea; tope de sanidad 999.
    `precio_lista` = `precio_venta` del producto; `precio_unitario` = lista con
    el `descuento_producto`; `costo_unitario` = costo en pesos del producto
    (`productos.costo_en_pesos`, única definición).
 3. `quitar_item`, `asociar_cliente(cliente_id | None)` (cliente activo).
-4. `aplicar_descuento_item(item_id, motivo_id | None, porcentaje)`: sin motivo
-   = quitar descuento; no se permite en ítems en promoción; porcentaje de la
+4. `aplicar_descuento_item(item_id, motivo_id | None, porcentaje)`: con el
+   `item_id` de una línea descuenta todas sus unidades; sin motivo
+   = quitar descuento; no se permite si alguna unidad está en promoción (409); porcentaje de la
    lista; tope sumando el del producto; registra `porcentaje_modificado`.
    Audita `venta.descuento`.
 5. `_recalcular(venta)` (después de cada cambio): limpia promociones, recalcula
@@ -288,15 +300,27 @@ reintento ante colisión (se anota en el ticket para identificar la venta);
    la de mayor ahorro entre las aplicables; empate → menor id; ninguna si no
    ahorra), aplica: grupos → ítems gratis en $0; `porcentaje` → los ítems
    alcanzados con ese % (redondeo hacia abajo). Los ítems con descuento manual
-   quedan fuera de toda promoción. Calcula subtotal, descuento_total, recargo y
-   total; si los pagos cargados ya no cubren el total, los borra.
+   quedan fuera de toda promoción. Reparte el **descuento general** entre las
+   unidades en proporción a su `precio_final` (después de promos y descuentos
+   por ítem, antes del recargo), al centavo (el resto a la de mayor fracción):
+   así `precio_final`, `descuento_total`, reportes y rentabilidad ya lo
+   incluyen. Red de seguridad: si el monto queda mayor al tope o al total, vuelve
+   a 0. Calcula subtotal, descuento_total, recargo y total; si los pagos
+   cargados ya no cubren el total, los borra.
+   `aplicar_descuento_general(porcentaje | total | ninguno)`: **sin motivo**,
+   por % o por "total final" (ej. 83 → 80); ninguno = quitar. Total > 0 y ≤ al
+   total actual; descuento ≤ `tope_descuento_venta` % del total sin descuento
+   general. Se borra (vuelve a 0) con cualquier cambio del carrito (agregar,
+   quitar, cantidad, descuento por ítem, cliente o promoción elegida). Audita
+   `venta.descuento_general`.
    `elegir_promocion(promocion_id | None)` fija otra a mano **hasta el próximo
    cambio del carrito**.
 6. `registrar_pagos(pagos[{medio_de_pago_id, monto, plan_cuotas_id?}])`:
    hasta 2; los montos deben sumar **exactamente** lo cobrable (sin recargos);
    cada monto > 0; medio activo; plan válido para ese monto (revalidado en el
    backend). El recargo se calcula por pago y se suma al total.
-7. `confirmar_venta(venta)`: **exige turno abierto de hoy**
+7. `confirmar_venta(venta, total_esperado)`: 409 si el total cambió desde lo
+   que vio la pantalla (precios vivos: la pantalla llama `/recalcular`); **exige turno abierto de hoy**
    (`services.turnos.turno_para_operar()`, sesión 07: 409 con el mensaje del
    bloqueo o "No hay un turno de caja abierto."; si el módulo todavía no
    existe, se omite), exige ítems y pagos que cubran; movimiento `venta` por
@@ -375,14 +399,17 @@ GET    /{id}                      → detalle                                   
 GET    /{id}/medios-de-pago       → medios activos con los planes que habilita este monto  [VENTAS ver]
 GET    /{id}/promociones          → promociones aplicables                                [VENTAS ver]
 POST   ""                         → iniciar (o devolver la abierta)                       [VENTAS crear]
-POST   /{id}/items                → {codigo | producto_id} → {venta, aviso}                [VENTAS crear]
+POST   /{id}/items                → {codigo | producto_id, cantidad=1}; 409 sin stock       [VENTAS crear]
 DELETE /{id}/items/{item_id}                                                               [VENTAS crear]
+PUT    /{id}/items/{item_id}/cantidad → {cantidad} (0..999; 0 = quitar la línea)           [VENTAS crear]
 POST   /{id}/cliente              → {cliente_id | null}                                    [VENTAS crear]
 POST   /{id}/descuento            → {item_id, motivo_id | null, porcentaje?}  [VENTAS crear + venta.descuento]
+POST   /{id}/descuento-general    → {porcentaje | total | ninguno}  [VENTAS crear + venta.descuento]
 POST   /{id}/promocion            → {promocion_id | null}                                  [VENTAS crear]
 POST   /{id}/pagos                → {pagos: [...]}                                         [VENTAS crear]
-POST   /{id}/confirmar                                                                     [VENTAS crear]
-POST   /{id}/anular               → {motivo}                           [VENTAS eliminar + venta.anular]
+POST   /{id}/confirmar            → {total_esperado}                                       [VENTAS crear]
+POST   /{id}/recalcular           → relee precios vivos (tras un 409 de /confirmar)        [VENTAS crear]
+POST   /{id}/anular               → {motivo}                               [VENTAS ver + venta.anular]
 DELETE /{id}                      → descartar venta en curso                               [VENTAS crear]
 ```
 `VentaResumen` incluye número, fecha (`confirmada_en` o `created_at`), usuario,
@@ -424,13 +451,13 @@ Layout en dos columnas desde `lg` (una sola columna, apiladas, por debajo):
   debounce 300 ms, navegación con flechas/Enter/Escape) con foto, código,
   descripción, precio y stock (en rojo si es 0). **Sin stock (y sin stock
   infinito) el producto aparece deshabilitado** y no se puede agregar desde la
-  pantalla; el aviso del backend, si llega, se muestra como toast.
+  pantalla; el 409 de stock del backend se muestra como toast.
   Al agregar, inicia la venta si hace falta (`POST /ventas`) y hace
   `POST /ventas/{id}/items`.
-- Tabla del carrito (una fila por unidad): Foto, Código, Descripción, Precio
-  (lista tachada si cambió), Descuento ("X% · Motivo" o "Promo"), Final,
-  acciones Descuento (si `puede_descontar` y el ítem no está en promoción) y
-  Quitar. Carrito vacío: "Escaneá o buscá un producto para empezar."
+- Tabla del carrito (una fila por **línea**): Foto, Código, Descripción,
+  **Cantidad** (`[−] N [+]`, también se escribe; tope = stock), Precio (lista
+  tachada si cambió), Descuento ("X% · Motivo" o "Promo"), Final, acciones
+  Descuento (si `puede_descontar` y la línea no está en promoción) y Quitar. Carrito vacío: "Escaneá o buscá un producto para empezar."
 - Descuento por ítem en un popover: "Elegí un motivo" y, solo si el motivo no
   tiene sugerido, lista de porcentajes; "Aplicar" / "Quitar descuento".
 
@@ -443,7 +470,10 @@ Layout en dos columnas desde `lg` (una sola columna, apiladas, por debajo):
 - **Medios de pago** (hasta 2): "Elegí un medio", Monto (el segundo se completa
   con el resto), "Plan de cuotas" con los planes que habilita el monto o "Un
   pago".
-- Totales: Subtotal, Descuentos y promociones, Recargo por cuotas, **Total**.
+- **Descuento general** (solo con `venta.descuento`): "Porcentaje (%)" o
+  "Total final sin recargo ($)", Aplicar / Quitar.
+- Totales: Subtotal, Descuentos y promociones (y "de los cuales, descuento
+  general"), Recargo por cuotas, **Total**.
 - Botones **"Confirmar venta"** (**F10**; hace `POST /pagos` + `POST /confirmar`)
   y "Descartar venta" (**ESC** pide confirmación con `modal_confirmacion`).
 
@@ -508,6 +538,10 @@ Promociones asignadas (asignar/quitar).
   promoción automática, exclusivas por cliente.
 - Venta completa sin cliente; nunca dos `en_curso` por usuario; pagos que
   suman exacto; recargo solo sobre lo financiado; `costo_unitario` congelado.
+- Cantidad por línea (subir, bajar, 0 = quitar) y tope de stock bloqueante al
+  agregar, al subir y al confirmar.
+- Descuento general por % y por total final: reparto al centavo, tope, se borra
+  al cambiar el carrito.
 - Confirmar sin turno abierto de hoy → 409 (una vez existe la sesión 07).
 - Anular: solo confirmadas, motivo obligatorio, reingresa stock con
   `anulacion_venta`, sella `turno_anulacion_id`, no se anula dos veces, 403 sin
@@ -529,6 +563,9 @@ Promociones asignadas (asignar/quitar).
   en promoción.
 - 2x1/3x2 regalan la más barata de cada grupo completo; el sobrante se cobra; se
   aplica sola la promoción de mayor ahorro; las exclusivas solo para sus clientes.
+- Descuento general sin motivo, por % o por total final, hasta
+  `tope_descuento_venta` % del total; se reparte entre las unidades y se borra
+  al cambiar el carrito.
 - Recargo solo sobre la parte financiada; `costo_medio` nunca afecta el precio.
 - Los pagos deben sumar exactamente lo cobrable; máximo 2 medios.
 - Confirmar exige turno abierto de hoy, descuenta stock (nunca lo deja

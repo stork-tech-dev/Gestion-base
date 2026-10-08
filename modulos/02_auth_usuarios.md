@@ -336,7 +336,7 @@ La importación (sesión 08) queda solo para el Admin (o un rol personalizado).
 
 ### Login (`auth/base_auth.html` + `auth/login.html`)
 - Layout propio de autenticación con la marca del sistema (`marca()`) y la misma config de
-  Tailwind. Campos con el macro `components/campo_auth.html`.
+  Tailwind. Campos con el macro `campo` de `components/form_field.html`.
 - Formulario usuario + contraseña, botón "Iniciar Sesión", spinner, toast de error.
 - "¿Olvidé mi contraseña?" despliega un segundo formulario (usuario) que llama a
   `POST /auth/forgot-password` y muestra el mensaje genérico.

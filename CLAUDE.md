@@ -14,6 +14,8 @@ modulos/03_proveedores.md       modulos/08_importacion.md
 modulos/04_productos.md         modulos/09_reportes.md
 modulos/05_stock.md
 ```
+Los planes y diseños de cada sesión quedan en `docs/superpowers/` y los
+hallazgos sin resolver en `docs/pendientes.md` (al resolver uno, se borra).
 
 ---
 
@@ -32,7 +34,12 @@ modulos/05_stock.md
 - **Dólar por proveedor** (no hay un dólar global).
 - **Precio:** `costo` en la moneda del proveedor + `margen` % →
   `precio_venta = CEIL(costo × dólar(o 1) × (1 + margen/100), redondeo)`.
-- **Ventas:** solo descuentos al momento de vender (motivos + promociones).
+  También se puede cargar el precio a mano: se guarda exacto (sin redondeo),
+  nunca menor al costo, y el margen se calcula.
+- **Stock nunca negativo:** ni las ventas pueden superarlo (tope bloqueante al
+  agregar, al subir la cantidad y al confirmar); el stock infinito no tiene tope.
+- **Ventas:** solo descuentos al momento de vender (por ítem con motivo,
+  descuento general de la venta por % o total final, y promociones).
   **No hay** señas, puntos de cliente, cuenta corriente ni gift cards.
 - **Anulación total** de ventas confirmadas (recurso `venta.anular`); no hay
   cambios ni devoluciones parciales.
@@ -250,10 +257,18 @@ The normal workflow is:
     /schemas      → esquemas Pydantic (request/response, separados de models)
     /services     → lógica de negocio (válida para cualquier consumidor)
     /core         → utilidades transversales (permisos, auditoría, utils)
-    /reports      → generación de PDF y Excel
-  /migrations     → Alembic
+    /middleware   → renovación del access token con el refresh token
+    /reports      → generación de PDF y Excel (`definiciones/` = un archivo por reporte)
+  /migrations     → Alembic (versiones escritas a mano 0001, 0002…) + seed.sql
+  /scripts        → datos_demo.py (datos de demo, solo desarrollo)
+  /tests          → pytest contra PostgreSQL real (base gestion_test)
+  /tests_js       → node --test de la lógica de los componentes Alpine
   main.py
   config.py
+
+/backup/backup.sh → servicio `backup` del compose (pg_dump diario)
+/docs             → pendientes.md + planes y diseños por sesión (superpowers/)
+/modulos          → spec de cada módulo
 
 /frontend — no existe como proyecto separado. FastAPI sirve el HTML.
 /backend/app
@@ -272,7 +287,9 @@ The normal workflow is:
       botones.html        → acciones de fila (ver/editar/borrar/activar)
       switch_activos.html / switch_estado.html
       toast.html, badge.html, icons.html, marca.html, miniatura.html
-      permisos_tree.html, producto_form.html, campo_auth.html
+      permisos_tree.html, producto_form.html, fotos_producto.html,
+      cliente_form.html
+      _head.html, _favicon.html, _sidebar_item.html → piezas del layout
     /pages/               → una carpeta por módulo (responsive, sin layout mobile aparte)
     /reports/             → HTML que WeasyPrint convierte a PDF
   /static/

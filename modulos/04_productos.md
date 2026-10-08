@@ -85,6 +85,11 @@ expone la propiedad `moneda` (la del proveedor).
   `factor` = `dolar_actual` del proveedor si es en **dólares**, o `1` si es en
   **pesos**. Se recalcula en cascada cuando cambia el dólar del proveedor y
   al editar el costo o el margen.
+  **Precio manual:** en el alta y la edición se puede cargar `precio_venta` en
+  vez de `margen`. Ese precio se guarda **exacto** (sin redondeo) y se calcula
+  el margen = `(precio / costo_en_pesos − 1) × 100` con 2 decimales. Un cambio
+  posterior de dólar o de costo recalcula el precio con la fórmula (margen +
+  redondeo), como cualquier producto.
 - `categorias.nivel`.
 
 **Propiedades del modelo `Producto`**: `codigo_con_verificador`, `moneda`,
@@ -153,6 +158,10 @@ rentabilidad).
 - `editar_producto(...)`: SKU, verificador y proveedor NO se editan;
   recalcula el precio de venta si cambia `costo` o `margen`. Auditoría con
   costo, margen y precio de venta antes/después.
+- **Margen o precio de venta:** alta y edición reciben `margen` O
+  `precio_venta` (los dos a la vez → 422; en el alta, ninguno = `margen_default`;
+  en la edición, exactamente uno). Con `precio_venta`: 400 si queda por debajo
+  del costo en pesos (margen negativo) o si el margen resultante supera 1000 %.
 - `cambiar_estado_producto(activo)`.
 - `condiciones_codigo(texto)`: ILIKE parcial sobre `sku` y, si el texto trae
   un dígito verificador válido (SKU de 5 caracteres + verificador), también
@@ -211,8 +220,9 @@ DELETE /{id}                                                                    
 ### Productos (`/api/v1/productos`) — rutas fijas antes de `/{producto_id}`
 ```
 GET    ""                          → paginado (ProductoResponse)                    [PRODUCTOS ver]
-GET    /precio-preview?proveedor_id=&costo=&margen=
-                                   → {moneda, dolar_proveedor | null, precio_venta}  [PRODUCTOS ver]
+GET    /precio-preview?proveedor_id=&costo=&margen= | &precio_venta=
+                                   → {moneda, dolar_proveedor | null, precio_venta,
+                                      margen, redondeo, redondeado}                 [PRODUCTOS ver]
 GET    /similares?descripcion=&categoria_id=&proveedor_id=  → [{id, sku, descripcion, activo}]  [PRODUCTOS ver]
 GET    /por-codigo?codigo=         → producto (con o sin verificador); 404 si no existe  [PRODUCTOS ver]
 GET    /{id}                       → detalle con fotos                              [PRODUCTOS ver]
@@ -261,7 +271,9 @@ muestra con su moneda (`$ ` + `pesos()` o `US$ ` + `formatearDolar()`).
   `PATCH /productos/{id}/estado` por cada seleccionado).
 - **Ficha del producto** (modal): título, código con verificador, datos del
   producto, fotos con "Subir foto" y "Tomar foto" (webcam,
-  `window.webcamCapture()`), marcar principal y borrar; stock; y
+  `window.webcamCapture()`), marcar principal y borrar (macro
+  `components/fotos_producto.html` + `static/js/fotos_producto.js`, la misma
+  que usa el modal de edición); stock; y
   **Imprimir etiquetas** con "Cant:" y botones "Rectangular" / "Con colita"
   (abren el PDF).
 
@@ -278,13 +290,17 @@ muestra con su moneda (`$ ` + `pesos()` o `US$ ` + `formatearDolar()`).
   artículo viene en varios colores o talles, cargá un producto por cada uno."
 - **Costo**: la etiqueta depende de la moneda del proveedor elegido
   ("Costo en dólares (US$)" o "Costo en pesos ($)"). **Margen %** precargado
-  con `margen_default`. Debajo, siempre, el preview "Precio de venta: $ …"
-  (`/productos/precio-preview`, debounce 300 ms). Hasta elegir proveedor, costo
-  y margen están deshabilitados.
+  con `margen_default` y **Precio de venta** editable, vinculados: el último
+  que se tocó manda (`/productos/precio-preview`, debounce 300 ms, calcula el
+  otro). Cuando el precio sale de la fórmula se muestra la leyenda
+  "Redondeado hacia arriba a múltiplos de $X". Hasta elegir proveedor, costo,
+  margen y precio están deshabilitados.
 - Peso (g), Descuento %, Temporada, Ubicación en depósito.
 - "Stock infinito (no descuenta al vender)" solo visible para el Admin.
 - Foto inicial (subir o webcam) y **Stock inicial** (solo enteros, `Math.trunc`)
-  en el alta.
+  en el alta. En la edición, el bloque de fotos de la ficha (agregar, tomar,
+  marcar principal y borrar); las fotos se guardan al instante (se aclara en
+  pantalla).
 - Botones "Crear" (alta) o "Finalizar" (edición). Los errores 422 del backend
   marcan el campo. Solo se cierra con la X.
 
@@ -311,7 +327,8 @@ solo Admin; búsqueda por código con verificador), `test_producto_fotos.py`
 - Buscar `AB123` + verificador correcto encuentra exactamente ese producto; un
   verificador incorrecto no lo resuelve por código.
 - Precio de venta = costo × (dólar del proveedor, o 1 si es en pesos) ×
-  (1 + margen), redondeado hacia arriba al múltiplo de redondeo.
+  (1 + margen), redondeado hacia arriba al múltiplo de redondeo; o el precio
+  cargado a mano, exacto, nunca menor al costo (el margen se calcula).
 - Cambiar el dólar de un proveedor recalcula sus productos; cambiar costo o
   margen recalcula ese producto.
 - Las fotos viven en `/uploads` y sobreviven a un rebuild del contenedor.

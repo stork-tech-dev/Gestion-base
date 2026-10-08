@@ -1,7 +1,30 @@
 # Stork Gestión
 
 Sistema de gestión para comercios (una instancia por cliente). Backend FastAPI
-que sirve la API (`/api/v1`) y las pantallas (Jinja2 + HTMX + Alpine + Tailwind).
+que sirve la API (`/api/v1`) y las pantallas (Jinja2 + HTMX + Alpine + Tailwind),
+sobre PostgreSQL.
+
+## Qué incluye
+- **Usuarios y permisos:** login con JWT + refresh, roles Admin / Supervisor /
+  Vendedor y roles personalizados con permisos por pantalla y acción.
+- **Proveedores:** moneda y dólar propio de cada uno (cambio individual, masivo
+  o por Excel) con recálculo de precios en cascada.
+- **Productos:** categorías en árbol, SKU con dígito verificador, código de
+  barras, fotos (subida o cámara), etiquetas en PDF y precio por margen o manual.
+- **Stock:** ingresos, bajas con motivo y auditorías de inventario; el stock
+  nunca queda negativo.
+- **Ventas y clientes:** pantalla de venta con lector de código (F2/F10/ESC),
+  cantidad por línea, descuentos por ítem y general, promociones, medios de
+  pago con cuotas, anulación total.
+- **Caja:** turnos, retiros de efectivo y arqueo por medio de pago con aviso de
+  diferencias.
+- **Importación desde Excel** de proveedores, clientes y productos.
+- **Reportes** con gráfico, exportación a Excel y PDF, y tablero de inicio.
+- **Auditoría inmutable** de toda acción sensible (la base no permite UPDATE ni
+  DELETE sobre `auditoria`).
+
+Fuera de esta versión: facturación electrónica (la hace la registradora
+fiscal), multi-local, cuenta corriente, compras.
 
 ## Requisitos
 - Docker 24+ con Docker Compose v2.
@@ -37,11 +60,20 @@ docker compose exec backend pytest
 ```
 Corren contra PostgreSQL real en la base `gestion_test` (se recrea en cada corrida).
 
-Tests de JavaScript (lógica del árbol de permisos, sin Alpine ni red; en el host,
-con Node 22+, sin dependencias):
+Tests de JavaScript (lógica de los componentes Alpine, sin navegador ni red; en
+el host, con Node 22+, sin dependencias):
 ```bash
 node --test backend/tests_js/
 ```
+
+## Datos de demo (solo desarrollo)
+```bash
+docker compose exec backend python -m scripts.datos_demo
+```
+Carga usuarios, proveedores, productos, clientes, promociones y 45 días de
+ventas pasando por los services (mismas reglas y auditoría). Los usuarios demo
+usan la contraseña `Demo1234`. Si ya se cargó una vez no hace nada. **No usar en
+la base de un cliente.**
 
 ## Migraciones
 ```bash
@@ -82,3 +114,12 @@ Requiere SMTP configurado (`SMTP_*` en `.env`) y que el usuario tenga email.
 El enlace del mail vence en 30 minutos y sirve una sola vez. Sin SMTP, el Admin
 puede asignar una contraseña nueva editando al usuario (queda obligado a
 cambiarla al ingresar).
+
+## Documentación
+- `CLAUDE.md`: decisiones de producto, principios de arquitectura y design system.
+- `modulos/`: spec de cada módulo (01 infraestructura → 09 reportes).
+- `docs/superpowers/`: plan y diseño de cada sesión de desarrollo.
+- `docs/pendientes.md`: deuda técnica y verificaciones pendientes, con el
+  momento en que conviene resolverlas (incluye lo que falta antes de instalar
+  el primer cliente real).
+- `CHANGELOG.md`: qué entró en cada versión.
